@@ -7,8 +7,9 @@ import { cn } from "@/lib/utils"
 
 type ThemeMode = "light" | "dark"
 
-const themeStorageKey = "northstar-color-theme"
-const themeChangeEvent = "northstar-theme-change"
+const themeStorageKey = "jota-color-theme"
+const legacyThemeStorageKey = "northstar-color-theme"
+const themeChangeEvent = "jota-theme-change"
 
 type ThemeViewTransition = {
   ready: Promise<void>
@@ -19,7 +20,8 @@ type ViewTransitionDocument = Document & {
 }
 
 function getStoredTheme(): ThemeMode {
-  return window.localStorage.getItem(themeStorageKey) === "dark" ? "dark" : "light"
+  const stored = window.localStorage.getItem(themeStorageKey) ?? window.localStorage.getItem(legacyThemeStorageKey)
+  return stored === "dark" ? "dark" : "light"
 }
 
 function subscribeToTheme(onStoreChange: () => void) {

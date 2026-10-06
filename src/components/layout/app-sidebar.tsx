@@ -5,8 +5,10 @@ import { usePathname } from "next/navigation"
 import {
   BriefcaseBusiness,
   CalendarDays,
+  ClipboardList,
   CircleHelp,
   FileStack,
+  HardDrive,
   FolderKanban,
   Gauge,
   LayoutList,
@@ -14,12 +16,13 @@ import {
   PanelLeftClose,
   PanelRightOpen,
   SendToBack,
-  Settings2,
+  UserRound,
   Users,
-  Wrench,
 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { useWorkflow } from "@/features/workflow/workflow-provider"
+import { useSearchParams } from "next/navigation"
 
 type NavigationItem = {
   name: string
@@ -31,41 +34,62 @@ type NavigationItem = {
 const accountManagerNavigation: NavigationItem[] = [
   { name: "Overview", href: "/", icon: Gauge },
   { name: "My tasks", href: "/tasks", icon: LayoutList, count: 4 },
-  { name: "Calendar", href: "/clients/luma-skincare?tab=calendar", icon: CalendarDays },
-  { name: "Campaigns", href: "/clients/luma-skincare?tab=campaigns", icon: Megaphone },
-  { name: "Files", href: "/clients/luma-skincare?tab=files", icon: FileStack },
+  { name: "My Content", href: "/content?view=work", icon: ClipboardList },
+  { name: "Calendar", href: "/calendar", icon: CalendarDays },
+  { name: "Campaigns", href: "/clients?tab=campaigns", icon: Megaphone },
+  { name: "Files", href: "/clients?tab=files", icon: FileStack },
 ]
 
 const accountManagerWorkspace: NavigationItem[] = [
-  { name: "Clients", href: "/clients/luma-skincare", icon: BriefcaseBusiness },
-  { name: "Company tools", href: "/states", icon: Wrench },
+  { name: "Clients", href: "/clients", icon: BriefcaseBusiness },
 ]
 
 const supervisorNavigation: NavigationItem[] = [
   { name: "Dashboard", href: "/", icon: Gauge },
-  { name: "Clients", href: "/clients/luma-skincare", icon: BriefcaseBusiness },
+  { name: "Clients", href: "/clients", icon: BriefcaseBusiness },
   { name: "Team tasks", href: "/tasks", icon: Users },
+  { name: "Content tracker", href: "/content", icon: ClipboardList },
   { name: "Reviews", href: "/reviews", icon: SendToBack, count: 1 },
-  { name: "Calendar", href: "/clients/luma-skincare?tab=calendar", icon: CalendarDays },
-  { name: "Campaigns", href: "/clients/luma-skincare?tab=campaigns", icon: Megaphone },
-  { name: "Files", href: "/clients/luma-skincare?tab=files", icon: FileStack },
+  { name: "Calendar", href: "/calendar", icon: CalendarDays },
+  { name: "Campaigns", href: "/clients?tab=campaigns", icon: Megaphone },
+  { name: "Files", href: "/clients?tab=files", icon: FileStack },
 ]
+
+const employeeManagementItem: NavigationItem = { name: "Employees", href: "/employees", icon: Users }
+const storageSettingsItem: NavigationItem = { name: "File storage", href: "/settings/storage", icon: HardDrive }
 
 type AppSidebarProps = {
   className?: string
   collapsed?: boolean
   onToggle?: () => void
+  onNavigate?: () => void
   variant?: "account_manager" | "supervisor"
+  isAdministrator?: boolean
 }
 
-export function AppSidebar({ className, collapsed = false, onToggle, variant = "account_manager" }: AppSidebarProps) {
+export function AppSidebar({ className, collapsed = false, onToggle, onNavigate, variant = "account_manager", isAdministrator = false }: AppSidebarProps) {
   const pathname = usePathname() ?? "/"
-  const navigation = variant === "supervisor" ? supervisorNavigation : accountManagerNavigation
+  const searchParams = useSearchParams()
+  const { tasks, currentUser } = useWorkflow()
+  const navigationBase = variant === "supervisor"
+    ? isAdministrator ? [...supervisorNavigation, employeeManagementItem, storageSettingsItem] : supervisorNavigation
+    : accountManagerNavigation
+  const isOpenTask = (status: string) => !["approved", "completed", "cancelled"].includes(status)
+  const taskCount = tasks.filter((task) => isOpenTask(task.status) && (currentUser.role === "supervisor" || task.primaryOwner.id === currentUser.id)).length
+  const reviewCount = tasks.filter((task) => task.versions.at(-1)?.status === "submitted").length
+  const navigation = navigationBase.map((item) =>
+    item.name === "My tasks" || item.name === "Team tasks" ? { ...item, count: taskCount }
+      : item.name === "Reviews" ? { ...item, count: reviewCount }
+        : item,
+  )
 
   function isActive(item: NavigationItem) {
     const path = item.href.split("?")[0]
-    if (item.name === "Clients" && pathname.startsWith("/clients")) return true
-    if (item.href.includes("?")) return false
+    if (item.href.includes("?")) {
+      const expectedParams = new URLSearchParams(item.href.split("?")[1])
+      return pathname === path && [...expectedParams.entries()].every(([key, value]) => searchParams.get(key) === value)
+    }
+    if (item.name === "Clients" && pathname.startsWith("/clients")) return !["campaigns", "files"].includes(searchParams.get("tab") ?? "")
     if (path === "/") return pathname === "/"
     return pathname === path || pathname.startsWith(`${path}/`)
   }
@@ -78,6 +102,7 @@ export function AppSidebar({ className, collapsed = false, onToggle, variant = "
       <Link
         key={item.name}
         href={item.href}
+        onClick={onNavigate}
         className={cn(
           "group flex h-10 items-center rounded-xl border text-sm font-medium transition",
           collapsed ? "justify-center px-0" : "gap-3 px-3",
@@ -89,7 +114,7 @@ export function AppSidebar({ className, collapsed = false, onToggle, variant = "
       >
         <Icon className={cn("size-[17px]", active ? "text-primary" : "text-primary/65 group-hover:text-primary")} />
         <span className={cn("flex-1", collapsed && "sr-only")}>{item.name}</span>
-        {item.count && !collapsed && (
+        {item.count !== undefined && item.count > 0 && !collapsed && (
           <span className={cn("rounded-md px-1.5 py-0.5 text-[10px] font-bold", active ? "bg-secondary/28 text-foreground" : "bg-primary/10 text-muted-foreground")}>{item.count}</span>
         )}
       </Link>
@@ -99,13 +124,13 @@ export function AppSidebar({ className, collapsed = false, onToggle, variant = "
   return (
     <aside className={cn("sidebar-glass relative flex h-full flex-col text-foreground", className)}>
       <div className={cn("flex h-16 items-center border-b border-primary/10 px-4", collapsed ? "justify-center" : "justify-start")}>
-        <Link href="/" className="flex items-center gap-2.5" aria-label="Northstar home">
+        <Link href="/" onClick={onNavigate} className="flex items-center gap-2.5" aria-label="Jota home">
           <span className="grid size-8 place-items-center rounded-xl bg-gradient-to-br from-primary to-accent text-foreground shadow-[0_10px_22px_-10px_rgb(175_134_83/72%)] ring-1 ring-background/80">
             <FolderKanban className="size-[18px]" strokeWidth={2.2} />
           </span>
           <span className={cn(collapsed && "hidden")}>
-            <span className="block text-sm font-semibold leading-4 tracking-tight">Northstar</span>
-            <span className="block text-[10px] font-semibold tracking-[0.14em] text-primary">MARKETING OPS</span>
+            <span className="block text-sm font-semibold leading-4 tracking-tight">Jota</span>
+            <span className="block text-[10px] font-semibold tracking-[0.14em] text-primary">JOYNO TASK</span>
           </span>
         </Link>
       </div>
@@ -136,11 +161,11 @@ export function AppSidebar({ className, collapsed = false, onToggle, variant = "
       </nav>
 
       <div className="space-y-1 border-t border-primary/10 p-3">
-        <Link href="#help" title={collapsed ? "Help center" : undefined} className={cn("flex h-9 items-center rounded-xl text-xs font-medium text-muted-foreground transition hover:bg-background/58 hover:text-foreground", collapsed ? "justify-center" : "gap-3 px-3")}>
+        <Link href="/help" onClick={onNavigate} title={collapsed ? "Help center" : undefined} className={cn("flex h-9 items-center rounded-xl text-xs font-medium text-muted-foreground transition hover:bg-background/58 hover:text-foreground", collapsed ? "justify-center" : "gap-3 px-3")}>
           <CircleHelp className="size-4" /> <span className={cn(collapsed && "sr-only")}>Help center</span>
         </Link>
-        <Link href="#settings" title={collapsed ? "Settings" : undefined} className={cn("flex h-9 items-center rounded-xl text-xs font-medium text-muted-foreground transition hover:bg-background/58 hover:text-foreground", collapsed ? "justify-center" : "gap-3 px-3")}>
-          <Settings2 className="size-4" /> <span className={cn(collapsed && "sr-only")}>Settings</span>
+        <Link href="/profile" onClick={onNavigate} title={collapsed ? "Profile" : undefined} className={cn("flex h-9 items-center rounded-xl text-xs font-medium text-muted-foreground transition hover:bg-background/58 hover:text-foreground", collapsed ? "justify-center" : "gap-3 px-3")}>
+          <UserRound className="size-4" /> <span className={cn(collapsed && "sr-only")}>Profile</span>
         </Link>
       </div>
     </aside>

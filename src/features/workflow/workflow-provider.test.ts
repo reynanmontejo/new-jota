@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { initialWorkflowState } from "@/features/workflow/mock-data"
+import { currentEmployee, currentSupervisor } from "@/features/workflow/task-permissions"
 import { workflowReducer } from "@/features/workflow/workflow-provider"
 
 describe("mocked submission workflow", () => {
@@ -12,6 +13,7 @@ describe("mocked submission workflow", () => {
     const next = workflowReducer(initialWorkflowState, {
       type: "create_version",
       taskId,
+      actor: currentEmployee,
       notes: "Applied supervisor feedback.",
       file: { id: "v2-file", name: "carousel-v2.pdf", size: 1000, type: "application/pdf" },
     })
@@ -29,6 +31,7 @@ describe("mocked submission workflow", () => {
       taskId,
       decision: "approved",
       comment: "Approved for publishing.",
+      actor: currentSupervisor,
     })
 
     const task = approved.tasks.find((item) => item.id === taskId)
@@ -38,5 +41,48 @@ describe("mocked submission workflow", () => {
       reviewComment: "Approved for publishing.",
       reviewedBy: "Sarah Chen",
     })
+  })
+
+  it("blocks an employee from approving a submitted version", () => {
+    const attempted = workflowReducer(initialWorkflowState, {
+      type: "review_version",
+      taskId: "founder-story-reel",
+      decision: "approved",
+      comment: "Looks good.",
+      actor: currentEmployee,
+    })
+    expect(attempted).toBe(initialWorkflowState)
+  })
+
+  it("does not let an employee complete, approve, or edit someone else's task", () => {
+    const completed = workflowReducer(initialWorkflowState, {
+      type: "update_status",
+      taskId: "finalize-launch-day-captions",
+      status: "completed",
+      actor: currentEmployee,
+    })
+    const approved = workflowReducer(initialWorkflowState, {
+      type: "update_status",
+      taskId: "finalize-launch-day-captions",
+      status: "approved",
+      actor: currentEmployee,
+    })
+    const someoneElses = workflowReducer(initialWorkflowState, {
+      type: "update_status",
+      taskId: "founder-story-reel",
+      status: "in_progress",
+      actor: currentEmployee,
+    })
+    const skippedReview = workflowReducer(initialWorkflowState, {
+      type: "update_status",
+      taskId: "finalize-launch-day-captions",
+      status: "for_review",
+      actor: currentEmployee,
+    })
+
+    expect(completed).toBe(initialWorkflowState)
+    expect(approved).toBe(initialWorkflowState)
+    expect(someoneElses).toBe(initialWorkflowState)
+    expect(skippedReview).toBe(initialWorkflowState)
   })
 })

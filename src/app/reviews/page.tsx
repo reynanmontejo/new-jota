@@ -3,10 +3,7 @@ import { ReviewWorkspace } from "@/features/reviews/review-workspace"
 
 export default function ReviewsPage() {
   return (
-    <DashboardShell
-      navigationVariant="supervisor"
-      persona={{ initials: "SC", name: "Sarah Chen", role: "Supervisor" }}
-    >
+    <DashboardShell>
       <ReviewWorkspace />
     </DashboardShell>
   )

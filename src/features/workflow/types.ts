@@ -42,6 +42,8 @@ export type WorkflowTask = {
   status: TaskStatus
   startDate: string
   dueDate: string
+  /** Canonical timestamp for filtering/sorting. Keep dueDate for display compatibility. */
+  dueAt?: string | null
   primaryOwner: { id: string; name: string; initials: string; role: string }
   collaborators: Array<{ id: string; name: string; initials: string; role: string }>
   checklist: Array<{ id: string; label: string; completed: boolean }>
@@ -52,4 +54,19 @@ export type WorkflowTask = {
 
 export type WorkflowState = {
   tasks: WorkflowTask[]
+}
+
+export type WorkflowClient = {
+  id: string
+  name: string
+  campaigns?: Array<{ id: string; name: string }>
+}
+
+export type WorkflowUpcomingContent = {
+  id: string
+  title: string
+  clientId: string
+  clientName: string
+  platform: string
+  publishAt: string
 }

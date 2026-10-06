@@ -18,7 +18,7 @@ import {
 import { ThemeModeToggle } from "@/components/layout/theme-mode-toggle"
 import { useWorkflow } from "@/features/workflow/workflow-provider"
 
-const newTaskEvent = "northstar:new-task"
+const newTaskEvent = "jota:new-task"
 
 export function openNewTaskDialog() {
   window.dispatchEvent(new Event(newTaskEvent))
@@ -88,7 +88,7 @@ export function HeaderActions({ persona, onOpenMobileSearch }: HeaderActionsProp
         </DropdownMenu>
       </div>
 
-      {newTaskOpen && <NewTaskDialog onClose={() => setNewTaskOpen(false)} onCreate={(input) => { const id = createTask(input); setNewTaskOpen(false); router.push(`/tasks/${id}`) }} />}
+      {newTaskOpen && <NewTaskDialog onClose={() => setNewTaskOpen(false)} onCreate={(input) => { void createTask(input).then((id) => { if (!id) return; setNewTaskOpen(false); router.push(`/tasks/${id}`) }) }} />}
     </>
   )
 }

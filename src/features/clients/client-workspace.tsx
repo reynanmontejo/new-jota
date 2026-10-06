@@ -1,8 +1,6 @@
 "use client"
 
-import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useState } from "react"
 import {
   Activity,
   ArrowUpRight,
@@ -20,6 +18,8 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { StatusBadge } from "@/features/workflow/status-badge"
+import { useTaskDrawer } from "@/features/tasks/task-drawer"
+import { canViewTask } from "@/features/workflow/task-permissions"
 import { useWorkflow } from "@/features/workflow/workflow-provider"
 import { cn } from "@/lib/utils"
 
@@ -53,16 +53,19 @@ type ClientProfile = (typeof clientProfiles)[keyof typeof clientProfiles]
 
 export function ClientWorkspace({ clientId, initialTab = "overview" }: { clientId: string; initialTab?: string }) {
   const router = useRouter()
-  const client = clientProfiles[clientId as keyof typeof clientProfiles] ?? clientProfiles["luma-skincare"]
+  const client = clientProfiles[clientId as keyof typeof clientProfiles]
   const safeInitialTab = tabs.includes(initialTab as WorkspaceTab) ? initialTab as WorkspaceTab : "overview"
-  const [activeTab, setActiveTab] = useState<WorkspaceTab>(safeInitialTab)
-  const { tasks } = useWorkflow()
+  const activeTab = safeInitialTab
+  const { tasks, currentUser } = useWorkflow()
   const clientTasks = tasks.filter((task) => task.clientId === clientId)
+  const canViewClient = currentUser.role === "supervisor" || clientTasks.some((task) => canViewTask(task, currentUser))
 
   function selectTab(tab: WorkspaceTab) {
-    setActiveTab(tab)
     router.replace(`/clients/${clientId}${tab === "overview" ? "" : `?tab=${tab}`}`, { scroll: false })
   }
+
+  if (!client) return <div className="mx-auto max-w-4xl p-6"><ContentState variant="empty" title="Client not found" description="This client workspace is unavailable." /></div>
+  if (!canViewClient) return <div className="mx-auto max-w-4xl p-6"><ContentState variant="access_denied" title="Client access restricted" description="You can only open client workspaces for tasks assigned to you." /></div>
 
   return (
     <div className="mx-auto max-w-[1480px] px-4 py-5 sm:px-6 lg:px-8 lg:py-6">
@@ -111,6 +114,7 @@ export function ClientWorkspace({ clientId, initialTab = "overview" }: { clientI
 }
 
 function Overview({ client, tasks, onViewTasks }: { client: ClientProfile; tasks: ReturnType<typeof useWorkflow>["tasks"]; onViewTasks: () => void }) {
+  const { openTask } = useTaskDrawer()
   const summary = [
     { label: "Open tasks", value: tasks.filter((task) => !["approved", "completed"].includes(task.status)).length, icon: LayoutList },
     { label: "Campaigns", value: 2, icon: Megaphone },
@@ -127,12 +131,12 @@ function Overview({ client, tasks, onViewTasks }: { client: ClientProfile; tasks
         <section className="glass-panel overflow-hidden rounded-2xl border">
           <div className="flex items-center justify-between border-b px-5 py-4"><div><h2 className="font-semibold">Priority work</h2><p className="text-xs text-muted-foreground">Current {client.name} assignments</p></div><Button variant="ghost" size="sm" onClick={onViewTasks}>View all</Button></div>
           {tasks.length === 0 ? <ContentState variant="empty" compact /> : tasks.map((task, index) => (
-            <Link key={task.id} href={`/tasks/${task.id}`} className={cn("flex items-center gap-3 border-b px-5 py-3.5 transition hover:brightness-[.98]", index % 2 ? "bg-[#ead5b9] dark:bg-[#33291f]" : "bg-[#fff9f1] dark:bg-[#241f19]")}>
+            <button key={task.id} type="button" onClick={() => openTask(task.id)} className={cn("flex w-full items-center gap-3 border-b px-5 py-3.5 text-left transition hover:brightness-[.98]", index % 2 ? "bg-[#ead5b9] dark:bg-[#33291f]" : "bg-[#fff9f1] dark:bg-[#241f19]")}>
               <span className="grid size-8 place-items-center rounded-xl bg-background/70 text-primary"><Clock3 className="size-4" /></span>
               <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{task.title}</span><span className="block truncate text-xs text-muted-foreground">{task.contentItem}</span></span>
               <StatusBadge status={task.status} />
               <ArrowUpRight className="size-4 text-muted-foreground" />
-            </Link>
+            </button>
           ))}
         </section>
       </div>
@@ -158,8 +162,9 @@ function Calendar({ client }: { client: ClientProfile }) {
 }
 
 function Tasks({ tasks }: { tasks: ReturnType<typeof useWorkflow>["tasks"] }) {
+  const { openTask } = useTaskDrawer()
   if (tasks.length === 0) return <ContentState variant="empty" title="No client tasks" compact />
-  return <section className="glass-panel overflow-hidden rounded-2xl border"><div className="grid grid-cols-[1fr_auto] border-b px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-muted-foreground sm:grid-cols-[1fr_150px_130px_auto]"><span>Task</span><span className="hidden sm:block">Due</span><span className="hidden sm:block">Status</span><span /></div>{tasks.map((task) => <Link key={task.id} href={`/tasks/${task.id}`} className="grid grid-cols-[1fr_auto] items-center gap-3 border-b px-5 py-4 hover:bg-secondary/12 sm:grid-cols-[1fr_150px_130px_auto]"><span><span className="block text-sm font-semibold">{task.title}</span><span className="text-xs text-muted-foreground">{task.campaign}</span></span><span className="hidden text-xs text-muted-foreground sm:block">{task.dueDate.split(" · ")[0]}</span><StatusBadge status={task.status} className="hidden sm:inline-flex" /><MoreHorizontal className="size-4 text-muted-foreground" /></Link>)}</section>
+  return <section className="glass-panel overflow-hidden rounded-2xl border"><div className="grid grid-cols-[1fr_auto] border-b px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-muted-foreground sm:grid-cols-[1fr_150px_130px_auto]"><span>Task</span><span className="hidden sm:block">Due</span><span className="hidden sm:block">Status</span><span /></div>{tasks.map((task) => <button key={task.id} type="button" onClick={() => openTask(task.id)} className="grid w-full grid-cols-[1fr_auto] items-center gap-3 border-b px-5 py-4 text-left hover:bg-secondary/12 sm:grid-cols-[1fr_150px_130px_auto]"><span><span className="block text-sm font-semibold">{task.title}</span><span className="text-xs text-muted-foreground">{task.campaign}</span></span><span className="hidden text-xs text-muted-foreground sm:block">{task.dueDate.split(" · ")[0]}</span><StatusBadge status={task.status} className="hidden sm:inline-flex" /><MoreHorizontal className="size-4 text-muted-foreground" /></button>)}</section>
 }
 
 function Files() {

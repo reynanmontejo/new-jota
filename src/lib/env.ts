@@ -22,3 +22,16 @@ export function getServerSupabaseEnv() {
     serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
   })
 }
+
+/** True only when a real project URL/key are supplied (not .env.example placeholders). */
+export function isSupabaseConfigured() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+  return Boolean(
+    url &&
+      publishableKey &&
+      url.startsWith("https://") &&
+      !url.includes("your-project") &&
+      !publishableKey.includes("your-publishable-key"),
+  )
+}

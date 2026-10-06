@@ -1,7 +1,7 @@
 export const employeeStatuses = ["invited", "active", "inactive"] as const
 export const clientStatuses = ["active", "paused", "archived"] as const
 export const campaignStatuses = ["draft", "active", "paused", "completed", "cancelled"] as const
-export const contentStatuses = ["idea", "planned", "in_production", "scheduled", "published", "cancelled"] as const
+export const contentStatuses = ["idea", "planned", "in_production", "for_review", "revision_requested", "waiting_client", "scheduled", "published", "rejected", "cancelled"] as const
 export const taskStatuses = ["todo", "in_progress", "for_review", "revision_requested", "approved", "completed", "cancelled"] as const
 export const taskPriorities = ["low", "medium", "high", "urgent"] as const
 export const submissionStatuses = ["draft", "submitted", "revision_requested", "approved"] as const

@@ -41,9 +41,13 @@ type UploadProgressProps = {
   progress: number
   status: "uploading" | "complete" | "error"
   onRetry?: () => void
+  onCancel?: () => void
+  errorMessage?: string
 }
 
-export function UploadProgress({ fileName, progress, status, onRetry }: UploadProgressProps) {
+export function UploadProgress({ fileName, progress, status, onRetry, onCancel, errorMessage }: UploadProgressProps) {
+  if (status === "complete") return null
+
   return (
     <div className={cn("rounded-xl border p-3", status === "error" ? "border-destructive/35 bg-destructive/5" : "border-primary/20 bg-background/65")}>
       <div className="flex items-center gap-3">
@@ -60,10 +64,11 @@ export function UploadProgress({ fileName, progress, status, onRetry }: UploadPr
       </div>
       {status === "error" && (
         <div className="mt-2 flex items-center justify-between pl-11 text-xs">
-          <span className="text-muted-foreground">File exceeds the 10 MB mock upload limit.</span>
+          <span className="text-muted-foreground">{errorMessage ?? "File exceeds the 10 MB mock upload limit."}</span>
           {onRetry && <button className="font-semibold text-primary hover:underline" onClick={onRetry}>Try another file</button>}
         </div>
       )}
+      {status === "uploading" && onCancel && <div className="mt-2 flex justify-end pl-11 text-xs"><button className="font-medium text-muted-foreground hover:text-foreground" onClick={onCancel}>Cancel upload</button></div>}
     </div>
   )
 }

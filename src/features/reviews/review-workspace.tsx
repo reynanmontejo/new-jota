@@ -1,6 +1,7 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import Image from "next/image"
 import {
   CheckCircle2,
   Clock3,
@@ -11,6 +12,7 @@ import {
   RotateCcw,
   ShieldCheck,
   UserRoundCheck,
+  X,
 } from "lucide-react"
 
 import { ContentState } from "@/components/states/content-state"
@@ -23,7 +25,7 @@ import { cn } from "@/lib/utils"
 const reviewer = { id: "sarah", name: "Sarah Chen", initials: "SC" }
 
 export function ReviewWorkspace() {
-  const { tasks, reviewLatestVersion } = useWorkflow()
+  const { tasks, currentUser, demoMode, reviewLatestVersion } = useWorkflow()
   const queue = useMemo(() => tasks.filter((task) => task.versions.at(-1)?.status === "submitted"), [tasks])
   const [selectedId, setSelectedId] = useState<string | null>(queue[0]?.id ?? null)
   const [comment, setComment] = useState("")
@@ -31,6 +33,12 @@ export function ReviewWorkspace() {
   const selectedTask = queue.find((task) => task.id === selectedId) ?? queue[0]
   const latestVersion = selectedTask?.versions.at(-1)
   const selfApproval = latestVersion?.submittedById === reviewer.id
+
+  if (!demoMode) return <PersistentReviewWorkspace />
+
+  if (currentUser.role !== "supervisor") {
+    return <main className="mx-auto max-w-[1480px] px-4 py-6 sm:px-6 lg:px-8"><ContentState variant="access_denied" title="Supervisor access required" description="Switch to the supervisor demo account to review submissions." /></main>
+  }
 
   function decide(decision: "approved" | "revision_requested") {
     if (!selectedTask || selfApproval) return
@@ -57,7 +65,7 @@ export function ReviewWorkspace() {
   return (
     <main className="mx-auto max-w-[1480px] px-4 py-5 sm:px-6 lg:px-8 lg:py-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div><p className="text-xs font-semibold uppercase tracking-wider text-primary">Supervisor workspace</p><h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-[28px]">Review queue</h1><p className="mt-1 text-sm text-muted-foreground">Inspect submitted work and record a clear decision.</p></div>
+        <div><p className="text-xs font-semibold uppercase tracking-wider text-primary">Supervisor workspace</p><h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-[28px]">Review queue</h1><p className="mt-1 text-sm text-muted-foreground">Inspect submitted work and record a clear decision.</p>{!demoMode && <p className="mt-2 text-xs text-muted-foreground">Persistent file submissions and review decisions are not connected yet.</p>}</div>
         <div className="glass-panel flex items-center gap-3 rounded-xl border px-3 py-2"><Avatar className="size-8"><AvatarFallback className="bg-secondary/40 text-xs">SC</AvatarFallback></Avatar><span><span className="block text-xs font-semibold">Sarah Chen</span><span className="block text-[10px] text-muted-foreground">Supervisor reviewer</span></span></div>
       </div>
 
@@ -102,6 +110,113 @@ export function ReviewWorkspace() {
       </div>
     </main>
   )
+}
+
+type PersistentReviewFile = { id: string; file_name: string; mime_type: string; size_bytes: number }
+type PersistentSubmission = {
+  submissionId: string; versionId: string; versionNumber: number; contentItemId: string; title: string;
+  clientName: string; clientId: string; platform: string; contentType: string; deadlineAt: string | null;
+  submittedBy: string; submittedAt: string; notes: string; files: PersistentReviewFile[]
+}
+
+function PersistentReviewWorkspace() {
+  const [items, setItems] = useState<PersistentSubmission[]>([])
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [comment, setComment] = useState("")
+  const [message, setMessage] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [largeImage, setLargeImage] = useState<{ url: string; name: string } | null>(null)
+  const selected = items.find((item) => item.versionId === selectedId) ?? items[0] ?? null
+
+  const loadQueue = useCallback(async () => {
+    setLoading(true)
+    try {
+      const response = await fetch("/api/content/reviews", { cache: "no-store" })
+      const payload = await response.json() as { submissions?: PersistentSubmission[]; error?: string }
+      if (!response.ok) throw new Error(payload.error ?? "Could not load the review queue.")
+      setItems(payload.submissions ?? [])
+      setSelectedId((current) => payload.submissions?.some((item) => item.versionId === current) ? current : payload.submissions?.[0]?.versionId ?? null)
+      setMessage(null)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not load the review queue.")
+    } finally { setLoading(false) }
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    const timer = window.setTimeout(() => { if (active) void loadQueue() }, 0)
+    return () => { active = false; window.clearTimeout(timer) }
+  }, [loadQueue])
+  useEffect(() => {
+    if (!largeImage) return
+    function closeOnEscape(event: KeyboardEvent) { if (event.key === "Escape") setLargeImage(null) }
+    window.addEventListener("keydown", closeOnEscape)
+    return () => window.removeEventListener("keydown", closeOnEscape)
+  }, [largeImage])
+
+  async function decide(decision: "approved" | "revision_requested") {
+    if (!selected || saving) return
+    if (decision === "revision_requested" && !comment.trim()) {
+      setMessage("Add feedback before requesting changes.")
+      return
+    }
+    setSaving(true)
+    setMessage(null)
+    try {
+      const response = await fetch("/api/content/reviews", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ versionId: selected.versionId, decision, comment }),
+      })
+      const payload = await response.json() as { error?: string }
+      if (!response.ok) throw new Error(payload.error ?? "Could not save the review decision.")
+      setComment("")
+      setMessage(decision === "approved" ? "Content approved." : "Changes requested and returned to the Account Manager.")
+      await loadQueue()
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not save the review decision.")
+    } finally { setSaving(false) }
+  }
+
+  return <main className="mx-auto max-w-[1480px] px-4 py-5 sm:px-6 lg:px-8 lg:py-6">
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div><p className="text-xs font-semibold uppercase tracking-wider text-primary">Supervisor workspace</p><h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-[28px]">Content review queue</h1><p className="mt-1 text-sm text-muted-foreground">Review the exact files submitted for each content item.</p></div>
+      <Button type="button" variant="outline" size="sm" onClick={() => void loadQueue()} disabled={loading}>Refresh queue</Button>
+    </div>
+    {message && !selected && <p role="status" className="mt-4 rounded-md border border-border bg-background/60 px-3 py-2 text-xs">{message}</p>}
+    <div className="mt-5 grid gap-5 xl:grid-cols-[320px_minmax(0,1fr)]">
+      <aside className="glass-panel rounded-2xl border p-3">
+        <div className="flex items-center justify-between px-2 py-2"><div><h2 className="text-sm font-semibold">Awaiting review</h2><p className="text-[11px] text-muted-foreground">Oldest submissions first</p></div><Badge className="bg-primary text-primary-foreground">{items.length}</Badge></div>
+        {loading && !items.length ? <p className="p-4 text-xs text-muted-foreground">Loading submissions…</p> : !items.length ? <ContentState variant="empty" title="Queue cleared" description={message ?? "There are no content submissions waiting for review."} compact /> : <div className="mt-2 space-y-2">{items.map((item) => <button key={item.versionId} type="button" onClick={() => { setSelectedId(item.versionId); setMessage(null); setComment("") }} className={cn("w-full rounded-xl border p-3 text-left transition", selected?.versionId === item.versionId ? "border-primary/40 bg-secondary/28 shadow-sm" : "border-transparent bg-background/48 hover:border-primary/15")}><span className="flex items-start gap-3"><span className="grid size-8 shrink-0 place-items-center rounded-full bg-primary/12 text-[10px] font-bold text-primary">{item.submittedBy.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase()}</span><span className="min-w-0 flex-1"><span className="block truncate text-xs font-semibold">{item.title}</span><span className="mt-1 block truncate text-[10px] text-muted-foreground">{item.clientName} · V{item.versionNumber}</span><span className="mt-1 block truncate text-[10px] text-muted-foreground">From {item.submittedBy}</span></span></span></button>)}</div>}
+      </aside>
+
+      {!selected ? <div>{message && <p role="alert" className="mb-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">{message}</p>}<ContentState variant={loading ? "loading" : "empty"} title={loading ? "Loading review queue" : "Select a submission"} description={loading ? "Fetching submitted content and files." : "Choose a queued content item to review."} /></div> : <section className="min-w-0 space-y-5">
+        <div className="glass-panel rounded-2xl border p-4 sm:p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex flex-wrap items-center gap-2"><Badge variant="outline">Version {selected.versionNumber}</Badge><Badge className="bg-accent/18 text-[#765126] dark:text-accent">Awaiting review</Badge></div><h2 className="mt-3 text-xl font-semibold">{selected.title}</h2><p className="mt-1 text-sm text-muted-foreground">{selected.clientName} · {selected.platform} · {selected.contentType}</p></div><div className="text-left text-xs text-muted-foreground sm:text-right"><p className="font-semibold text-foreground">Submitted by {selected.submittedBy}</p><p className="mt-1">{new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(selected.submittedAt))}</p>{selected.deadlineAt && <p className="mt-1">Deadline: {new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(new Date(`${selected.deadlineAt}T12:00:00`))}</p>}</div></div>
+          {selected.notes && <p className="mt-4 rounded-lg bg-background/60 p-3 text-xs leading-5"><span className="font-semibold">Submission notes:</span> {selected.notes}</p>}
+          <div className="mt-4 space-y-3">{selected.files.map((file) => {
+            const previewUrl = `/api/files/${encodeURIComponent(file.id)}?inline=1`
+            const isImage = ["image/jpeg", "image/png", "image/webp", "image/gif"].includes(file.mime_type)
+            const isVideo = ["video/mp4", "video/webm", "video/quicktime"].includes(file.mime_type)
+            return <article key={file.id} className="overflow-hidden rounded-xl border bg-background/60">
+              {isImage && <button type="button" className="block max-h-[70vh] w-full cursor-zoom-in bg-muted/25" aria-label={`View larger image: ${file.file_name}`} onClick={() => setLargeImage({ url: previewUrl, name: file.file_name })}><Image src={previewUrl} alt={file.file_name} width={1600} height={1200} unoptimized className="mx-auto max-h-[70vh] w-full object-contain" /></button>}
+              {isVideo && <video src={previewUrl} controls preload="metadata" playsInline className="max-h-[70vh] w-full bg-black" aria-label={`Video: ${file.file_name}`}>Your browser cannot play this video format.</video>}
+              <div className="flex flex-wrap items-center justify-between gap-2 p-3"><span className="min-w-0"><span className="block truncate text-xs font-semibold">{file.file_name}</span><span className="text-[10px] text-muted-foreground">{file.mime_type} · {(file.size_bytes / 1048576).toFixed(1)} MB</span></span><a href={`/api/files/${encodeURIComponent(file.id)}`} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium hover:bg-muted/50"><Download className="size-3.5" />Download</a></div>
+            </article>
+          })}{!selected.files.length && <ContentState variant="error" title="Submitted files unavailable" description="The linked file metadata could not be loaded. Refresh or contact an administrator." compact />}</div>
+        </div>
+        <div className="glass-panel rounded-2xl border p-4 sm:p-5">
+          <h3 className="text-sm font-semibold">Review decision</h3>
+          <label className="mt-3 block text-xs font-semibold">Feedback<textarea value={comment} onChange={(event) => { setComment(event.target.value); setMessage(null) }} maxLength={5000} placeholder="Explain approval or list the exact changes needed…" className="mt-2 min-h-24 w-full resize-y rounded-xl border border-primary/20 bg-background/70 p-3 text-sm font-normal outline-none focus:border-primary focus:ring-3 focus:ring-primary/10" /></label>
+          {message && <p className="mt-3 rounded-lg bg-secondary/22 px-3 py-2 text-xs font-medium" role="status">{message}</p>}
+          <p className="mt-2 text-[10px] text-muted-foreground">Feedback is required when requesting changes. You cannot review your own submission.</p>
+          <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><Button type="button" variant="outline" disabled={saving || !comment.trim()} onClick={() => void decide("revision_requested")}><RotateCcw data-icon="inline-start" /> Request changes</Button><Button type="button" disabled={saving} onClick={() => void decide("approved")} className="bg-gradient-to-br from-primary to-accent text-primary-foreground"><CheckCircle2 data-icon="inline-start" /> Approve</Button></div>
+        </div>
+      </section>}
+    </div>
+    {largeImage && <div role="dialog" aria-modal="true" aria-label={`Image preview: ${largeImage.name}`} onClick={() => setLargeImage(null)} className="fixed inset-0 z-[100] flex cursor-zoom-out items-center justify-center bg-black/85 p-4 sm:p-8"><button type="button" onClick={() => setLargeImage(null)} aria-label="Close image preview" className="absolute right-4 top-4 rounded-full bg-black/60 p-2 text-white"><X className="size-5" /></button><Image src={largeImage.url} alt={largeImage.name} width={2000} height={1600} unoptimized onClick={(event) => event.stopPropagation()} className="max-h-[85vh] max-w-[92vw] cursor-default object-contain" /></div>}
+  </main>
 }
 
 function Info({ icon: Icon, label, value }: { icon: typeof ShieldCheck; label: string; value: string }) {

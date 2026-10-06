@@ -2,7 +2,7 @@
 -- Add users through Supabase Auth, then attach their profile and role records.
 
 insert into public.organizations (id, name, slug, timezone)
-values ('10000000-0000-0000-0000-000000000001', 'Northstar Marketing', 'northstar-marketing', 'America/New_York')
+values ('10000000-0000-0000-0000-000000000001', 'Jota', 'jota', 'America/New_York')
 on conflict (id) do update set
   name = excluded.name,
   slug = excluded.slug,
@@ -22,6 +22,7 @@ select '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-00000000
 from public.permissions
 where code in (
   'clients.view_assigned',
+  'clients.manage',
   'campaigns.create', 'campaigns.update',
   'content.create', 'content.update',
   'tasks.create', 'tasks.update'
@@ -32,11 +33,11 @@ insert into public.role_permissions (organization_id, role_id, permission_code)
 select '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000002', code
 from public.permissions
 where code in (
-  'clients.view_assigned', 'clients.view_all',
+  'clients.view_assigned', 'clients.view_all', 'clients.assign', 'clients.trash',
   'campaigns.create', 'campaigns.update',
   'content.create', 'content.update',
   'tasks.create', 'tasks.update', 'tasks.assign', 'tasks.review', 'tasks.approve',
-  'employees.view'
+  'tasks.view_all', 'employees.view'
 )
 on conflict do nothing;
 

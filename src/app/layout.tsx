@@ -2,6 +2,10 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { WorkflowProvider } from "@/features/workflow/workflow-provider";
+import { TaskDrawerProvider } from "@/features/tasks/task-drawer";
+import { isSupabaseConfigured } from "@/lib/env";
+import { getAuthenticatedAppUser } from "@/lib/supabase/profile";
+import { loadWorkflowData } from "@/features/workflow/workflow-data";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -15,11 +19,14 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Northstar — Marketing Operations",
-  description: "Client work, campaigns, tasks, and reviews in one focused workspace.",
+  title: "Jota — Joyno Task",
+  description: "Joyno Task: client work, campaigns, tasks, and reviews in one focused workspace.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  const demoMode = !isSupabaseConfigured();
+  const initialUser = demoMode ? null : await getAuthenticatedAppUser();
+  const workflowData = demoMode || !initialUser ? null : await loadWorkflowData();
   return (
     <html
       lang="en"
@@ -27,7 +34,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     >
       <body className="min-h-full flex flex-col">
         <TooltipProvider>
-          <WorkflowProvider>{children}</WorkflowProvider>
+          <WorkflowProvider initialUser={initialUser} initialTasks={workflowData?.tasks} initialClients={workflowData?.clients} initialUpcomingContent={workflowData?.upcomingContent} demoMode={demoMode}><TaskDrawerProvider>{children}</TaskDrawerProvider></WorkflowProvider>
         </TooltipProvider>
       </body>
     </html>
