@@ -1,9 +1,9 @@
 "use client"
 
-import { Bell, LoaderCircle, Plus, Search } from "lucide-react"
+import { LoaderCircle, Plus, Search, Settings } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 
 import { AppSidebar } from "@/components/layout/app-sidebar"
 import { MobileNavigation } from "@/components/layout/mobile-navigation"
@@ -11,6 +11,7 @@ import { ThemeModeToggle } from "@/components/layout/theme-mode-toggle"
 import { NewTaskSheet } from "@/features/tasks/new-task-sheet"
 import { useTaskDrawer } from "@/features/tasks/task-drawer"
 import { useWorkflow } from "@/features/workflow/workflow-provider"
+import { NotificationBell } from "@/features/notifications/notification-bell"
 import { searchWorkspace } from "@/features/search/workspace-search"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -31,48 +32,6 @@ type DashboardShellProps = {
   compact?: boolean
 }
 
-const initialNotifications = [
-  {
-    id: "revision",
-    title: "Revision requested",
-    detail: "Carousel design V2 needs your changes.",
-    href: "/tasks/upload-carousel-design-v2",
-    unread: true,
-  },
-  {
-    id: "review",
-    title: "Submission ready for review",
-    detail: "The founder story reel was submitted.",
-    href: "/reviews",
-    unread: true,
-  },
-  {
-    id: "calendar",
-    title: "Content scheduled",
-    detail: "Three upcoming posts are on the calendar.",
-    href: "/calendar",
-    unread: false,
-  },
-]
-const readNotificationsKey = "jota-read-notifications"
-const legacyReadNotificationsKey = "northstar-read-notifications"
-const notificationsEvent = "jota-notifications-changed"
-
-function subscribeToNotifications(callback: () => void) {
-  window.addEventListener("storage", callback)
-  window.addEventListener(notificationsEvent, callback)
-  return () => {
-    window.removeEventListener("storage", callback)
-    window.removeEventListener(notificationsEvent, callback)
-  }
-}
-
-function getReadNotifications() {
-  try { return window.localStorage.getItem(readNotificationsKey) ?? window.localStorage.getItem(legacyReadNotificationsKey) ?? "[]" } catch { return "[]" }
-}
-
-function getServerReadNotifications() { return "[]" }
-
 export function DashboardShell({ children, compact = false }: DashboardShellProps) {
   const router = useRouter()
   const pathname = usePathname()
@@ -90,19 +49,6 @@ export function DashboardShell({ children, compact = false }: DashboardShellProp
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false)
   const [navigationPending, setNavigationPending] = useState(false)
   const searchResults = useMemo(() => searchWorkspace(searchQuery, tasks, clients), [searchQuery, tasks, clients])
-  const savedReadIds = useSyncExternalStore(subscribeToNotifications, getReadNotifications, getServerReadNotifications)
-  let readIds: string[] = []
-  try {
-    const parsed = JSON.parse(savedReadIds)
-    if (Array.isArray(parsed)) readIds = parsed.filter((item): item is string => typeof item === "string")
-  } catch { /* Ignore malformed browser storage. */ }
-  const notifications = initialNotifications.filter((notification) =>
-    navigationVariant === "supervisor" ? notification.id !== "revision" : notification.id !== "review",
-  ).map((notification) => ({
-    ...notification,
-    unread: notification.unread && !readIds.includes(notification.id),
-  }))
-  const unreadCount = notifications.filter((notification) => notification.unread).length
 
   useEffect(() => {
     const timeout = window.setTimeout(() => setNavigationPending(false), 0)
@@ -130,26 +76,6 @@ export function DashboardShell({ children, compact = false }: DashboardShellProp
     }
     setNavigationPending(true)
   }, [navigationPending])
-
-  function saveNotifications(updated: typeof initialNotifications) {
-    try {
-      window.localStorage.setItem(
-        readNotificationsKey,
-        JSON.stringify(updated.filter((notification) => !notification.unread).map((notification) => notification.id)),
-      )
-      window.dispatchEvent(new Event(notificationsEvent))
-    } catch {
-      // Notifications remain usable for this visit without browser storage.
-    }
-  }
-
-  function markNotificationRead(notificationId: string) {
-    saveNotifications(
-      notifications.map((notification) =>
-        notification.id === notificationId ? { ...notification, unread: false } : notification,
-      ),
-    )
-  }
 
   return (
     <div onClickCapture={handleNavigationClick} aria-busy={navigationPending} className={cn("dashboard-canvas min-h-screen text-foreground", compact && "dashboard-canvas--compact")}>
@@ -213,53 +139,7 @@ export function DashboardShell({ children, compact = false }: DashboardShellProp
               <Plus data-icon="inline-start" />
               <span className="hidden sm:inline">New task</span>
             </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                render={
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className={cn("relative", compact ? "size-8 rounded-lg" : "rounded-xl")}
-                    aria-label={`${unreadCount} unread notifications`}
-                  />
-                }
-              >
-                <Bell className="size-[18px]" />
-                {unreadCount > 0 && <span className="absolute right-2 top-2 size-1.5 rounded-full bg-accent ring-2 ring-background" />}
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-72 rounded-lg p-1.5">
-                <div className="flex items-center justify-between px-2 py-1.5">
-                  <DropdownMenuLabel className="p-0 text-xs text-foreground">Notifications</DropdownMenuLabel>
-                  <span className="text-[10px] text-muted-foreground">{unreadCount} unread</span>
-                </div>
-                <DropdownMenuSeparator />
-                {notifications.map((notification) => (
-                  <DropdownMenuItem
-                    key={notification.id}
-                    className="min-h-12 items-start rounded-md px-2 py-2"
-                    onClick={() => {
-                      markNotificationRead(notification.id)
-                      if (notification.href.startsWith("/tasks/")) openTask(notification.href.slice("/tasks/".length))
-                    }}
-                    render={notification.href.startsWith("/tasks/") ? undefined : <Link href={notification.href} />}
-                  >
-                    <span className={cn("mt-1 size-1.5 shrink-0 rounded-full", notification.unread ? "bg-primary" : "bg-transparent")} />
-                    <span className="min-w-0">
-                      <span className="block text-xs font-medium">{notification.title}</span>
-                      <span className="mt-0.5 block text-[10px] leading-4 text-muted-foreground">{notification.detail}</span>
-                    </span>
-                  </DropdownMenuItem>
-                ))}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  className="min-h-8 justify-center rounded-md px-2 text-xs text-primary"
-                  disabled={unreadCount === 0}
-                  onClick={() => saveNotifications(notifications.map((notification) => ({ ...notification, unread: false })))}
-                >
-                  Mark all as read
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <NotificationBell currentUser={currentUser} demoMode={demoMode} compact={compact} onOpenTask={openTask} />
             <ThemeModeToggle />
             <Separator orientation="vertical" className="mx-1 hidden h-6 sm:block" />
             <DropdownMenu>
@@ -290,6 +170,9 @@ export function DashboardShell({ children, compact = false }: DashboardShellProp
                       onClick={() => router.push("/profile")}
                     >
                       Profile
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className="min-h-8 rounded-md px-2 text-xs" onClick={() => router.push("/settings")}>
+                      <Settings className="size-3.5" /> Settings
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       className="min-h-8 rounded-md px-2 text-xs"

@@ -27,6 +27,9 @@ provider when configured.
 - **Employees and access:** Administrators can manage employee accounts and
   roles. Accounts can be deactivated or moved to Trash, with restoration during
   the configured retention period.
+- **Notifications:** persist task assignment, submission/review, comment, and
+  due-date alerts. Sound is optional; browser push is opt-in and requires the
+  server setup in [Notifications](docs/notifications-setup.md).
 
 ## Roles at a glance
 
@@ -159,6 +162,7 @@ assets to the content items after import.
 | `/reviews` | Supervisor content-review queue |
 | `/employees` | Administrator employee and role management |
 | `/settings/storage` | Administrator Google Drive connection and file management |
+| `/settings` | Personal sound and browser push notification preferences |
 | `/profile` | Personal display name, job title, and avatar URL |
 
 ## Known workflow boundary

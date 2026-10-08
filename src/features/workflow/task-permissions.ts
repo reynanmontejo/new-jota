@@ -25,12 +25,13 @@ export function canEditTask(task: WorkflowTask, actorId: string) {
 
 export function employeeStatusOptions(task: WorkflowTask, actorId: string): TaskStatus[] {
   if (!canEditTask(task, actorId) || task.status === "for_review") return []
-  return ["todo", "in_progress"].filter((status) => status !== task.status) as TaskStatus[]
+  return ["todo", "in_progress", "cancelled"].filter((status) => status !== task.status) as TaskStatus[]
 }
 
 export function taskStatusOptions(task: WorkflowTask, actor: DemoUser): TaskStatus[] {
   if (actor.role === "supervisor") {
-    return task.status === "approved" ? ["completed"] : []
+    if (["completed", "cancelled"].includes(task.status)) return []
+    return task.status === "approved" ? ["completed", "cancelled"] : ["cancelled"]
   }
   return employeeStatusOptions(task, actor.id)
 }

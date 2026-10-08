@@ -18,6 +18,13 @@ const clientTrashMigrationPath = "supabase/migrations/202610090001_client_trash_
 const contentWorkflowMigrationPath = "supabase/migrations/202610100001_content_workflow_alignment.sql"
 const googleDriveStorageMigrationPath = "supabase/migrations/202610110001_google_drive_private_storage.sql"
 const contentItemReviewMigrationPath = "supabase/migrations/202610120001_content_item_review_workflow.sql"
+const taskSubmissionReviewMigrationPath = "supabase/migrations/202610130001_task_submission_review_workflow.sql"
+const taskRevisionResubmissionFixMigrationPath = "supabase/migrations/202610140001_task_revision_resubmission_fix.sql"
+const taskWorkflowRealtimeMigrationPath = "supabase/migrations/202610150001_task_workflow_realtime_updates.sql"
+const persistentTaskNotificationsMigrationPath = "supabase/migrations/202610160001_persistent_task_notifications.sql"
+const taskCommentDueNotificationsMigrationPath = "supabase/migrations/202610170001_task_comment_and_due_notifications.sql"
+const notificationWebPushMigrationPath = "supabase/migrations/202610180001_notification_web_push.sql"
+const taskAssignmentTrashMigrationPath = "supabase/migrations/202610190001_task_assignment_and_trash.sql"
 const seedPath = "supabase/seed.sql"
 
 const database = new PGlite()
@@ -99,6 +106,18 @@ let googleDriveStorageMigration = await fs.readFile(googleDriveStorageMigrationP
 googleDriveStorageMigration = googleDriveStorageMigration.replace(/\bcitext\b/gi, "text")
 await database.exec(googleDriveStorageMigration)
 await database.exec(await fs.readFile(contentItemReviewMigrationPath, "utf8"))
+await database.exec(await fs.readFile(taskSubmissionReviewMigrationPath, "utf8"))
+await database.exec(await fs.readFile(taskRevisionResubmissionFixMigrationPath, "utf8"))
+let taskWorkflowRealtimeMigration = await fs.readFile(taskWorkflowRealtimeMigrationPath, "utf8")
+// PGlite does not model PostgreSQL publications; Supabase applies this hosted-only block.
+taskWorkflowRealtimeMigration = taskWorkflowRealtimeMigration.replace(/-- PGLITE_SKIP_START[\s\S]*?-- PGLITE_SKIP_END\s*/i, "")
+await database.exec(taskWorkflowRealtimeMigration)
+let persistentTaskNotificationsMigration = await fs.readFile(persistentTaskNotificationsMigrationPath, "utf8")
+persistentTaskNotificationsMigration = persistentTaskNotificationsMigration.replace(/-- PGLITE_SKIP_START[\s\S]*?-- PGLITE_SKIP_END\s*/i, "")
+await database.exec(persistentTaskNotificationsMigration)
+await database.exec(await fs.readFile(taskCommentDueNotificationsMigrationPath, "utf8"))
+await database.exec(await fs.readFile(notificationWebPushMigrationPath, "utf8"))
+await database.exec(await fs.readFile(taskAssignmentTrashMigrationPath, "utf8"))
 const providerSecretAccess = await database.query(`
   select has_table_privilege('authenticated', 'public.google_drive_connections', 'select') as can_read_tokens,
          has_table_privilege('authenticated', 'public.client_drive_folders', 'select') as can_read_folder_map,
@@ -593,8 +612,84 @@ await asUser(employeeOne, async () => {
   await database.query(`select public.workflow_update_task_status('60000000-0000-0000-0000-000000000001', 'todo')`)
   await database.query(`select public.workflow_add_task_comment('60000000-0000-0000-0000-000000000001', 'Persistent test comment')`)
   await database.query(`select public.workflow_toggle_checklist('60000000-0000-0000-0000-000000000001', (select id from public.task_checklist_items where task_id = '60000000-0000-0000-0000-000000000001'))`)
-  await database.query(`select public.workflow_create_task('Created through RPC', '30000000-0000-0000-0000-000000000001', 'Autumn Glow Launch', 'high', now() + interval '2 days')`)
+  await database.query(`select public.workflow_create_task('Created through RPC', '30000000-0000-0000-0000-000000000001', 'Autumn Glow Launch', 'high', now() + interval '2 days', '${employeeOne}')`)
 })
+
+let employeeCannotAssignTaskRejected = false
+try {
+  await asUser(employeeOne, () => database.query(`select public.workflow_create_task(
+    'Unauthorized assignment', '30000000-0000-0000-0000-000000000001', null, 'medium', now() + interval '3 days', '${employeeTwo}'
+  )`))
+} catch (error) {
+  employeeCannotAssignTaskRejected = error?.code === "42501"
+}
+if (!employeeCannotAssignTaskRejected) throw new Error("Account Manager unexpectedly assigned a task to another person")
+
+const supervisorTaskId = await asUser(supervisor, async () => (await database.query(`select public.workflow_create_task(
+  'Supervisor off-calendar request', '30000000-0000-0000-0000-000000000002', null, 'medium', now() + interval '4 days', '${employeeTwo}'
+) as id`)).rows[0]?.id)
+const supervisorTaskAssignment = await database.query(`
+  select t.created_by, t.campaign_id, ta.user_id, ta.assigned_by
+  from public.tasks t join public.task_assignees ta on ta.task_id = t.id and ta.is_primary
+  where t.id = '${supervisorTaskId}'
+`)
+if (!supervisorTaskId
+  || supervisorTaskAssignment.rows[0]?.created_by !== supervisor
+  || supervisorTaskAssignment.rows[0]?.campaign_id !== null
+  || supervisorTaskAssignment.rows[0]?.user_id !== employeeTwo
+  || supervisorTaskAssignment.rows[0]?.assigned_by !== supervisor) {
+  throw new Error("Supervisor task assignment or campaign-optional behavior failed")
+}
+const assignmentNotificationCount = await asUser(employeeTwo, async () => (await database.query(`
+  select count(*)::int as count from public.notifications
+  where recipient_id = '${employeeTwo}' and type = 'task_assigned' and entity_id = '${supervisorTaskId}'
+`)).rows[0]?.count)
+if (assignmentNotificationCount !== 1) throw new Error("Assigned Account Manager did not receive a task assignment notification")
+
+await asUser(employeeTwo, async () => database.query(`select public.workflow_trash_task_for_current_user('${supervisorTaskId}')`))
+const visibleTaskTrash = await asUser(employeeTwo, async () => (await database.query(
+  `select task_id, title from public.workflow_list_task_trash() where task_id = '${supervisorTaskId}'`,
+)).rows[0])
+if (visibleTaskTrash?.title !== "Supervisor off-calendar request") throw new Error("Task owner could not find their trashed task")
+const anotherEmployeeTrashCount = await asUser(employeeOne, async () => (await database.query(
+  `select count(*)::int as count from public.workflow_list_task_trash() where task_id = '${supervisorTaskId}'`,
+)).rows[0]?.count)
+if (anotherEmployeeTrashCount !== 0) throw new Error("Task Trash exposed another employee's trashed assignment")
+let anotherEmployeeRestoreRejected = false
+try {
+  await asUser(employeeOne, () => database.query(`select public.workflow_restore_task_from_trash('${supervisorTaskId}')`))
+} catch (error) {
+  anotherEmployeeRestoreRejected = error?.code === "42501"
+}
+if (!anotherEmployeeRestoreRejected) throw new Error("Another employee unexpectedly restored a task they could not access")
+await asUser(employeeTwo, async () => database.query(`select public.workflow_restore_task_from_trash('${supervisorTaskId}')`))
+const restoredSupervisorTask = await database.query(`select deleted_at from public.tasks where id = '${supervisorTaskId}'`)
+if (restoredSupervisorTask.rows[0]?.deleted_at !== null) throw new Error("Task restore failed")
+
+const cancellationAttachmentId = "90000000-0000-0000-0000-000000000005"
+await database.exec(`insert into public.attachments (
+  id, organization_id, client_id, task_id, provider_file_id, file_name,
+  mime_type, size_bytes, uploaded_by
+) values (
+  '${cancellationAttachmentId}', '10000000-0000-0000-0000-000000000001',
+  '30000000-0000-0000-0000-000000000002', '${supervisorTaskId}',
+  'drive-cancelled-task', 'reference.png', 'image/png', 800, '${employeeTwo}'
+)`)
+await asUser(supervisor, async () => database.query(`select public.workflow_cancel_task_for_current_user('${supervisorTaskId}', 'No longer needed')`))
+const cancelledTaskPreservesFile = await database.query(`
+  select t.status::text as status, a.id as attachment_id
+  from public.tasks t left join public.attachments a on a.task_id = t.id
+  where t.id = '${supervisorTaskId}'
+`)
+if (cancelledTaskPreservesFile.rows[0]?.status !== 'cancelled'
+  || cancelledTaskPreservesFile.rows[0]?.attachment_id !== cancellationAttachmentId) {
+  throw new Error("Task cancellation failed or removed the task's existing file")
+}
+
+const oldTaskRpcAllowed = await database.query(`select has_function_privilege(
+  'authenticated', 'public.workflow_create_task(text,uuid,text,public.task_priority,timestamptz)', 'execute'
+) as allowed`)
+if (oldTaskRpcAllowed.rows[0]?.allowed !== false) throw new Error("Obsolete task creation RPC remains executable")
 
 let forbiddenMutationRejected = false
 try {
@@ -604,6 +699,193 @@ try {
 }
 if (!forbiddenMutationRejected) throw new Error("Employee unexpectedly changed another employee's task")
 const postMutationCount = await asUser(employeeOne, async () => (await database.query("select count(*)::int as count from public.tasks")).rows[0]?.count)
+
+const taskFileOne = "90000000-0000-0000-0000-000000000003"
+const taskFileTwo = "90000000-0000-0000-0000-000000000004"
+await database.exec(`insert into public.attachments (
+  id, organization_id, client_id, campaign_id, task_id, provider_file_id,
+  file_name, mime_type, size_bytes, uploaded_by
+) values (
+  '${taskFileOne}', '10000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001',
+  '40000000-0000-0000-0000-000000000001', '60000000-0000-0000-0000-000000000001',
+  'drive-task-one', 'task-v1.png', 'image/png', 1200, '${employeeOne}'
+)`)
+const taskVersionOne = await asUser(employeeOne, async () => (await database.query(`
+  select public.submit_task_for_review(
+    '60000000-0000-0000-0000-000000000001', array['${taskFileOne}'::uuid], 'Please review the first draft'
+  ) as version_id
+`)).rows[0]?.version_id)
+let reviewedTaskTrashRejected = false
+try {
+  await asUser(supervisor, () => database.query(`select public.workflow_trash_task_for_current_user('60000000-0000-0000-0000-000000000001')`))
+} catch (error) {
+  reviewedTaskTrashRejected = error?.code === "22023"
+}
+if (!reviewedTaskTrashRejected) throw new Error("Task with submitted work was moved to Trash instead of preserving its review history")
+const taskQueueCount = await asUser(supervisor, async () => (await database.query(`
+  select count(*)::int as count from public.submissions where status = 'submitted'
+`)).rows[0]?.count)
+const taskAfterSubmit = await database.query(`select status::text as status from public.tasks where id = '60000000-0000-0000-0000-000000000001'`)
+if (!taskVersionOne || taskQueueCount !== 1 || taskAfterSubmit.rows[0]?.status !== 'for_review') {
+  throw new Error("Task submission did not create a persistent reviewable version")
+}
+const reviewNotificationCount = await asUser(supervisor, async () => (await database.query(`
+  select count(*)::int as count from public.notifications
+  where recipient_id = '${supervisor}' and type = 'submitted_for_review'
+    and entity_id = '60000000-0000-0000-0000-000000000001'
+`)).rows[0]?.count)
+if (reviewNotificationCount !== 1) throw new Error("Task submission did not notify the authorized supervisor")
+
+await database.exec(`insert into public.role_permissions (organization_id, role_id, permission_code)
+  values ('10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', 'tasks.review') on conflict do nothing`)
+let taskSelfReviewRejected = false
+try {
+  await asUser(employeeOne, () => database.query(`select public.review_task_submission('${taskVersionOne}', 'approved', null)`))
+} catch (error) {
+  taskSelfReviewRejected = error?.code === "42501"
+} finally {
+  await database.exec(`delete from public.role_permissions where organization_id = '10000000-0000-0000-0000-000000000001' and role_id = '20000000-0000-0000-0000-000000000001' and permission_code = 'tasks.review'`)
+}
+if (!taskSelfReviewRejected) throw new Error("Task submitter was allowed to review their own task version")
+
+let emptyTaskFeedbackRejected = false
+try {
+  await asUser(supervisor, () => database.query(`select public.review_task_submission('${taskVersionOne}', 'revision_requested', null)`))
+} catch (error) {
+  emptyTaskFeedbackRejected = error?.code === "22023"
+}
+if (!emptyTaskFeedbackRejected) throw new Error("Task revision was allowed without supervisor feedback")
+await asUser(supervisor, () => database.query(`select public.review_task_submission('${taskVersionOne}', 'revision_requested', 'Please adjust the layout')`))
+const taskAfterRevision = await database.query(`select status::text as status from public.tasks where id = '60000000-0000-0000-0000-000000000001'`)
+if (taskAfterRevision.rows[0]?.status !== 'revision_requested') throw new Error("Task revision decision did not return the task to the owner")
+const revisionNotificationCount = await asUser(employeeOne, async () => (await database.query(`
+  select count(*)::int as count from public.notifications
+  where recipient_id = '${employeeOne}' and type = 'revision_requested'
+    and entity_id = '60000000-0000-0000-0000-000000000001'
+`)).rows[0]?.count)
+if (revisionNotificationCount !== 1) throw new Error("Revision feedback did not notify the task submitter")
+
+await database.exec(`insert into public.attachments (
+  id, organization_id, client_id, campaign_id, task_id, provider_file_id,
+  file_name, mime_type, size_bytes, uploaded_by, created_at
+) values (
+  '${taskFileTwo}', '10000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001',
+  '40000000-0000-0000-0000-000000000001', '60000000-0000-0000-0000-000000000001',
+  'drive-task-two', 'task-v2.png', 'image/png', 1400, '${employeeOne}',
+  (select max(v.submitted_at) from public.submission_versions v
+   join public.submissions s on s.id = v.submission_id
+   where s.task_id = '60000000-0000-0000-0000-000000000001')
+)`)
+let oldTaskFileResubmissionRejected = false
+try {
+  await asUser(employeeOne, () => database.query(`select public.submit_task_for_review(
+    '60000000-0000-0000-0000-000000000001', array['${taskFileOne}'::uuid], 'Submitting the old file again'
+  )`))
+} catch (error) {
+  oldTaskFileResubmissionRejected = error?.code === "22023"
+}
+if (!oldTaskFileResubmissionRejected) throw new Error("Task resubmission was allowed without a new upload")
+const taskVersionTwo = await asUser(employeeOne, async () => (await database.query(`
+  select public.submit_task_for_review(
+    '60000000-0000-0000-0000-000000000001', array['${taskFileTwo}'::uuid], 'Updated layout'
+  ) as version_id
+`)).rows[0]?.version_id)
+if (!taskVersionTwo || taskVersionTwo === taskVersionOne) throw new Error("Task resubmission did not create a distinct version")
+await asUser(supervisor, () => database.query(`select public.review_task_submission('${taskVersionTwo}', 'approved', 'Approved')`))
+const approvedTaskSubmission = await database.query(`
+  select s.status::text as submission_status, t.status::text as task_status
+  from public.submissions s join public.tasks t on t.id = s.task_id
+  where t.id = '60000000-0000-0000-0000-000000000001'
+`)
+if (approvedTaskSubmission.rows[0]?.submission_status !== 'approved' || approvedTaskSubmission.rows[0]?.task_status !== 'approved') {
+  throw new Error("Task approval did not persist separately from task completion")
+}
+const approvalNotificationCount = await asUser(employeeOne, async () => (await database.query(`
+  select count(*)::int as count from public.notifications
+  where recipient_id = '${employeeOne}' and type = 'submission_approved'
+    and entity_id = '60000000-0000-0000-0000-000000000001'
+`)).rows[0]?.count)
+if (approvalNotificationCount !== 1) throw new Error("Task approval did not notify the task submitter")
+await asUser(employeeOne, () => database.query(`select public.register_notification_push_subscription_for_current_user(
+  'https://fcm.googleapis.com/employee-one', repeat('p', 50), repeat('a', 24)
+)`))
+let arbitraryPushEndpointRejected = false
+try {
+  await asUser(employeeTwo, () => database.query(`select public.register_notification_push_subscription_for_current_user(
+    'https://localhost/internal', repeat('p', 50), repeat('a', 24)
+  )`))
+} catch (error) { arbitraryPushEndpointRejected = error?.code === "22023" }
+if (!arbitraryPushEndpointRejected) throw new Error("A non-provider push endpoint was allowed")
+await database.query(`insert into public.comments (organization_id, task_id, author_id, body)
+  values ('10000000-0000-0000-0000-000000000001', '60000000-0000-0000-0000-000000000001', '${supervisor}', 'Please check this update')`)
+const commentAlertCount = await asUser(employeeOne, async () => (await database.query(`
+  select count(*)::int as count from public.notifications
+  where recipient_id = '${employeeOne}' and type = 'comment_added'
+    and entity_id = '60000000-0000-0000-0000-000000000001'
+`)).rows[0]?.count)
+if (commentAlertCount !== 1) throw new Error("Task comment did not notify its assigned Account Manager")
+await database.exec(`update public.tasks set due_at = now() - interval '2 days' where id = '60000000-0000-0000-0000-000000000002';
+  update public.tasks set due_at = now() + interval '12 hours' where id = '60000000-0000-0000-0000-000000000003';
+  select private.emit_task_due_notifications();`)
+const dueAlertCounts = await database.query(`
+  select type::text as type, count(*)::int as count from public.notifications
+  where recipient_id = '${employeeTwo}' and entity_id in ('60000000-0000-0000-0000-000000000002', '60000000-0000-0000-0000-000000000003')
+  group by type
+`)
+const dueAlertCountByType = new Map(dueAlertCounts.rows.map((row) => [row.type, row.count]))
+if (dueAlertCountByType.get("task_overdue") !== 1 || dueAlertCountByType.get("task_due_soon") !== 1) {
+  throw new Error(`Task due reminders are missing or duplicated: ${JSON.stringify(dueAlertCounts.rows)}`)
+}
+await database.exec("set role service_role")
+let claimedPushCount
+try {
+  claimedPushCount = (await database.query(`select count(*)::int as count from public.claim_notification_push_batch(50)`)).rows[0]?.count
+} finally {
+  await database.exec("reset role")
+}
+if (claimedPushCount !== 1) throw new Error(`A push-enabled comment notification was not queued for delivery: ${claimedPushCount}`)
+const pushDataProtection = await database.query(`
+  select has_table_privilege('authenticated', 'public.notification_push_subscriptions', 'select') as users_can_read_subscriptions,
+         has_table_privilege('authenticated', 'public.notification_push_queue', 'select') as users_can_read_push_queue,
+         has_function_privilege('authenticated', 'public.claim_notification_push_batch(integer)', 'execute') as users_can_claim_push
+`)
+if (pushDataProtection.rows[0]?.users_can_read_subscriptions !== false
+  || pushDataProtection.rows[0]?.users_can_read_push_queue !== false
+  || pushDataProtection.rows[0]?.users_can_claim_push !== false) {
+  throw new Error("Push endpoints/queue are accessible outside the trusted server")
+}
+await asUser(employeeOne, () => database.query("select public.set_notification_sound_preference_for_current_user(true)"))
+const ownSoundPreference = await asUser(employeeOne, async () => (await database.query("select sound_enabled from public.notification_preferences where user_id = $1", [employeeOne])).rows[0]?.sound_enabled)
+const otherSoundPreference = await asUser(supervisor, async () => (await database.query("select count(*)::int as count from public.notification_preferences where user_id = $1", [employeeOne])).rows[0]?.count)
+if (ownSoundPreference !== true || otherSoundPreference !== 0) throw new Error("Notification sound preferences are not private to their owner")
+const markedRead = await asUser(employeeOne, async () => (await database.query(`
+  select public.mark_notification_read_for_current_user(
+    (select id from public.notifications where recipient_id = '${employeeOne}' and type = 'revision_requested' limit 1)
+  ) as changed
+`)).rows[0]?.changed)
+if (markedRead !== true) throw new Error("Notification read-state RPC did not mark the recipient's notification")
+await asUser(supervisor, () => database.query(`select public.workflow_update_task_status('60000000-0000-0000-0000-000000000001', 'completed')`))
+const completedTask = await database.query(`select status::text as status, completed_at from public.tasks where id = '60000000-0000-0000-0000-000000000001'`)
+if (completedTask.rows[0]?.status !== 'completed' || !completedTask.rows[0]?.completed_at) {
+  throw new Error("Supervisor could not complete an approved task")
+}
+let immutableTaskReviewRejected = false
+try {
+  await database.query(`update public.reviews set comment = 'Changed' where submission_version_id = '${taskVersionOne}'`)
+} catch {
+  immutableTaskReviewRejected = true
+}
+if (!immutableTaskReviewRejected) throw new Error("A saved task review decision was mutable")
+const authenticatedTaskWorkflowGrants = await database.query(`
+  select has_function_privilege('authenticated', 'public.submit_task_for_review(uuid,uuid[],text)', 'execute') as can_submit,
+         has_function_privilege('anon', 'public.submit_task_for_review(uuid,uuid[],text)', 'execute') as anon_can_submit,
+         has_function_privilege('authenticated', 'public.review_task_submission(uuid,public.review_decision,text)', 'execute') as can_review
+`)
+if (authenticatedTaskWorkflowGrants.rows[0]?.can_submit !== true
+  || authenticatedTaskWorkflowGrants.rows[0]?.anon_can_submit !== false
+  || authenticatedTaskWorkflowGrants.rows[0]?.can_review !== true) {
+  throw new Error("Task submission/review RPC grants are incorrect")
+}
 
 await database.exec("set role service_role")
 try {
@@ -693,21 +975,21 @@ const taskCount = taskResult.rows[0]?.count
 const tablesWithoutRls = rlsResult.rows[0]?.count
 const policyCount = policyResult.rows[0]?.count
 
-if (tableCount !== 35) {
-  throw new Error(`Expected 35 public tables, found ${tableCount}`)
+if (tableCount !== 38) {
+  throw new Error(`Expected 38 public tables, found ${tableCount}`)
 }
 
-if (taskCount !== 4) {
-  throw new Error(`Seed should be idempotent before one RPC-created task; found ${taskCount} tasks`)
+if (taskCount !== 5) {
+  throw new Error(`Seed should be idempotent before the two RPC-created task cases; found ${taskCount} tasks`)
 }
 
 if (tablesWithoutRls !== 0) {
   throw new Error(`Unexpected RLS coverage: ${tablesWithoutRls} unchecked table(s)`)
 }
 
-if (policyCount !== 36 || postMutationCount !== 2) {
+if (policyCount !== 37 || postMutationCount !== 2) {
   throw new Error(`Unexpected policy or task mutation coverage: ${policyCount} policies, employee sees ${postMutationCount} tasks`)
 }
 
-console.log(`Schema validated: ${tableCount} tables, task/content workflow/import/campaign/content-review RLS and RPCs, immutable review versions and decisions, private Drive token/folder tables, client platforms, multi-manager ownership, client status and recoverable Trash, employee provisioning and Trash, first-admin bootstrap, profile updates, and ${policyCount} policies.`)
+console.log(`Schema validated: ${tableCount} tables, task assignment/review/comment/due notifications, private push subscriptions and service-only delivery queue, notification RLS/RPCs/triggers, content workflow/import/campaign/content-review RLS and RPCs, immutable task/content versions and decisions, private Drive token/folder tables, client platforms, multi-manager ownership, client status and recoverable Trash, employee provisioning and Trash, first-admin bootstrap, profile updates, and ${policyCount} policies.`)
 await database.close()

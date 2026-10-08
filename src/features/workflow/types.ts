@@ -50,6 +50,9 @@ export type WorkflowTask = {
   comments: Array<{ id: string; author: string; initials: string; body: string; createdAt: string }>
   versions: WorkflowVersion[]
   activity: Array<{ id: string; label: string; actor: string; createdAt: string }>
+  /** Null means attachment visibility could not be verified for Trash eligibility. */
+  fileCount?: number | null
+  hasSubmissions?: boolean
 }
 
 export type WorkflowState = {
@@ -60,6 +63,7 @@ export type WorkflowClient = {
   id: string
   name: string
   campaigns?: Array<{ id: string; name: string }>
+  members?: Array<{ id: string; name: string; role: string }>
 }
 
 export type WorkflowUpcomingContent = {

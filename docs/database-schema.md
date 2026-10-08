@@ -74,6 +74,15 @@ Direct table writes remain revoked. File metadata is written only by
 authenticated server routes after checking the user's client/task/content access.
 Task submission/review remains a separate task workflow; content review is
 implemented additively by `202610120001_content_item_review_workflow.sql`.
+`202610190001_task_assignment_and_trash.sql` adds a permission-checked task
+creation RPC that lets Supervisors/Administrators assign a standalone task to
+an active member of that client, while Account Managers can create tasks for
+themselves. It permits a task to have no campaign, but still requires a client.
+It also adds recoverable task Trash: creators/primary assignees can move simple
+tasks with no files, comments, or submissions to Trash; Supervisors and
+Administrators can manage task Trash; a task with work history must be
+cancelled rather than erased. Hard deletion is not provided. Apply this additive
+migration to the intended hosted project before using these functions there.
 `202610070001_campaign_management.sql` adds
 permission-checked campaign create/update/archive RPCs. Campaigns are scoped to
 an accessible, non-archived client, active names are unique per client (case

@@ -38,7 +38,7 @@ const clients = [
 
 export function HeaderActions({ persona, onOpenMobileSearch }: HeaderActionsProps) {
   const router = useRouter()
-  const { createTask } = useWorkflow()
+  const { createTask, currentUser } = useWorkflow()
   const [newTaskOpen, setNewTaskOpen] = useState(false)
   const [unread, setUnread] = useState(2)
 
@@ -88,12 +88,12 @@ export function HeaderActions({ persona, onOpenMobileSearch }: HeaderActionsProp
         </DropdownMenu>
       </div>
 
-      {newTaskOpen && <NewTaskDialog onClose={() => setNewTaskOpen(false)} onCreate={(input) => { void createTask(input).then((id) => { if (!id) return; setNewTaskOpen(false); router.push(`/tasks/${id}`) }) }} />}
+      {newTaskOpen && <NewTaskDialog defaultAssigneeId={currentUser.id} onClose={() => setNewTaskOpen(false)} onCreate={(input) => { void createTask(input).then((id) => { if (!id) return; setNewTaskOpen(false); router.push(`/tasks/${id}`) }) }} />}
     </>
   )
 }
 
-function NewTaskDialog({ onClose, onCreate }: { onClose: () => void; onCreate: Parameters<ReturnType<typeof useWorkflow>["createTask"]>[0] extends never ? never : (input: Parameters<ReturnType<typeof useWorkflow>["createTask"]>[0]) => void }) {
+function NewTaskDialog({ onClose, onCreate, defaultAssigneeId }: { onClose: () => void; defaultAssigneeId: string; onCreate: (input: Parameters<ReturnType<typeof useWorkflow>["createTask"]>[0]) => void }) {
   const [title, setTitle] = useState("")
   const [clientId, setClientId] = useState(clients[0].id)
   const [priority, setPriority] = useState<"low" | "medium" | "high" | "urgent">("medium")
@@ -104,7 +104,7 @@ function NewTaskDialog({ onClose, onCreate }: { onClose: () => void; onCreate: P
     event.preventDefault()
     if (!title.trim()) return
     const formattedDate = new Date(`${dueDate}T17:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
-    onCreate({ title: title.trim(), clientId, clientName: selectedClient.name, campaign: selectedClient.campaign, priority, dueDate: `${formattedDate} · 5:00 PM` })
+    onCreate({ title: title.trim(), clientId, clientName: selectedClient.name, campaign: selectedClient.campaign, priority, assigneeId: defaultAssigneeId, dueDate: `${formattedDate} · 5:00 PM` })
   }
 
   return (

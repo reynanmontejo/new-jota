@@ -1,11 +1,14 @@
 "use client"
 
-import { createContext, useContext, useMemo, useReducer, useState, useSyncExternalStore, type ReactNode } from "react"
+import { createContext, useContext, useEffect, useMemo, useReducer, useState, useSyncExternalStore, type ReactNode } from "react"
+import { useRouter } from "next/navigation"
 
 import { addTaskCommentAction, createTaskAction, toggleTaskChecklistAction, updateTaskStatusAction } from "@/app/tasks/actions"
 import { initialWorkflowState } from "@/features/workflow/mock-data"
 import { canCreateTask, canEditTask, currentEmployee, currentSupervisor, taskStatusOptions, type DemoUser } from "@/features/workflow/task-permissions"
 import type { TaskStatus, WorkflowClient, WorkflowFile, WorkflowState, WorkflowUpcomingContent } from "@/features/workflow/types"
+import { isSupabaseConfigured } from "@/lib/env"
+import { createClient as createSupabaseClient } from "@/lib/supabase/client"
 
 type ReviewDecision = "approved" | "revision_requested"
 
@@ -15,6 +18,7 @@ type NewTaskInputFields = {
   clientName: string
   campaign: string
   priority: "low" | "medium" | "high" | "urgent"
+  assigneeId: string
 }
 export type NewTaskInput = NewTaskInputFields & ({ dueAt: string; dueDate?: string } | { dueDate: string; dueAt?: string })
 
@@ -25,6 +29,7 @@ function formatTaskDate(value: string) {
 }
 
 type WorkflowAction =
+  | { type: "replace_tasks"; tasks: WorkflowState["tasks"] }
   | { type: "toggle_checklist"; taskId: string; itemId: string; actor: DemoUser }
   | { type: "add_comment"; taskId: string; body: string; actor: DemoUser }
   | { type: "update_status"; taskId: string; status: TaskStatus; actor: DemoUser }
@@ -34,6 +39,7 @@ type WorkflowAction =
   | { type: "create_task"; task: WorkflowState["tasks"][number]; actor: DemoUser }
 
 export function workflowReducer(state: WorkflowState, action: WorkflowAction): WorkflowState {
+  if (action.type === "replace_tasks") return { tasks: action.tasks }
   if (action.type === "create_task") {
     if (!canCreateTask(action.actor)) return state
     return { tasks: [action.task, ...state.tasks] }
@@ -132,6 +138,7 @@ type WorkflowContextValue = {
   upcomingContent: WorkflowUpcomingContent[]
   currentUser: DemoUser
   demoMode: boolean
+  realtimeRevision: number
   error: string | null
   clearError: () => void
   switchDemoUser: (role: DemoUser["role"]) => void
@@ -184,11 +191,54 @@ export function WorkflowProvider({
 }) {
   const [state, dispatch] = useReducer(workflowReducer, { tasks: initialTasks ?? initialWorkflowState.tasks })
   const [error, setError] = useState<string | null>(null)
+  const [realtimeRevision, setRealtimeRevision] = useState(0)
+  const router = useRouter()
+
+  useEffect(() => {
+    if (demoMode || !initialUser?.id || !isSupabaseConfigured()) return
+
+    const supabase = createSupabaseClient()
+    const channel = supabase.channel(`task-workflow:${initialUser.id}`)
+    const trackedTables = [
+      "tasks",
+      "task_assignees",
+      "task_checklist_items",
+      "comments",
+      "activity_logs",
+      "submissions",
+      "submission_versions",
+      "submission_version_files",
+      "reviews",
+    ] as const
+    let refreshTimer: number | undefined
+    const refreshWorkflow = () => {
+      if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
+      refreshTimer = window.setTimeout(() => {
+        refreshTimer = undefined
+        setRealtimeRevision((revision) => revision + 1)
+        router.refresh()
+      }, 200)
+    }
+
+    for (const table of trackedTables) {
+      channel.on("postgres_changes", { event: "*", schema: "public", table }, refreshWorkflow)
+    }
+    channel.subscribe()
+
+    return () => {
+      if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
+      void supabase.removeChannel(channel)
+    }
+  }, [demoMode, initialUser?.id, router])
+
+  useEffect(() => {
+    if (!demoMode && initialTasks) dispatch({ type: "replace_tasks", tasks: initialTasks })
+  }, [demoMode, initialTasks])
   const demoRole = useSyncExternalStore(subscribeDemoRole, getDemoRole, getServerDemoRole)
   const currentUser = demoMode
     ? demoRole === "supervisor" ? currentSupervisor : currentEmployee
     : initialUser ?? currentEmployee
-  const clients = useMemo(() => initialClients ?? Array.from(new Map(state.tasks.map((task) => [task.clientId, task.clientName])).entries()).map(([id, name]) => ({ id, name, campaigns: Array.from(new Set(state.tasks.filter((task) => task.clientId === id).map((task) => task.campaign))).map((campaignName) => ({ id: campaignName, name: campaignName })) })), [initialClients, state.tasks])
+  const clients = useMemo<WorkflowClient[]>(() => initialClients ?? Array.from(new Map(state.tasks.map((task) => [task.clientId, task.clientName])).entries()).map(([id, name]) => ({ id, name, campaigns: Array.from(new Set(state.tasks.filter((task) => task.clientId === id).map((task) => task.campaign))).map((campaignName) => ({ id: campaignName, name: campaignName })) })), [initialClients, state.tasks])
 
   const value = useMemo<WorkflowContextValue>(() => ({
     tasks: state.tasks,
@@ -196,6 +246,7 @@ export function WorkflowProvider({
     upcomingContent: initialUpcomingContent ?? [],
     currentUser,
     demoMode,
+    realtimeRevision,
     error,
     clearError: () => setError(null),
     switchDemoUser: (role) => {
@@ -243,7 +294,12 @@ export function WorkflowProvider({
       dispatch({ type: "review_version", taskId, decision, comment, actor: currentUser })
     },
     createTask: async (input) => {
-      const owner = demoMode && currentUser.role === "supervisor" ? currentEmployee : currentUser
+      const selectedAssignee = clients.find((client) => client.id === input.clientId)?.members?.find((member) => member.id === input.assigneeId)
+      const owner: { id: string; name: string; role: string } = selectedAssignee
+        ? { id: selectedAssignee.id, name: selectedAssignee.name, role: selectedAssignee.role }
+        : demoMode && currentUser.role === "supervisor" && input.assigneeId === currentEmployee.id
+          ? currentEmployee
+          : currentUser
       const fakeId = `${input.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")}-${crypto.randomUUID().slice(0, 6)}`
       let dueAt: string
       try {
@@ -267,7 +323,7 @@ export function WorkflowProvider({
           description: "New task created from the global task form.",
           clientId: input.clientId,
           clientName: input.clientName,
-          campaign: input.campaign,
+          campaign: input.campaign || "General work",
           contentItem: "General campaign work",
           priority: input.priority,
           status: "todo",
@@ -284,7 +340,7 @@ export function WorkflowProvider({
       })
       return id
     },
-  }), [state.tasks, clients, currentUser, demoMode, error, initialUpcomingContent])
+  }), [state.tasks, clients, currentUser, demoMode, error, initialUpcomingContent, realtimeRevision])
 
   return <WorkflowContext.Provider value={value}>{children}</WorkflowContext.Provider>
 }

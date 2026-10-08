@@ -2,7 +2,8 @@
 
 import Link from "next/link"
 import { useMemo, useState } from "react"
-import { ArrowUpRight, Download, ExternalLink, FileText, Search } from "lucide-react"
+import Image from "next/image"
+import { ArrowUpRight, Download, ExternalLink, FileText, Film, Play, Search, Trash2 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -26,6 +27,20 @@ type Filter = (typeof filters)[number]
 export type TrashedClientItem = Pick<ClientDirectoryItem, "id" | "name" | "description" | "status"> & { deleted_at: string }
 type RecentClientFile = { id: string; clientId: string; clientName: string; canBrowseClient?: boolean; fileName: string; mimeType: string; sizeBytes: number; createdAt: string; taskId: string | null }
 const socialPlatforms = ["Instagram", "Facebook", "TikTok", "LinkedIn", "YouTube", "X", "Pinterest", "Threads", "Snapchat"]
+const imagePreviewTypes = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"])
+const videoPreviewTypes = new Set(["video/mp4", "video/webm", "video/quicktime"])
+
+function RecentFileThumbnail({ file, fileUrl }: { file: RecentClientFile; fileUrl: string }) {
+  const [failed, setFailed] = useState(false)
+  const image = imagePreviewTypes.has(file.mimeType.toLowerCase())
+  const video = videoPreviewTypes.has(file.mimeType.toLowerCase())
+
+  return <a href={fileUrl} target="_blank" rel="noreferrer" aria-label={`Preview ${file.fileName}`} title={`Preview ${file.fileName}`} className="relative grid size-14 shrink-0 place-items-center overflow-hidden rounded-md border border-border/70 bg-muted/35 text-primary">
+    {image && !failed ? <Image src={fileUrl} alt={`Thumbnail: ${file.fileName}`} width={112} height={112} unoptimized onError={() => setFailed(true)} className="size-full object-cover" />
+      : video && !failed ? <><video src={fileUrl} muted playsInline preload="metadata" onError={() => setFailed(true)} className="size-full bg-black object-cover" /><span aria-hidden="true" className="absolute inset-0 grid place-items-center bg-black/15 text-white"><Play className="size-4 fill-current drop-shadow" /></span></>
+        : video ? <Film aria-hidden="true" className="size-5" /> : <FileText aria-hidden="true" className="size-5" />}
+  </a>
+}
 
 const statusClass: Record<ClientDirectoryItem["status"], string> = {
   active: "border-emerald-700/15 bg-emerald-700/8 text-emerald-800 dark:text-emerald-300",
@@ -74,6 +89,7 @@ export function ClientDirectory({ clients, recentFiles = [], trashedClients = []
           <p className="mt-1 text-xs text-muted-foreground">{initialTab === "overview" ? "Client accounts and their workspaces." : initialTab === "files" ? "Recent uploads across your clients, with each client’s full file library below." : "Choose a client to open its campaigns workspace."}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {initialTab === "files" && initialView === "active" && <Link href="/tasks/trash" className="inline-flex h-9 items-center gap-1.5 rounded-md border border-primary/18 bg-background/75 px-3 text-xs font-medium text-muted-foreground transition hover:bg-background hover:text-foreground"><Trash2 className="size-3.5" /> Trash</Link>}
           <div className="flex h-9 items-center gap-2 rounded-md border border-input bg-background/75 px-3 sm:w-72">
             <Search aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
             <input
@@ -119,11 +135,11 @@ export function ClientDirectory({ clients, recentFiles = [], trashedClients = []
       {initialTab === "files" && initialView === "active" && <section aria-labelledby="recent-client-files" className="mt-4 rounded-lg border border-border bg-card/75 p-3 sm:p-4">
         <div className="flex items-center justify-between gap-3"><div><h2 id="recent-client-files" className="text-sm font-semibold">Recent files</h2><p className="mt-0.5 text-[11px] text-muted-foreground">Latest uploads from client and task workspaces you can access.</p></div><span className="rounded-full border bg-background px-2 py-0.5 text-[10px] text-muted-foreground">{recentFiles.length}</span></div>
         {recentFiles.length ? <ul className="mt-2 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">{recentFiles.map((file) => {
-          const canPreview = file.mimeType.startsWith("image/") || file.mimeType.startsWith("video/") || file.mimeType === "application/pdf"
+          const canPreview = imagePreviewTypes.has(file.mimeType.toLowerCase()) || videoPreviewTypes.has(file.mimeType.toLowerCase()) || file.mimeType === "application/pdf"
           const fileUrl = `/api/files/${encodeURIComponent(file.id)}${canPreview ? "?inline=1" : ""}`
           const size = file.sizeBytes < 1024 * 1024 ? `${Math.max(1, Math.round(file.sizeBytes / 1024))} KB` : `${(file.sizeBytes / 1024 / 1024).toFixed(1)} MB`
-          return <li key={file.id} className="flex min-w-0 items-center gap-2 rounded-md border border-border/70 bg-background/65 px-2.5 py-2">
-            <FileText aria-hidden="true" className="size-4 shrink-0 text-primary" />
+          return <li key={file.id} className="flex min-w-0 items-center gap-2 rounded-md border border-border/70 bg-background/65 p-2">
+            <RecentFileThumbnail file={file} fileUrl={fileUrl} />
             <div className="min-w-0 flex-1"><a href={fileUrl} target="_blank" rel="noreferrer" className="block truncate text-[11px] font-medium hover:text-primary hover:underline" title={file.fileName}>{file.fileName}</a><p className="mt-0.5 truncate text-[10px] text-muted-foreground">{file.clientName}{file.taskId ? " · Task" : " · Client"} · {size} · {new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(new Date(file.createdAt))}</p></div>
             <a href={fileUrl} target="_blank" rel="noreferrer" aria-label={`${canPreview ? "Preview" : "Download"} ${file.fileName}`} title={canPreview ? "Preview file" : "Download file"} className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground">{canPreview ? <ExternalLink className="size-3.5" /> : <Download className="size-3.5" />}</a>
             {file.canBrowseClient !== false && <Link href={`/clients/${encodeURIComponent(file.clientId)}?tab=files`} aria-label={`Browse ${file.clientName} files`} title={`Browse ${file.clientName} files`} className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"><ArrowUpRight className="size-3.5" /></Link>}

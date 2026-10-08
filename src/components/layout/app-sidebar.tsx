@@ -15,6 +15,7 @@ import {
   Megaphone,
   PanelLeftClose,
   PanelRightOpen,
+  Settings2,
   SendToBack,
   UserRound,
   Users,
@@ -57,6 +58,7 @@ const supervisorNavigation: NavigationItem[] = [
 
 const employeeManagementItem: NavigationItem = { name: "Employees", href: "/employees", icon: Users }
 const storageSettingsItem: NavigationItem = { name: "File storage", href: "/settings/storage", icon: HardDrive }
+const systemSettingsItem: NavigationItem = { name: "System", href: "/admin/system", icon: Settings2 }
 
 type AppSidebarProps = {
   className?: string
@@ -72,7 +74,7 @@ export function AppSidebar({ className, collapsed = false, onToggle, onNavigate,
   const searchParams = useSearchParams()
   const { tasks, currentUser } = useWorkflow()
   const navigationBase = variant === "supervisor"
-    ? isAdministrator ? [...supervisorNavigation, employeeManagementItem, storageSettingsItem] : supervisorNavigation
+    ? isAdministrator ? [...supervisorNavigation, employeeManagementItem, storageSettingsItem, systemSettingsItem] : supervisorNavigation
     : accountManagerNavigation
   const isOpenTask = (status: string) => !["approved", "completed", "cancelled"].includes(status)
   const taskCount = tasks.filter((task) => isOpenTask(task.status) && (currentUser.role === "supervisor" || task.primaryOwner.id === currentUser.id)).length
@@ -85,6 +87,8 @@ export function AppSidebar({ className, collapsed = false, onToggle, onNavigate,
 
   function isActive(item: NavigationItem) {
     const path = item.href.split("?")[0]
+    if ((item.name === "My tasks" || item.name === "Team tasks") && pathname === "/tasks/trash") return false
+    if (item.name === "Files" && pathname === "/tasks/trash") return true
     if (item.href.includes("?")) {
       const expectedParams = new URLSearchParams(item.href.split("?")[1])
       return pathname === path && [...expectedParams.entries()].every(([key, value]) => searchParams.get(key) === value)

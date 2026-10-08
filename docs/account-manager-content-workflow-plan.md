@@ -4,11 +4,17 @@
 
 Make the Account Manager's everyday work match the real four-step process:
 
-1. Check assigned content.
-2. Create the graphic or other asset.
-3. Submit it for supervisor review and respond to feedback.
-4. Let Jota update the tracker automatically, with an export available when a
-   spreadsheet is still needed.
+1. Check the content calendar for what is due.
+2. Create the graphic or other asset in Canva.
+3. Submit the content item for supervisor review and respond to feedback.
+4. After approval, publish it to the intended social platforms.
+5. Let Jota record review, revision, and publishing progress automatically;
+   retain spreadsheet export during the transition away from Excel.
+
+Supervisors also assign occasional work that is not on the content calendar.
+That work is a standalone task, with its own owner, due date, files, and task
+review. It must not be represented as a content item or silently generated
+from one.
 
 An Account Manager should not have to understand database concepts, create a
 task for every graphic, update the same status in two places, or manually
@@ -18,13 +24,23 @@ maintain a duplicate Excel tracker.
 
 - The content tracker supports content records, assignment, dates, statuses,
   client/campaign context, and CSV import.
-- Campaigns currently provide required context for content records. This is
-  useful for grouping, but should not become a daily setup step for each item.
-- Google Drive attachments currently attach to a client or task. The attachment
-  model does not directly identify a content item.
-- The task page says versioned Work submission and supervisor review are not
-  connected. The existing review workspace is not the live content review
-  workflow.
+- Campaigns currently provide required context for content records and the task
+  creation RPC requires an existing campaign. Campaigns are useful grouping,
+  but should not become an extra daily setup step for supervisors or managers.
+- Content items have assignment, schedule, production status, file/version, and
+  content-review concepts. Standalone tasks have a separate task submission and
+  review lifecycle. Keep those review paths distinct by work type.
+- Task creation currently makes the creator the primary assignee; it does not
+  provide a supervisor-to-Account-Manager assignment flow. `task_assignees` and
+  the `tasks.assign` permission exist, so verify their policies before adding an
+  assignment UI/RPC.
+- The database has a nullable task-to-content reference, but normal task
+  creation does not set it. This plan does not require that link: calendar
+  content is assigned through its content item; supervisor-assigned
+  non-calendar work is a standalone task.
+- Content files/reviews and task files/reviews use different records. Before
+  release, verify the local migrations against hosted migration history rather
+  than assuming that local implementation means hosted setup is complete.
 
 Therefore, a successful upload under Client files or Task files is not yet the
 same as submitting a content graphic for approval. The plan closes that gap
@@ -86,6 +102,14 @@ Allow organization-wide visibility, assignment/configuration, and reports, but
 use the same content records and review history. Do not create a parallel admin
 tracker.
 
+### Supervisor: standalone assignments
+
+Use **New task** only for work outside the content calendar—for example, a
+one-off request assigned directly by a Supervisor. The task should clearly show
+the assigning Supervisor and primary Account Manager, with a client and due
+date. Task file submission and task review apply here. Do not route the same
+calendar post through both task review and content review.
+
 ### Keep the domain boundaries clear
 
 - **Client:** customer account and access boundary.
@@ -94,10 +118,23 @@ tracker.
 - **Campaign:** optional grouping/context. Keep it in the data model, but
   default or preselect it (for example, a client/month or program) so it does
   not block daily work. Do not remove or rename campaign records in this phase.
-- **Task:** a separate operational assignment. Do not automatically make a task
-  for every content item or CSV row.
+- **Task:** a separate, non-calendar assignment from a Supervisor (or other
+  authorized task creator). Do not automatically make a task for every content
+  item or CSV row. For the first release, do not add a content-task link unless
+  a real workflow needs distinct, independently assigned work steps for one
+  post.
 - **File:** attach the draft/final asset directly to its content item and
   version, not merely to the client generally.
+
+The two user paths should remain easy to distinguish:
+
+```text
+Calendar work: Content item -> Canva file -> Content review -> Publish -> Published
+Supervisor request: Standalone task -> Task files -> Task review -> Complete/Cancel
+```
+
+For calendar work, approval is not publication. For a standalone task,
+completion is not content approval or publication.
 
 If platforms have different asset requirements, reviewers, or due dates, keep
 one item per platform. If the existing workbook treats one row as a shared
@@ -115,6 +152,14 @@ the content-item/platform relationship.
   platform, due/work/publish dates, revisions, next action, and status.
 - Decide how shared/multi-platform work is represented and who may submit,
   review, or reassign work.
+- Confirm whether supervisor-assigned tasks always belong to a client and a
+  named campaign. The current schema requires a client; the task RPC requires a
+  campaign even though the task table permits a null campaign. If an ad-hoc
+  request has no named campaign, decide whether to use a default
+  "General / Ongoing" campaign or change the RPC/UI to permit no campaign.
+- Confirm what a task owner may move to Trash, who may restore it, and the
+  retention window. Distinguish mistaken/duplicate work from legitimate work
+  that was stopped (Cancel).
 - Record current UI, database schema, migration history, and role permissions.
 - Confirm hosted database state before designing any migration. Preserve the
   existing workbook and take a safe copy before any bulk import.
@@ -122,8 +167,9 @@ the content-item/platform relationship.
 **Exit check**
 
 - One agreed workflow diagram and field mapping exist.
-- No unresolved conflict about who owns a content item or what counts as
-  approval. If a conflict appears, resolve it before Phase 1.
+- No unresolved conflict about content ownership, supervisor task assignment,
+  multi-platform publishing, review ownership, or what counts as approval. If a
+  conflict appears, resolve it before implementation.
 
 ### Phase 1 — Simplify the Account Manager experience
 
@@ -141,6 +187,9 @@ row-level personal assignment: `assigned_to` remains the creator/editor field.
   states.
 - Put the next action at the top of each item: Start work, Continue, Submit for
   review, Address feedback, or Mark published, as applicable.
+- Keep the account-manager content card as the assignment for calendar work;
+  do not ask the manager to create a duplicate task. Show who owns it and when
+  it is due/publishing.
 - Reduce the everyday status choices to a small plain-language set. Initially
   map them to the existing content statuses instead of deleting or rewriting
   stored status values:
@@ -160,6 +209,8 @@ row-level personal assignment: `assigned_to` remains the creator/editor field.
 - An Account Manager can find assigned work and see client, platform, deadline,
   status, and next action without visiting Campaigns, Tasks, and Calendar
   separately.
+- A calendar content item is visibly the work assignment. No second task is
+  created by adding/importing content.
 - Supervisors can still find all in-scope work; unauthorized clients remain
   hidden. Existing imported data and task behavior are unchanged.
 
@@ -203,9 +254,11 @@ to read private media. Hosted application and browser tests remain pending.
 queue loads real pending content submissions, previews submitted images/videos,
 and persists approval or change requests. Server-side RPCs require review
 permission, prevent self-review and stale-version decisions, and require
-feedback for requested changes. The existing task review demo remains separate.
-Do not treat this as released until the migration is applied to the intended
-Supabase project and role-based smoke tests pass.
+feedback for requested changes. Task submissions/reviews are a separate
+workflow for standalone, non-calendar assignments—not an alternate review path
+for the same content post. Do not treat this as released until the migration
+history of the intended Supabase project is verified and role-based smoke tests
+pass.
 
 **Work**
 
@@ -238,22 +291,77 @@ Supabase project and role-based smoke tests pass.
   history automatically from workflow actions.
 - Make the content tracker and Calendar read the same content records; do not
   require the Account Manager to enter a status a second time.
+- Support the real cross-platform publishing case. If one piece of approved
+  creative is posted to several platforms, store intended destinations and
+  per-platform published state/date/link so one completed destination does not
+  falsely mark every destination published. If each platform needs a distinct
+  asset, date, or review, represent those as separate content items. Decide this
+  during Phase 0 before changing schema or importing multi-platform rows.
 - Keep the existing CSV import as a controlled onboarding tool: validate and
   preview before import, detect duplicates, preserve assignments/dates/status,
   and do not generate tasks automatically.
 - Add a filtered CSV/XLSX export for managers who still need a spreadsheet
   snapshot. Export is a report, not a second editable source of truth.
-- Add a Recent files view only after content files are linked to items; it should
-  show only files the signed-in person is authorized to see and link back to
-  their content item/client.
+- Verify the Recent files view after content files are linked to items; it
+  should show only files the signed-in person is authorized to see and link
+  back to their content item/client. Complete or correct it if those checks
+  fail.
 
 **Exit check**
 
 - Normal work requires no manual spreadsheet status update.
+- A content item remains approved until it is actually published; each required
+  destination can be confirmed independently when cross-posting applies.
 - Import/export round-trips the agreed fields without changing unrelated rows.
 - Recent files has correct client/item context and respects role/client access.
 
-### Phase 5 — Role-based smoke test and staged release
+### Phase 5 — Support supervisor-created standalone tasks and recover mistakes
+
+**Implementation status (2026-10-08): implemented locally.** The additive
+`202610190001_task_assignment_and_trash.sql` migration adds active client-member
+assignment, optional campaign context for standalone tasks, owner/Supervisor
+Trash and restore RPCs, and immutable activity entries. The task form now lets
+Supervisors assign an off-calendar task; employees create tasks for themselves.
+Tasks with submissions, comments, or attachments cannot be trashed and must be
+cancelled so their history remains intact. Schema and role-flow verification
+pass locally. Hosted migration application and browser smoke tests remain
+pending; do not treat this as deployed.
+
+**Work**
+
+- Preserve the separate task path for work not present in the content calendar.
+  Do not recreate this work as a content item just to reuse the content review
+  UI.
+- Add a Supervisor/Admin assignee selector using active people who can access
+  the selected client. Employees creating their own task may default to
+  themselves, subject to the established role policy.
+- Extend the server-side task creation RPC to accept/validate the assignee and
+  record the actor separately from the assignee. Enforce `tasks.assign` and
+  client membership on the server; never trust a client-supplied user ID alone.
+- Keep standalone task statuses and review history in the task workflow. Verify
+  that only the assigned person and authorized reviewers can see task details
+  and files.
+- Add a safe task recovery path: confirm before moving an accidental/duplicate
+  task to Trash, retain the record with `deleted_at`, support restore for the
+  approved role(s), and log both actions. Do not permanently delete task review
+  history. A legitimate task that was stopped should be Cancelled; tasks with
+  submissions/reviews should retain that history and be cancelled/closed rather
+  than erased.
+- Define whether creators/assignees can Trash only tasks with no submissions or
+  review history; require Supervisor/Admin handling for tasks with history.
+- Avoid adding general-purpose task-to-content linking in this slice. Revisit it
+  only if a confirmed workflow needs separately assigned subtasks under one
+  calendar item.
+
+**Exit check**
+
+- A Supervisor can assign a non-calendar task to the intended Account Manager;
+  it appears in that person's task list and not as a content calendar item.
+- Task submission/review works without creating or changing a content item.
+- An accidental task can be restored by an authorized person; cancelled or
+  reviewed work keeps its history and is not silently deleted.
+
+### Phase 6 — Role-based smoke test and staged release
 
 Test with one Account Manager, one Supervisor, one Administrator, and a user
 without access to the test client. Use a non-sensitive client and files first.
@@ -266,6 +374,11 @@ without access to the test client. Use a non-sensitive client and files first.
 | Supervisor requests changes | Feedback is required, visible to the Account Manager, and logged |
 | Account Manager uploads revised draft | New immutable version; old review history remains |
 | Supervisor approves | Approved state and reviewer/time persist; self-review is blocked |
+| Account Manager publishes approved content to one/more platforms | Content becomes Published only for destinations actually completed; publication metadata persists |
+| Supervisor assigns off-calendar work | Task belongs to the selected Account Manager; no content item is created |
+| Task owner submits off-calendar work | Task submission/review is used; the content review queue remains unchanged |
+| Authorized user trashes a mistaken task | Task leaves active views, remains recoverable, and action is logged |
+| User cancels a real task with history | Task is closed without deleting submissions, comments, or reviews |
 | User without client access opens item/file | No client details, attachment metadata, or bytes are disclosed |
 | Upload unsupported or over 100 MB file | Clear rejection; no Drive/database orphan is left |
 | Refresh or sign out/in | Status, versions, comments, and decisions remain consistent |
@@ -279,6 +392,10 @@ migrations/deployment are separate, explicit release actions.
 
 - Do not model one content item and its graphic as a separate generic task just
   to reuse the current task submission UI.
+- Do not automatically create tasks from calendar content, or content items
+  from standalone tasks.
+- Do not use task review for a calendar post that is already submitted through
+  content review. The chosen work record owns its single review history.
 - Do not delete Campaigns, Tasks, existing statuses, imports, attachments, or
   review records as part of simplification. Hide or default complexity in the
   interface first; use additive migrations only for the missing content-file

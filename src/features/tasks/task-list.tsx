@@ -103,6 +103,11 @@ export function TaskList() {
     setFilters({ query: "", client: "all", status: "all", priority: "all", sort: "due" })
   }
 
+  function moveTask(taskId: string, status: TaskStatus) {
+    if (status === "cancelled" && !window.confirm("Cancel this task? Its files and review history will be kept.")) return
+    void updateStatus(taskId, status)
+  }
+
   return (
     <main className="mx-auto max-w-[1480px] px-4 py-6 sm:px-6 lg:px-8">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -150,7 +155,7 @@ export function TaskList() {
         <div className="mt-3 flex items-center justify-between border-t border-primary/10 pt-3 text-xs text-muted-foreground"><span>{visibleTasks.length} of {myTasks.length} tasks</span><span className="hidden items-center gap-1 sm:flex"><SlidersHorizontal className="size-3.5" /> Filters update both views</span></div>
       </section>
 
-      {view === "kanban" ? <KanbanBoard tasks={visibleTasks} onMove={updateStatus} onOpen={openTask} actor={currentUser} /> : <ListView tasks={visibleTasks} onMove={updateStatus} onOpen={openTask} actor={currentUser} />}
+      {view === "kanban" ? <KanbanBoard tasks={visibleTasks} onMove={moveTask} onOpen={openTask} actor={currentUser} /> : <ListView tasks={visibleTasks} onMove={moveTask} onOpen={openTask} actor={currentUser} />}
     </main>
   )
 }
@@ -177,15 +182,33 @@ function FilterItem({ selected, onSelect, children }: { selected: boolean; onSel
 }
 
 function KanbanBoard({ tasks, onMove, onOpen, actor }: { tasks: WorkflowTask[]; onMove: (taskId: string, status: TaskStatus) => void; onOpen: (taskId: string) => void; actor: DemoUser }) {
+  const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null)
+  const [dropTarget, setDropTarget] = useState<TaskStatus | null>(null)
+
   return (
     <section className="mt-5 overflow-x-auto pb-3" aria-label="Kanban board">
+      <p className="mb-2 px-1 text-[11px] text-muted-foreground">Drag a task only between statuses your role can change. Submit and review statuses use the task’s review workflow.</p>
       <div className="grid min-w-[1480px] grid-cols-7 gap-3">
         {boardColumns.map((column) => {
           const columnTasks = tasks.filter((task) => column.statuses.includes(task.status))
+          const targetStatus = column.statuses[0]
+          const canDrop = tasks.some((task) => taskStatusOptions(task, actor).includes(targetStatus))
           return (
-            <div key={column.id} className="glass-panel min-h-[430px] rounded-2xl border p-3">
+            <div key={column.id}
+              onDragOver={(event) => { if (!canDrop) return; event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDropTarget(targetStatus) }}
+              onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropTarget(null) }}
+              onDrop={(event) => {
+                event.preventDefault()
+                const taskId = event.dataTransfer.getData("text/plain")
+                const task = tasks.find((item) => item.id === taskId)
+                if (task && taskStatusOptions(task, actor).includes(targetStatus)) onMove(taskId, targetStatus)
+                setDraggingTaskId(null)
+                setDropTarget(null)
+              }}
+              className={cn("glass-panel min-h-[430px] rounded-2xl border p-3 transition-colors", dropTarget === targetStatus && canDrop && "border-primary/50 bg-primary/5")}
+            >
               <div className="flex items-center justify-between px-1 pb-3"><div className="flex items-center gap-2"><span className={cn("size-2 rounded-full", column.accent)} /><h2 className="text-xs font-bold uppercase tracking-wider">{column.label}</h2></div><Badge variant="outline" className="bg-background/65 text-[10px]">{columnTasks.length}</Badge></div>
-              <div className="space-y-3">{columnTasks.map((task, index) => <KanbanCard key={task.id} task={task} onMove={onMove} onOpen={onOpen} actor={actor} delayMs={Math.min(index, 5) * 45} />)}{columnTasks.length === 0 && <div className="grid min-h-28 place-items-center rounded-xl border border-dashed border-primary/18 bg-background/28 px-3 text-center text-xs text-muted-foreground">No matching tasks</div>}</div>
+              <div className="space-y-3">{columnTasks.map((task, index) => <KanbanCard key={task.id} task={task} onOpen={onOpen} actor={actor} delayMs={Math.min(index, 5) * 45} dragging={draggingTaskId === task.id} onDragStart={() => setDraggingTaskId(task.id)} onDragEnd={() => { setDraggingTaskId(null); setDropTarget(null) }} />)}{columnTasks.length === 0 && <div className={cn("grid min-h-28 place-items-center rounded-xl border border-dashed border-primary/18 bg-background/28 px-3 text-center text-xs text-muted-foreground", dropTarget === targetStatus && "border-primary/45 bg-primary/5 text-primary")}>{canDrop ? "Drop an eligible task here" : "No matching tasks"}</div>}</div>
             </div>
           )
         })}
@@ -194,9 +217,10 @@ function KanbanBoard({ tasks, onMove, onOpen, actor }: { tasks: WorkflowTask[]; 
   )
 }
 
-function KanbanCard({ task, onMove, onOpen, actor, delayMs }: { task: WorkflowTask; onMove: (taskId: string, status: TaskStatus) => void; onOpen: (taskId: string) => void; actor: DemoUser; delayMs: number }) {
+function KanbanCard({ task, onOpen, actor, delayMs, dragging, onDragStart, onDragEnd }: { task: WorkflowTask; onOpen: (taskId: string) => void; actor: DemoUser; delayMs: number; dragging: boolean; onDragStart: () => void; onDragEnd: () => void }) {
+  const canMove = taskStatusOptions(task, actor).length > 0
   return (
-    <article className="sticky-note rounded-xl border p-3.5" style={{ animationDelay: `${delayMs}ms` }}>
+    <article draggable={canMove} onDragStart={(event) => { if (!canMove) { event.preventDefault(); return }; event.dataTransfer.setData("text/plain", task.id); event.dataTransfer.effectAllowed = "move"; onDragStart() }} onDragEnd={onDragEnd} title={canMove ? "Drag to a status you are allowed to change" : "Status is controlled by the review workflow"} className={cn("sticky-note rounded-xl border p-3.5", canMove && "cursor-grab active:cursor-grabbing", dragging && "opacity-45")} style={{ animationDelay: `${delayMs}ms` }}>
       <button
         type="button"
         onClick={() => onOpen(task.id)}
@@ -209,7 +233,6 @@ function KanbanCard({ task, onMove, onOpen, actor, delayMs }: { task: WorkflowTa
         <span className="mt-4 block border-t border-primary/15 pt-3"><span className="block truncate text-[11px] font-medium">{task.clientName}</span><span className="mt-0.5 block truncate text-[10px] text-muted-foreground">{task.campaign}</span></span>
         <span className="mt-3 flex items-center justify-between gap-1"><span className="flex min-w-0 items-center gap-1 truncate text-[10px] text-muted-foreground"><CalendarDays className="size-3 shrink-0" />{task.dueDate.split(" · ")[0]}</span><span className="flex shrink-0 items-center gap-2"><span className="inline-flex items-center gap-0.5 rounded-full bg-primary/12 px-1.5 py-1 text-[9px] font-semibold text-primary">Open <ArrowUpRight className="size-3" /></span><span className="grid size-6 shrink-0 place-items-center rounded-full bg-secondary/50 text-[8px] font-bold">{task.primaryOwner.initials}</span></span></span>
       </button>
-      <span className="sticky-note__menu"><TaskStatusMenu task={task} onMove={onMove} onOpen={onOpen} actor={actor} /></span>
     </article>
   )
 }
@@ -225,23 +248,21 @@ function ListView({ tasks, onMove, onOpen, actor }: { tasks: WorkflowTask[]; onM
           <div className="flex items-center gap-2 text-xs"><Avatar className="size-6"><AvatarFallback className="bg-secondary/40 text-[8px]">{task.clientName.split(" ").map((word) => word[0]).join("").slice(0, 2)}</AvatarFallback></Avatar><span className="truncate">{task.clientName}</span></div>
           <span className="flex items-center gap-1 text-xs text-muted-foreground"><CalendarDays className="size-3.5" />{task.dueDate.split(" · ")[0]}</span>
           <StatusBadge status={task.status} className="w-fit" />
-          <TaskStatusMenu task={task} onMove={onMove} onOpen={onOpen} actor={actor} />
+          <TaskStatusMenu task={task} onMove={onMove} actor={actor} />
         </article>
       ))}
     </section>
   )
 }
 
-function TaskStatusMenu({ task, onMove, onOpen, actor }: { task: WorkflowTask; onMove: (taskId: string, status: TaskStatus) => void; onOpen: (taskId: string) => void; actor: DemoUser }) {
+function TaskStatusMenu({ task, onMove, actor }: { task: WorkflowTask; onMove: (taskId: string, status: TaskStatus) => void; actor: DemoUser }) {
   const moves = taskStatusOptions(task, actor)
+  if (moves.length === 0) return null
   return (
     <DropdownMenu>
       <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={`Move ${task.title}`} />}><MoreHorizontal /></DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-44 rounded-xl border border-primary/16 bg-popover/95 p-1.5 shadow-xl backdrop-blur-xl">
-        <DropdownMenuLabel>Task actions</DropdownMenuLabel><DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => onOpen(task.id)} className="min-h-8 rounded-lg px-2 text-xs">View details</DropdownMenuItem>
-        {moves.map((status) => <DropdownMenuItem key={status} onClick={() => onMove(task.id, status)} className="min-h-8 rounded-lg px-2 text-xs">{status === "in_progress" ? "Start work" : status === "completed" ? "Mark completed" : "Move to do"}</DropdownMenuItem>)}
-        {moves.some((status) => status === "in_progress" || status === "todo") && <DropdownMenuItem onClick={() => onOpen(task.id)} className="min-h-8 rounded-lg px-2 text-xs">Open submission</DropdownMenuItem>}
+        {moves.map((status) => <DropdownMenuItem key={status} onClick={() => onMove(task.id, status)} className="min-h-8 rounded-lg px-2 text-xs">{status === "in_progress" ? "Start work" : status === "completed" ? "Mark completed" : status === "cancelled" ? "Cancel task" : "Move to do"}</DropdownMenuItem>)}
       </DropdownMenuContent>
     </DropdownMenu>
   )
