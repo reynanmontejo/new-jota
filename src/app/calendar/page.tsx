@@ -10,7 +10,7 @@ export default async function CalendarPage() {
     const supabase = await createClient()
     const [contentResult, clientsResult] = await Promise.all([
       supabase.from("content_items")
-        .select("id,title,client_id,platform,content_type,description,status,deadline_at,publish_at,next_action,revision_notes,client_approval_status,client_issues,notes")
+        .select("id,title,client_id,platform,content_type,description,status,deadline_at,publish_at,next_action,revision_notes,client_approval_status,client_issues,notes,assigned_to")
         .in("status", ["planned", "in_production", "for_review", "revision_requested", "waiting_client", "scheduled"])
         .is("deleted_at", null)
         .order("publish_at"),
@@ -18,6 +18,11 @@ export default async function CalendarPage() {
     ])
     contentError = Boolean(contentResult.error || clientsResult.error)
     const clientNames = new Map((clientsResult.data ?? []).map((client) => [client.id, client.name]))
+    const assignedIds = [...new Set((contentResult.data ?? []).flatMap((row) => row.assigned_to ? [row.assigned_to] : []))]
+    const { data: profiles } = assignedIds.length
+      ? await supabase.from("profiles").select("id,display_name").in("id", assignedIds)
+      : { data: [] }
+    const assigneeNames = new Map((profiles ?? []).map((profile) => [profile.id, profile.display_name]))
     contentPosts = (contentResult.data ?? []).flatMap((row) => {
       const client = clientNames.get(row.client_id)
       if (!client) return []
@@ -34,6 +39,8 @@ export default async function CalendarPage() {
         clientApprovalStatus: row.client_approval_status,
         clientIssues: row.client_issues,
         notes: row.notes,
+        ownerId: row.assigned_to,
+        ownerName: row.assigned_to ? assigneeNames.get(row.assigned_to) ?? "Assigned employee" : "Unassigned",
       }
       return [
         ...(row.publish_at ? [{ id: `${row.id}-publish`, date: row.publish_at, eventType: "publish" as const, ...common }] : []),

@@ -38,12 +38,16 @@ export type WorkflowTask = {
   clientName: string
   campaign: string
   contentItem: string
+  contentItemId?: string | null
+  createdById?: string | null
   priority: "low" | "medium" | "high" | "urgent"
   status: TaskStatus
   startDate: string
   dueDate: string
   /** Canonical timestamp for filtering/sorting. Keep dueDate for display compatibility. */
   dueAt?: string | null
+  /** Server timestamp set by the database when status becomes completed. */
+  completedAt?: string | null
   primaryOwner: { id: string; name: string; initials: string; role: string }
   collaborators: Array<{ id: string; name: string; initials: string; role: string }>
   checklist: Array<{ id: string; label: string; completed: boolean }>
@@ -73,4 +77,19 @@ export type WorkflowUpcomingContent = {
   clientName: string
   platform: string
   publishAt: string
+}
+
+export type WorkflowContentWorkItem = {
+  id: string
+  title: string
+  clientId: string
+  clientName: string
+  campaignName: string
+  platform: string
+  format: string
+  status: string
+  publishAt: string | null
+  deadlineAt: string | null
+  assigneeId: string | null
+  assigneeName: string | null
 }

@@ -128,8 +128,13 @@ async function getAccessToken(connection: Connection) {
     body: new URLSearchParams({ client_id: config.clientId, client_secret: config.clientSecret, refresh_token: decryptToken(connection), grant_type: "refresh_token" }),
     cache: "no-store",
   })
-  const payload = await response.json() as { access_token?: string; expires_in?: number }
-  if (!response.ok || !payload.access_token) throw new Error("Google Drive authorization expired or was revoked. Reconnect the account.")
+  const payload = await response.json() as { access_token?: string; expires_in?: number; error?: string }
+  if (!response.ok || !payload.access_token) {
+    console.error("[Google Drive token refresh failed]", { status: response.status, error: payload.error ?? "unknown" })
+    if (payload.error === "invalid_grant") throw new Error("Google Drive refresh access was revoked or expired. An administrator must reconnect the approved account.")
+    if (payload.error === "invalid_client") throw new Error("Google rejected the configured OAuth client. An administrator must verify the server-side client ID and secret.")
+    throw new Error("Google Drive authorization could not be refreshed. An administrator must reconnect or check the OAuth configuration.")
+  }
   accessTokenCache.set(connection.organization_id, { token: payload.access_token, expiresAt: Date.now() + Math.max(60, payload.expires_in ?? 3600) * 1000 })
   return payload.access_token
 }
@@ -138,6 +143,14 @@ async function driveRequest(connection: Connection, url: string, init: RequestIn
   const accessToken = await getAccessToken(connection)
   const headers = new Headers(init.headers)
   headers.set("authorization", `Bearer ${accessToken}`)
+  const response = await fetch(url, { ...init, headers, cache: "no-store" })
+  if (response.status !== 401) return response
+
+  // A cached token can be invalidated early (for example after Google revokes
+  // an access token). Refresh once so previews don't fail until the next restart.
+  accessTokenCache.delete(connection.organization_id)
+  const refreshedToken = await getAccessToken(connection)
+  headers.set("authorization", `Bearer ${refreshedToken}`)
   return fetch(url, { ...init, headers, cache: "no-store" })
 }
 
@@ -200,13 +213,24 @@ export async function downloadDriveFile(organizationId: string, fileId: string, 
   if (!connection) throw new Error("Google Drive is not connected")
   const headers = range ? { range } : undefined
   const response = await driveRequest(connection, `${DRIVE_API}/files/${encodeURIComponent(fileId)}?alt=media`, { headers })
-  if (!response.ok || !response.body) throw new Error("Could not download this file from Google Drive")
+  if (!response.ok || !response.body) {
+    const details = await response.text().catch(() => "")
+    console.error("[Google Drive file request failed]", { status: response.status, statusText: response.statusText, details: details.slice(0, 400) })
+    const reason = response.status === 404 ? "The stored file is missing from the connected Google Drive." : response.status === 403 ? "Google Drive denied access to this stored file." : `Google Drive returned an error (${response.status}).`
+    throw new Error(reason)
+  }
   return response
 }
 
 export async function deleteDriveFile(connection: Connection, fileId: string) {
   const response = await driveRequest(connection, `${DRIVE_API}/files/${encodeURIComponent(fileId)}`, { method: "DELETE" })
-  if (!response.ok && response.status !== 404) throw new Error("Could not clean up the unlinked Drive upload")
+  if (!response.ok && response.status !== 404) throw new Error("Could not delete the Google Drive file")
+}
+
+export async function permanentlyDeleteDriveFile(organizationId: string, fileId: string) {
+  const connection = await getConnection(organizationId)
+  if (!connection) throw new Error("Google Drive is not connected")
+  await deleteDriveFile(connection, fileId)
 }
 
 export async function disconnectGoogleDrive(organizationId: string) {

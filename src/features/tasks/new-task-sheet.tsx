@@ -12,7 +12,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { useWorkflow } from "@/features/workflow/workflow-provider"
-import { useTaskDrawer } from "@/features/tasks/task-drawer"
+import { useTaskDrawer, type ContentTaskSeed } from "@/features/tasks/task-drawer"
 import { currentEmployee } from "@/features/workflow/task-permissions"
 
 type NewTaskSheetProps = {
@@ -44,12 +44,26 @@ function defaultDueDate() {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
-export function NewTaskSheet({ open, onOpenChange }: NewTaskSheetProps) {
+function contentDeadlineInput(value: string | null) {
+  if (!value) return defaultDueDate()
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return `${value}T17:00`
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return defaultDueDate()
+  const pad = (part: number) => String(part).padStart(2, "0")
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T17:00`
+}
+
+export function NewTaskSheet({ open, seed, onOpenChange }: NewTaskSheetProps & { seed: ContentTaskSeed | null }) {
   const { openTask } = useTaskDrawer()
   const { createTask, clients, currentUser, demoMode } = useWorkflow()
   const [submitting, setSubmitting] = useState(false)
-  const [selectedClientId, setSelectedClientId] = useState(clients[0]?.id ?? "")
-  const [assigneeId, setAssigneeId] = useState(currentUser.role === "supervisor" ? clients[0]?.members?.[0]?.id ?? (demoMode ? currentEmployee.id : "") : currentUser.id)
+  const initialClientId = seed?.clientId ?? clients[0]?.id ?? ""
+  const firstMemberId = clients.find((client) => client.id === initialClientId)?.members?.[0]?.id
+  const [selectedClientId, setSelectedClientId] = useState(initialClientId)
+  const [assigneeId, setAssigneeId] = useState(currentUser.role === "supervisor" ? firstMemberId ?? (demoMode ? currentEmployee.id : "") : currentUser.id)
+  const [title, setTitle] = useState(seed?.title ?? "")
+  const [campaignName, setCampaignName] = useState(seed?.campaignName ?? "")
+  const [dueDate, setDueDate] = useState(seed ? contentDeadlineInput(seed.deadlineAt) : defaultDueDate())
   const selectedClient = clients.find((client) => client.id === selectedClientId)
   const assignableMembers = demoMode && currentUser.role === "supervisor"
     ? [{ id: currentEmployee.id, name: currentEmployee.name, role: "Account Manager" }]
@@ -66,7 +80,6 @@ export function NewTaskSheet({ open, onOpenChange }: NewTaskSheetProps) {
     if (!client || !assigneeId || (currentUser.role === "supervisor" && !selectedAssignee)) return
 
     setSubmitting(true)
-    setSubmitting(true)
     try {
       const taskId = await createTask({
         title: String(form.get("title")).trim(),
@@ -76,6 +89,8 @@ export function NewTaskSheet({ open, onOpenChange }: NewTaskSheetProps) {
         priority: String(form.get("priority")) as "low" | "medium" | "high" | "urgent",
         assigneeId,
         dueAt: new Date(String(form.get("dueDate"))).toISOString(),
+        contentItemId: seed?.contentItemId,
+        contentItemTitle: seed?.contentItemTitle,
       })
       if (!taskId) return
       formElement.reset()
@@ -109,39 +124,38 @@ export function NewTaskSheet({ open, onOpenChange }: NewTaskSheetProps) {
                 name="title"
                 placeholder="e.g. Finalize campaign captions"
                 required
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
               />
             </label>
 
-            <label className="text-xs font-semibold">
+            {seed ? <div className="text-xs font-semibold">Client<input type="hidden" name="clientId" value={selectedClientId} /><p className="mt-1.5 rounded-lg border border-primary/15 bg-muted/30 px-3 py-2 font-normal">{seed.clientName}</p></div> : <label className="text-xs font-semibold">
               Client
               <select className={fieldClassName} value={selectedClientId} name="clientId" required disabled={clients.length === 0} onChange={(event) => {
                 const nextClientId = event.target.value
                 setSelectedClientId(nextClientId)
+                setCampaignName("")
                 if (currentUser.role === "supervisor") {
                   const nextMembers = demoMode ? [{ id: currentEmployee.id }] : clients.find((client) => client.id === nextClientId)?.members ?? []
                   setAssigneeId(nextMembers[0]?.id ?? "")
                 }
               }}>
-                {clients.map((client) => (
-                  <option key={client.id} value={client.id}>
-                    {client.name}
-                  </option>
-                ))}
+                {clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}
               </select>
               {clients.length === 0 && <span className="mt-1 block text-[11px] font-normal text-muted-foreground">No clients are assigned to your account yet.</span>}
-            </label>
+            </label>}
 
             <label className="text-xs font-semibold">
               Campaign
-              {demoMode ? (
-                <input className={fieldClassName} name="campaign" placeholder="Campaign or leave blank" />
+              {seed ? <><input type="hidden" name="campaign" value={campaignName} /><p className="mt-1.5 rounded-lg border border-primary/15 bg-muted/30 px-3 py-2 font-normal">{campaignName || "General / no campaign"}</p></> : demoMode ? (
+                <input className={fieldClassName} name="campaign" placeholder="Campaign or leave blank" value={campaignName} onChange={(event) => setCampaignName(event.target.value)} />
               ) : (
-                <select className={fieldClassName} key={selectedClientId} name="campaign" defaultValue="">
+                <select className={fieldClassName} key={selectedClientId} name="campaign" value={campaignName} onChange={(event) => setCampaignName(event.target.value)}>
                   <option value="">General / no campaign</option>
                   {(selectedClient?.campaigns ?? []).map((campaign) => <option key={campaign.id} value={campaign.name}>{campaign.name}</option>)}
                 </select>
               )}
-              <span className="mt-1 block text-[11px] font-normal text-muted-foreground">Use a campaign when relevant; off-calendar tasks can stay under General.</span>
+              {!seed && <span className="mt-1 block text-[11px] font-normal text-muted-foreground">Use a campaign when relevant; off-calendar tasks can stay under General.</span>}
             </label>
 
             {currentUser.role === "supervisor" ? <label className="text-xs font-semibold">
@@ -167,11 +181,12 @@ export function NewTaskSheet({ open, onOpenChange }: NewTaskSheetProps) {
                 Due date
                 <input
                   className={fieldClassName}
-                  defaultValue={defaultDueDate()}
+                  value={dueDate}
                   name="dueDate"
                   required
                   type="datetime-local"
-                  title={formatDueDate(defaultDueDate())}
+                  title={formatDueDate(dueDate)}
+                  onChange={(event) => setDueDate(event.target.value)}
                 />
               </label>
             </div>

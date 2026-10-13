@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { ContentCalendar } from "@/features/calendar/content-calendar"
+import { ContentCalendar, filterContentByOwner } from "@/features/calendar/content-calendar"
 
 vi.mock("@/features/tasks/task-drawer", () => ({ useTaskDrawer: () => ({ openTask: vi.fn() }) }))
 vi.mock("@/features/workflow/workflow-provider", () => ({
@@ -9,6 +9,20 @@ vi.mock("@/features/workflow/workflow-provider", () => ({
 }))
 
 afterEach(cleanup)
+
+describe("calendar content owner filter", () => {
+  const posts = [
+    { id: "mine", date: "2026-10-13", title: "Mine", clientId: "client", client: "Client", channel: "Instagram", ownerId: "supervisor" },
+    { id: "employee", date: "2026-10-13", title: "Employee", clientId: "client", client: "Client", channel: "Instagram", ownerId: "employee-1" },
+    { id: "unassigned", date: "2026-10-13", title: "Unassigned", clientId: "client", client: "Client", channel: "Instagram", ownerId: null },
+  ]
+
+  it("supports all, supervisor-only, and individual employee views", () => {
+    expect(filterContentByOwner(posts, "all", "supervisor")).toHaveLength(3)
+    expect(filterContentByOwner(posts, "mine", "supervisor").map((post) => post.id)).toEqual(["mine"])
+    expect(filterContentByOwner(posts, "employee-1", "supervisor").map((post) => post.id)).toEqual(["employee"])
+  })
+})
 
 describe("ContentCalendar", () => {
   it("opens scheduled content details when its date is selected", () => {

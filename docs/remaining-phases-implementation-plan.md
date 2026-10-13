@@ -62,6 +62,191 @@ catalog state again before any future `supabase db push`.
    and integration tests, and schema validation if SQL changed. Run the
    production build at the end of each major slice and at release readiness.
 
+## Product revision — simplify campaigns, content, and work views
+
+**Owner direction recorded 2026-10-12.** This section captures the intended
+workflow and acceptance rules; local implementation status is recorded in the
+checkpoints below. Keep hosted state unchanged until migrations are reviewed
+and applied through the normal release process.
+
+### Campaign scope and enable/disable behavior
+
+- Keep the current relationship of **one client per campaign**. A campaign may
+  contain many content items, but should not span multiple clients. This keeps
+  client access, ownership, and reporting unambiguous. A cross-client program,
+  if later needed, should be modeled separately rather than weakening campaign
+  client boundaries.
+- Make enable/disable easy to understand. Reuse the campaign lifecycle already
+  present: **Active = enabled**, **Paused = disabled**, and **Archived = hidden
+  from ordinary use but retained for history**. Do not add a second boolean
+  unless a real lifecycle case cannot be represented by these states.
+- Pausing a campaign should remove it from normal choices for *new* content,
+  while preserving its existing content, files, and review history. Define
+  whether already-started content may still be edited/submitted before adding
+  any server-side restriction; the safe default is to let existing work finish.
+- Reduce campaign friction for ordinary ongoing posts. Before changing the
+  schema, inspect the content-item and content-review foreign keys. Choose one
+  of these safe designs: (a) keep the database association required but
+  automatically use a per-client "General / Ongoing" campaign, or (b) make the
+  association nullable through a new additive migration if all dependent
+  history safely supports it. Never edit an already-applied migration or
+  remove campaign history to achieve a simpler form.
+
+### One Content page, with useful views
+
+- Present **My Content** and **Content Tracker** as views on one Content page,
+  not as separate destinations that appear to be different systems. The current
+  views already use the same `/content` route and underlying content records;
+  simplify their navigation and keep import, add, search, filters, and details
+  together. Use a clear view switch or filters such as **Assigned to me** and
+  **All accessible content**, with sensible defaults based on role.
+- Preserve the existing distinction: client membership determines which
+  account-manager content appears in My Work; `content_items.assigned_to` means
+  the assigned creator/editor. Keep that label explicit and do not use it as a
+  proxy for client ownership. Supabase RLS remains the visibility boundary.
+- Keep the Content page as the complete calendar-content source of truth. Do
+  not create a second content tracker table, copy records, or make users update
+  the same status in another view.
+
+### Connect content to the task experience without duplicate records
+
+- Calendar content should also appear in the responsible person's **My Work**
+  (or My Tasks) list as a clearly labeled **Content** card. Supervisors should
+  get an authorized team view. This is a view/projection of the same content
+  item, not a new row in `tasks`.
+- Offer **Add task** on a content item when the team wants a separate named
+  owner, progress, and due date. Persist the optional `tasks.content_item_id`
+  relationship; once linked, show the task instead of a duplicate content card
+  in that person's My Work, while keeping the content item on Content and
+  Calendar. Do not automatically create linked tasks during CSV import.
+- Keep **standalone Tasks** for work outside the content calendar, such as a
+  separate supervisor request. Label them **Task** in My Work and preserve the
+  existing task assignment, comments, checklist, submission, review, cancel,
+  and recoverable-trash capabilities.
+- Do not send one calendar post through both task review and content review.
+  Content files/reviews stay attached to the content item; standalone-task
+  files/reviews stay attached to the task. Keep approval, publication, task
+  completion, and cancellation as distinct outcomes.
+- Use the account manager's client membership to include that client's content
+  in My Work; do not require the assigned creator/editor to be the account
+  manager. For new items, an Account Manager may default the creator/editor to
+  themselves; Supervisor/Admin imports may select a creator/editor. Preserve
+  explicit CSV creator/editor values and allow genuinely unassigned items.
+
+### Calendar date rules
+
+- Use the content **publish date** as the primary calendar placement for a
+  social post. Show content deadlines and standalone-task due dates as separate
+  event types with clear labels; do not silently substitute one date for
+  another.
+- Decide whether and where `work_date` belongs in the calendar. It is stored
+  for content but is not currently included by the Calendar page query. Only
+  add it as a separate labeled event if Account Managers confirm it is useful;
+  otherwise keep it in the item details and avoid cluttering the calendar.
+- Preserve date-only values as local calendar dates and interpret timed
+  publish values in the configured workspace timezone (Asia/Manila for the
+  current operation). Test imports and display for off-by-one-day errors.
+
+### Recommended status and review presentation
+
+- Preserve stored workflow states and history, but simplify the everyday
+  content labels/actions to: **Planned → In progress → In review → Changes
+  requested → Approved → Scheduled → Published**. Keep rare/exceptional states
+  (waiting on client, rejected, cancelled) available in details or supervisor
+  filters rather than the primary path.
+- A supervisor may have one **Review queue** that aggregates pending content
+  submissions and standalone-task submissions, labeled by type. Each decision
+  must still call the correct content-review or task-review workflow and retain
+  its separate permissions/history. If a combined queue makes the UI less
+  clear, keep the existing distinct review surfaces.
+- Approval is not publication. Completing a standalone task does not approve
+  content. These distinctions are retained even if the work lists are unified.
+
+### Sequence and acceptance checks
+
+1. Confirm assignment ownership, CSV date meanings, multi-platform row
+   representation, and campaign default strategy before any migration.
+2. Unify the Content navigation/views and ensure the same content remains
+   reachable from the Calendar and the responsible person's My Work list.
+3. Keep the required campaign relationship and simplify selection with an
+   automatically created per-client General / Ongoing campaign. Draft/Active
+   campaigns may receive new content; paused/closed campaigns cannot, while
+   existing work/history remains available.
+4. Add content cards to My Work without inserting duplicate task rows; keep
+   standalone supervisor tasks working independently.
+5. Run role-based end-to-end checks: import → Calendar → My Work → upload →
+   content review/revision → approval → publish, and separately create → assign
+   → review/complete a standalone task. Verify date boundaries, client access,
+   campaign membership, and status history.
+
+### Local implementation checkpoint — 2026-10-12
+
+The first UI/data-loading slice is implemented locally:
+
+- Account Manager and Supervisor navigation now use one **Content** destination;
+  the separate My Content rendering mode was removed. The shared tracker retains
+  search, filters, import, editing, and a collapsed Files and review section.
+- Active content records are loaded through the authenticated, RLS-scoped
+  workflow loader and shown in the My Work / Team work page under a clearly
+  labeled Content section. Account Managers see all content in their RLS-scoped
+  client accounts; Supervisors see content in their authorized scope. Cards
+  identify the assigned creator/editor and link to the content row. No `tasks`
+  row is created for a calendar item.
+- New manual content defaults its assigned creator/editor to the creating user.
+  Account Manager imports default that field to the importer; Supervisor/Admin
+  imports choose a creator/editor for a single-client import or map the column
+  for a multi-client import. The database and prior UI identify `assigned_to` as
+  creator/editor, while `client_members` records client/account-manager access.
+  My Work now shows all RLS-visible client content to an Account Manager rather
+  than filtering it by creator/editor. No historical assignments were rewritten.
+- Import mapping is collapsed under Advanced column mapping by default, detected
+  social-calendar headers are combined with ordinary field detection, and the
+  preview remains the validation gate.
+- Added `docs/sample-content-import.csv` and
+  `docs/sample-content-import-guide.md`. The sample has separate publish, work,
+  and deadline dates and is designed to appear in Content, Calendar, and My Work
+  without creating duplicate tasks.
+- The Calendar continues to use publish date and separately labeled deadlines;
+  `work_date` is still not a Calendar event.
+
+Local checks passed after the change: `npm run typecheck`, `npm run lint`,
+`npm test` (25 tests), `npm run test:schema`, and `npm run build`. No SQL
+migration, hosted database, or deployment was changed.
+
+The previous revision still required choosing a campaign. That friction has now
+been addressed locally in the next checkpoint below. Live role-based browser
+smoke tests remain pending; the hosted migration also remains unapplied. The
+existing `assigned_to` field is preserved as creator/editor, and client-based
+My Work visibility no longer relies on it.
+
+### Local campaign-friction checkpoint — 2026-10-12
+
+- Added `202610200001_default_campaign_and_pause_guard.sql`. The authenticated
+  content workflow can create one per-client **General / Ongoing** campaign
+  when no named campaign is selected; the client permission check, active-client
+  check, advisory lock, and activity log stay in the database.
+- Campaign selection is now optional for manual entry and CSV import. CSV users
+  still choose a default client when the file has no client column; the campaign
+  can be left on automatic or set to a named Draft/Active campaign.
+- Paused, completed, and cancelled campaigns are hidden from new-content choices
+  and protected by a database trigger. Draft/Active campaigns may be selected.
+  Existing content can still be edited while its campaign is paused/closed, but
+  it cannot be moved into a paused/closed campaign. If the default campaign was
+  paused/closed, the UI reports that it must be reopened.
+- The database still has a required campaign foreign key, preserving the
+  existing review/version relationship; no nullable schema conversion was made.
+- Updated the sample import guide. Validation passed locally: typecheck, lint,
+  schema validation, all 25 tests, production build, and `git diff --check`.
+
+This SQL migration has **not** been applied to Supabase. Before hosted use,
+review and apply it through the normal migration process, then test the create,
+import, pause/reactivate, and existing-review flows with Account Manager and
+Supervisor roles. Legacy ownership cleanup is still separate.
+
+**Stop condition:** if ownership, multi-platform behavior, a campaign-linked
+review constraint, or hosted schema state is unclear, pause before changing
+data or migrations. Resolve that issue first and update this plan.
+
 ## Phase 0 — Stabilize and establish environment parity
 
 **Goal:** ensure all later work starts from a known-good application and a
@@ -193,9 +378,9 @@ campaign.
   access.
 - Build a real campaign list/detail flow with search/filter/status and useful
   loading, empty, error, and permission-denied states.
-- Connect campaign selectors in content creation/import to active campaigns
-  belonging to the selected client. Show clear messages when a client has no
-  eligible campaigns.
+- Connect optional campaign selectors in content creation/import to Draft or
+  Active campaigns belonging to the selected client. Use a per-client General /
+  Ongoing default instead of blocking users when no named campaign is selected.
 
 ### Tests and exit gate
 

@@ -19,7 +19,7 @@ export type ImportField =
 
 export const contentImportFields: Array<{ id: ImportField; label: string; required?: boolean; aliases: string[] }> = [
   { id: "client", label: "Client / account", required: true, aliases: ["client", "client name", "account", "account name", "brand"] },
-  { id: "campaign", label: "Campaign", required: true, aliases: ["campaign", "campaign name", "project", "content campaign"] },
+  { id: "campaign", label: "Campaign", aliases: ["campaign", "campaign name", "project", "content campaign"] },
   { id: "title", label: "Content title", required: true, aliases: ["title", "post title", "content title", "post idea", "content idea", "topic", "post name", "content name"] },
   { id: "platform", label: "Platform", required: true, aliases: ["platform", "social platform", "channel", "social media"] },
   { id: "contentType", label: "Format", required: true, aliases: ["format", "content type", "post type", "content format", "type"] },
@@ -35,7 +35,7 @@ export const contentImportFields: Array<{ id: ImportField; label: string; requir
   { id: "description", label: "Brief / caption", aliases: ["description", "caption", "brief"] },
   { id: "nextAction", label: "Next action", aliases: ["next action", "action", "next step"] },
   { id: "revisionNotes", label: "Revision feedback", aliases: ["revision notes", "revision comments", "client comments", "feedback", "comments"] },
-  { id: "assignee", label: "Assigned creator", aliases: ["designer", "creator", "assignee", "assigned to", "owner", "responsible", "editor", "video/graphic editor", "video/grahpic editor"] },
+  { id: "assignee", label: "Assigned creator / editor", aliases: ["designer", "creator", "assignee", "assigned to", "owner", "responsible", "editor", "video/graphic editor", "video/grahpic editor"] },
 ]
 
 export const normalizeImportValue = (value: string) => value.trim().toLocaleLowerCase().replace(/\s+/g, " ")

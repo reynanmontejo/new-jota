@@ -24,6 +24,8 @@ export type ContentCalendarPost = {
   clientApprovalStatus?: string | null
   clientIssues?: string | null
   notes?: string | null
+  ownerId?: string | null
+  ownerName?: string | null
 }
 
 const demoScheduledContent: ContentCalendarPost[] = [
@@ -42,6 +44,12 @@ function scheduledDateKey(value: string) {
   return Number.isNaN(parsed.getTime()) ? value.slice(0, 10) : dateKey(parsed)
 }
 
+export function filterContentByOwner(posts: ContentCalendarPost[], ownerFilter: string, currentUserId: string) {
+  if (ownerFilter === "all") return posts
+  if (ownerFilter === "mine") return posts.filter((post) => post.ownerId === currentUserId)
+  return posts.filter((post) => post.ownerId === ownerFilter)
+}
+
 export function ContentCalendar({ contentPosts, contentError = false, clientId }: { contentPosts?: ContentCalendarPost[]; contentError?: boolean; clientId?: string }) {
   const [month, setMonth] = useState(() => {
     const now = new Date()
@@ -49,6 +57,7 @@ export function ContentCalendar({ contentPosts, contentError = false, clientId }
   })
   const { tasks, currentUser } = useWorkflow()
   const { openTask } = useTaskDrawer()
+  const [contentOwnerFilter, setContentOwnerFilter] = useState("all")
   const firstWeekday = month.getDay()
   const daysInMonth = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate()
   const monthLabel = new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" }).format(month)
@@ -62,7 +71,12 @@ export function ContentCalendar({ contentPosts, contentError = false, clientId }
   const accessibleClientIds = new Set(tasks.filter((task) => currentUser.role === "supervisor" || task.primaryOwner.id === currentUser.id).map((task) => task.clientId))
   const scheduledContent = contentPosts ?? demoScheduledContent
   const visibleScheduledContent = contentPosts ? scheduledContent : currentUser.role === "supervisor" ? scheduledContent : scheduledContent.filter((item) => accessibleClientIds.has(item.clientId))
-  const scheduledEvents = visibleScheduledContent.map((item) => ({ ...item, date: scheduledDateKey(item.date) }))
+  const ownerOptions = [...new Map(visibleScheduledContent.flatMap((post) => post.ownerId && post.ownerName ? [[post.ownerId, post.ownerName] as const] : [])).entries()]
+    .sort((a, b) => a[1].localeCompare(b[1]))
+  const ownerFilteredContent = currentUser.role === "supervisor"
+    ? filterContentByOwner(visibleScheduledContent, contentOwnerFilter, currentUser.id)
+    : visibleScheduledContent
+  const scheduledEvents = ownerFilteredContent.map((item) => ({ ...item, date: scheduledDateKey(item.date) }))
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const selectedPosts = selectedDate ? scheduledEvents.filter((item) => item.date === selectedDate) : []
   const selectedDeadlines = selectedDate ? deadlines.filter((item) => item.date === selectedDate) : []
@@ -84,7 +98,16 @@ export function ContentCalendar({ contentPosts, contentError = false, clientId }
     <div className="mx-auto max-w-[1480px] px-0 py-2 sm:px-0">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div><h1 className="text-xl font-semibold tracking-tight">Calendar</h1><p className="mt-1 text-xs text-muted-foreground">Scheduled content and your task deadlines</p></div>
-        <div className="flex items-center gap-2"><Button variant="outline" size="icon-sm" aria-label="Previous month" onClick={() => changeMonth(-1)}><ChevronLeft /></Button><span className="min-w-32 text-center text-sm font-semibold">{monthLabel}</span><Button variant="outline" size="icon-sm" aria-label="Next month" onClick={() => changeMonth(1)}><ChevronRight /></Button></div>
+        <div className="flex flex-wrap items-center gap-2">
+          {currentUser.role === "supervisor" && <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">Content owner
+            <select aria-label="Filter calendar content by owner" className="h-9 rounded-md border bg-background px-2.5 text-sm text-foreground" value={contentOwnerFilter} onChange={(event) => setContentOwnerFilter(event.target.value)}>
+              <option value="all">Everyone</option>
+              <option value="mine">My content</option>
+              {ownerOptions.filter(([id]) => id !== currentUser.id).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+            </select>
+          </label>}
+          <div className="flex items-center gap-2"><Button variant="outline" size="icon-sm" aria-label="Previous month" onClick={() => changeMonth(-1)}><ChevronLeft /></Button><span className="min-w-32 text-center text-sm font-semibold">{monthLabel}</span><Button variant="outline" size="icon-sm" aria-label="Next month" onClick={() => changeMonth(1)}><ChevronRight /></Button></div>
+        </div>
       </div>
       {contentError && <p role="status" className="mt-3 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-muted-foreground">Scheduled content couldn’t be loaded. Task deadlines are still available.</p>}
       <section aria-label={`${monthLabel} calendar`} className="overview-panel mt-4 hidden overflow-hidden rounded-lg border md:block">

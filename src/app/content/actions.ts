@@ -11,7 +11,7 @@ const approvals = ["pending", "approved", "revision_requested", "rejected"] as c
 const schema = z.object({
   id: z.string().uuid().optional(),
   clientId: z.string().uuid(),
-  campaignId: z.string().uuid(),
+  campaignId: z.union([z.string().uuid(), z.literal("")]),
   title: z.string().trim().min(2).max(200),
   platform: z.string().trim().min(2).max(60),
   contentType: z.string().trim().min(2).max(80),
@@ -73,11 +73,20 @@ export async function saveContentItem(formData: FormData) {
   if (publishAt === undefined || workDate === undefined || deadlineAt === undefined) redirect("/content?notice=invalid")
 
   const supabase = await createClient()
+  let campaignId = parsed.data.campaignId
+  if (!campaignId) {
+    const { data, error } = await supabase.rpc("ensure_default_campaign_for_current_user", { p_client_id: parsed.data.clientId })
+    if (error?.code === "42501") redirect("/content?notice=forbidden")
+    if (error?.code === "PGRST202") redirect("/content?notice=content_migration_missing")
+    if (error?.code === "22023") redirect("/content?notice=campaign_paused")
+    if (error || typeof data !== "string") redirect("/content?notice=failed")
+    campaignId = data
+  }
   const result = parsed.data.id
     ? await supabase.rpc("update_content_tracker_item_for_current_user", {
       p_content_id: parsed.data.id,
       p_client_id: parsed.data.clientId,
-      p_campaign_id: parsed.data.campaignId,
+      p_campaign_id: campaignId,
       p_title: parsed.data.title,
       p_platform: parsed.data.platform,
       p_content_type: parsed.data.contentType,
@@ -95,7 +104,7 @@ export async function saveContentItem(formData: FormData) {
     })
     : await supabase.rpc("create_content_tracker_item_for_current_user", {
       p_client_id: parsed.data.clientId,
-      p_campaign_id: parsed.data.campaignId,
+      p_campaign_id: campaignId,
       p_title: parsed.data.title,
       p_platform: parsed.data.platform,
       p_content_type: parsed.data.contentType,
@@ -113,6 +122,8 @@ export async function saveContentItem(formData: FormData) {
 
   if (result.error?.code === "42501") redirect("/content?notice=forbidden")
   if (result.error?.code === "PGRST202") redirect("/content?notice=content_migration_missing")
+  if (result.error?.code === "23514") redirect("/content?notice=campaign_paused")
+  if (result.error?.code === "22023") redirect("/content?notice=invalid")
   if (result.error) redirect("/content?notice=failed")
   revalidatePath("/content")
   revalidatePath("/calendar")
@@ -131,9 +142,50 @@ export async function archiveContentItem(formData: FormData) {
   redirect("/content?notice=archived")
 }
 
+export async function markScheduledContentPublished(contentId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const parsedId = z.string().uuid().safeParse(contentId)
+  if (!parsedId.success) return { ok: false, error: "Content item not found." }
+
+  const supabase = await createClient()
+  const { data: item, error: loadError } = await supabase.from("content_items")
+    .select("id,client_id,campaign_id,title,platform,content_type,description,status,work_date,deadline_at,publish_at,client_approval_status,client_issues,notes,next_action,revision_notes,assigned_to")
+    .eq("id", parsedId.data)
+    .is("deleted_at", null)
+    .maybeSingle()
+  if (loadError || !item) return { ok: false, error: "Could not find this content item or you do not have access to it." }
+  if (item.status !== "scheduled") return { ok: false, error: "Only scheduled content can be marked as published." }
+
+  const { error } = await supabase.rpc("update_content_tracker_item_for_current_user", {
+    p_content_id: item.id,
+    p_client_id: item.client_id,
+    p_campaign_id: item.campaign_id,
+    p_title: item.title,
+    p_platform: item.platform,
+    p_content_type: item.content_type,
+    p_description: item.description,
+    p_status: "published",
+    p_work_date: item.work_date,
+    p_deadline_at: item.deadline_at,
+    p_publish_at: item.publish_at,
+    p_client_approval_status: item.client_approval_status,
+    p_client_issues: item.client_issues,
+    p_notes: item.notes,
+    p_next_action: "Published",
+    p_revision_notes: item.revision_notes,
+    p_assigned_to: item.assigned_to,
+  })
+  if (error?.code === "42501") return { ok: false, error: "You do not have permission to update this content." }
+  if (error) return { ok: false, error: "The content could not be marked as published. Please try again." }
+
+  revalidatePath("/tasks")
+  revalidatePath("/content")
+  revalidatePath("/calendar")
+  return { ok: true }
+}
+
 const importRowSchema = z.object({
   client_id: z.string().uuid(),
-  campaign_id: z.string().uuid(),
+  campaign_id: z.union([z.string().uuid(), z.literal("")]),
   title: z.string().min(2).max(200),
   platform: z.string().min(2).max(60),
   content_type: z.string().min(2).max(80),
@@ -160,8 +212,19 @@ export async function importContentItems(formData: FormData) {
   if (!parsed.success) redirect("/content?notice=invalid_import")
 
   const supabase = await createClient()
-  const { data, error } = await supabase.rpc("import_content_items_for_current_user", { p_rows: parsed.data })
+  const defaultCampaignIds = new Map<string, string>()
+  for (const clientId of new Set(parsed.data.filter((row) => !row.campaign_id).map((row) => row.client_id))) {
+    const { data: campaignId, error: campaignError } = await supabase.rpc("ensure_default_campaign_for_current_user", { p_client_id: clientId })
+    if (campaignError?.code === "42501") redirect("/content?notice=forbidden")
+    if (campaignError?.code === "PGRST202") redirect("/content?notice=content_migration_missing")
+    if (campaignError?.code === "22023") redirect("/content?notice=campaign_paused")
+    if (campaignError || typeof campaignId !== "string") redirect("/content?notice=failed")
+    defaultCampaignIds.set(clientId, campaignId)
+  }
+  const rows = parsed.data.map((row) => ({ ...row, campaign_id: row.campaign_id || defaultCampaignIds.get(row.client_id)! }))
+  const { data, error } = await supabase.rpc("import_content_items_for_current_user", { p_rows: rows })
   if (error?.code === "42501") redirect("/content?notice=forbidden")
+  if (error?.code === "23514") redirect("/content?notice=campaign_paused")
   if (error?.code === "22023") redirect("/content?notice=invalid_import")
   if (error?.code === "PGRST202") redirect("/content?notice=content_migration_missing")
   if (error) redirect("/content?notice=failed")

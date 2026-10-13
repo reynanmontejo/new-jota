@@ -21,18 +21,22 @@ export default async function ContentPage({ searchParams }: { searchParams: Prom
 
   const { data: memberships, error: roleError } = await supabase.from("user_roles").select("role_id").eq("organization_id", profile.organization_id).eq("user_id", authData.user.id)
   if (roleError || !memberships?.length) return <DashboardShell><main className="mx-auto max-w-6xl px-4 py-6"><ContentState variant="error" title="Content access couldn’t be checked" description="Refresh the page. No content was changed." /></main></DashboardShell>
+  const { data: roleRows, error: rolesError } = await supabase.from("roles").select("code").in("id", memberships.map((membership) => membership.role_id))
+  if (rolesError) return <DashboardShell><main className="mx-auto max-w-6xl px-4 py-6"><ContentState variant="error" title="Content role could not be checked" description="Refresh the page. No content was changed." /></main></DashboardShell>
+  const canAssignContent = Boolean(roleRows?.some((role) => ["supervisor", "administrator"].includes(role.code)))
 
-  const { data: permissions, error: permissionError } = await supabase.from("role_permissions").select("permission_code").eq("organization_id", profile.organization_id).in("role_id", memberships.map((membership) => membership.role_id)).in("permission_code", ["content.create", "content.update"])
+  const { data: permissions, error: permissionError } = await supabase.from("role_permissions").select("permission_code").eq("organization_id", profile.organization_id).in("role_id", memberships.map((membership) => membership.role_id)).in("permission_code", ["content.create", "content.update", "tasks.create"])
   if (permissionError) return <DashboardShell><main className="mx-auto max-w-6xl px-4 py-6"><ContentState variant="error" title="Content permissions couldn’t be loaded" description="Refresh the page. No content was changed." /></main></DashboardShell>
   const canCreate = Boolean(permissions?.some((permission) => permission.permission_code === "content.create"))
   const canEdit = Boolean(permissions?.some((permission) => permission.permission_code === "content.update"))
+  const canCreateTask = Boolean(permissions?.some((permission) => permission.permission_code === "tasks.create"))
 
   const { data: clientsData, error: clientsError } = await supabase.from("clients").select("id,name").is("deleted_at", null).order("name")
   if (clientsError) return <DashboardShell><main className="mx-auto max-w-6xl px-4 py-6"><ContentState variant="error" title="Clients couldn’t be loaded for the tracker" description="Check your client access, then refresh. No records were changed." /></main></DashboardShell>
   const clients = (clientsData ?? []) as TrackerClient[]
   const clientIds = clients.map((client) => client.id)
   const [campaignResult, contentResult, membersResult] = clientIds.length ? await Promise.all([
-    supabase.from("campaigns").select("id,client_id,name").is("deleted_at", null).in("client_id", clientIds).order("name"),
+    supabase.from("campaigns").select("id,client_id,name,status").is("deleted_at", null).in("client_id", clientIds).order("name"),
     supabase.from("content_items").select("id,client_id,campaign_id,title,platform,content_type,description,status,work_date,deadline_at,publish_at,client_approval_status,client_issues,notes,revision_count,revision_notes,next_action,assigned_to").is("deleted_at", null).in("client_id", clientIds).order("publish_at", { ascending: true, nullsFirst: false }),
     supabase.from("client_members").select("client_id,user_id").is("removed_at", null).in("client_id", clientIds),
   ]) : [{ data: [], error: null }, { data: [], error: null }, { data: [], error: null }]
@@ -67,5 +71,5 @@ export default async function ContentPage({ searchParams }: { searchParams: Prom
     return campaign && client ? [{ ...item, client_name: client.name, campaign_name: campaign.name, assignee_name: assignee?.display_name ?? null }] : []
   })
 
-  return <DashboardShell><ContentTracker clients={clients} campaigns={campaigns} assignees={assignees} items={items} canCreate={canCreate} canEdit={canEdit} notice={typeof params.notice === "string" ? params.notice : undefined} importedCount={importedCount} skippedCount={skippedCount} workView={params.view === "work"} /></DashboardShell>
+  return <DashboardShell><ContentTracker clients={clients} campaigns={campaigns} assignees={assignees} items={items} canCreate={canCreate} canEdit={canEdit} canCreateTask={canCreateTask} currentUserId={authData.user.id} canAssignContent={canAssignContent} notice={typeof params.notice === "string" ? params.notice : undefined} importedCount={importedCount} skippedCount={skippedCount} /></DashboardShell>
 }

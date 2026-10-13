@@ -1,15 +1,16 @@
 "use client"
 
-import { useCallback, useEffect, useId, useRef, useState } from "react"
+import { useCallback, useEffect, useId, useRef, useState, type ClipboardEvent } from "react"
 import { createPortal } from "react-dom"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
-import { Download, FileText, UploadCloud, X } from "lucide-react"
+import { ClipboardPaste, Download, FileText, UploadCloud, X } from "lucide-react"
 
 import { UploadProgress } from "@/components/states/content-state"
 import { Button } from "@/components/ui/button"
 import { MAX_UPLOAD_SIZE_LABEL } from "@/lib/storage/upload-limits"
 import { fileCategoryLabels, getFileCategory, type FileTypeFilter } from "@/lib/storage/file-types"
+import { getPreviewMimeType } from "@/lib/storage/preview-types"
 
 type StoredFile = { id: string; file_name: string; mime_type: string; size_bytes: number; created_at: string; content_item_id?: string | null }
 type UploadState = { fileName: string; progress: number; status: "uploading" | "complete" | "error"; error?: string }
@@ -122,6 +123,34 @@ export function ClientFiles({ clientId, taskId, contentItemId, canUpload = true,
     }
   }
 
+  function pasteImage(event: ClipboardEvent<HTMLButtonElement>) {
+    const imageItem = Array.from(event.clipboardData.items).find((item) => item.kind === "file" && item.type.startsWith("image/"))
+    if (!imageItem) return
+    event.preventDefault()
+    if (busy) {
+      setMessage("Wait for the current upload to finish before pasting another image.")
+      return
+    }
+    const clipboardFile = imageItem.getAsFile()
+    if (!clipboardFile) {
+      setMessage("The clipboard image could not be read. Copy the image again and retry.")
+      return
+    }
+    const imageExtensions: Record<string, string> = {
+      "image/png": "png",
+      "image/jpeg": "jpg",
+      "image/webp": "webp",
+      "image/gif": "gif",
+    }
+    const extension = imageExtensions[clipboardFile.type]
+    if (!extension) {
+      setMessage("Pasted images must be PNG, JPG, WEBP, or GIF.")
+      return
+    }
+    const pastedFile = new File([clipboardFile], `pasted-image-${Date.now()}.${extension}`, { type: clipboardFile.type })
+    void uploadFile(pastedFile)
+  }
+
   async function submitForReview() {
     if ((!contentItemId && !taskId) || !selectedFileIds.length || submitting) return
     setSubmitting(true)
@@ -151,7 +180,11 @@ export function ClientFiles({ clientId, taskId, contentItemId, canUpload = true,
       <div><h2 id={headingId} className="text-sm font-semibold">{contentItemId ? "Content files" : taskId ? "Task files" : "Client files"}</h2><p className="mt-1 text-xs text-muted-foreground">{compact ? `Google Drive · up to ${MAX_UPLOAD_SIZE_LABEL} per file` : `Private files stored in Google Drive. Maximum file size: ${MAX_UPLOAD_SIZE_LABEL}.`}</p></div>
       {canUpload && <div>
         <input ref={picker} className="sr-only" type="file" accept={acceptedTypes} onChange={(event) => void uploadFile(event.target.files?.[0])} />
-        <Button type="button" size="sm" disabled={busy || loading || !storageConnected} onClick={() => picker.current?.click()}><UploadCloud aria-hidden="true" className="mr-1.5 size-3.5" />{busy ? "Uploading…" : "Upload file"}</Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" size="sm" disabled={busy || loading || !storageConnected} onClick={() => picker.current?.click()}><UploadCloud aria-hidden="true" className="mr-1.5 size-3.5" />{busy ? "Uploading…" : "Upload file"}</Button>
+          <Button type="button" size="sm" variant="outline" disabled={busy || loading || !storageConnected} onPaste={pasteImage} title="Click this button, then press Ctrl+V to upload a copied image"><ClipboardPaste aria-hidden="true" className="mr-1.5 size-3.5" />Paste image</Button>
+        </div>
+        <p className="mt-1.5 text-right text-[10px] text-muted-foreground">Click “Paste image”, then press Ctrl+V.</p>
       </div>}
     </div>
     {message && <p role="status" className="mt-3 rounded-md border border-border bg-background/60 px-3 py-2 text-xs text-muted-foreground">{message}</p>}
@@ -160,8 +193,9 @@ export function ClientFiles({ clientId, taskId, contentItemId, canUpload = true,
     {!compact && !loading && files.length > 0 && <div className="mt-4 flex flex-wrap items-center justify-between gap-2"><label className="text-[11px] font-medium text-muted-foreground" htmlFor={`${headingId}-file-filter`}>Filter files</label><select id={`${headingId}-file-filter`} value={fileFilter} onChange={(event) => setFileFilter(event.target.value as FileTypeFilter)} className="h-8 rounded-md border bg-background px-2 text-xs"><option value="all">All types ({files.length})</option>{Object.entries(fileCategoryLabels).map(([category, label]) => <option key={category} value={category}>{label} ({files.filter((file) => getFileCategory(file.mime_type) === category).length})</option>)}</select></div>}
     {loading ? <p className="mt-3 rounded-md border border-dashed p-4 text-center text-xs text-muted-foreground">Loading files…</p> : visibleFiles.length ? <ul className={compact ? "mt-3 grid grid-cols-1 gap-2" : "mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3"}>{visibleFiles.map((file) => {
       const previewUrl = `/api/files/${encodeURIComponent(file.id)}?inline=1`
-      const isImage = ["image/jpeg", "image/png", "image/webp", "image/gif"].includes(file.mime_type)
-      const isVideo = ["video/mp4", "video/webm", "video/quicktime"].includes(file.mime_type)
+      const previewMimeType = getPreviewMimeType(file.mime_type, file.file_name)
+      const isImage = previewMimeType?.startsWith("image/") ?? false
+      const isVideo = previewMimeType?.startsWith("video/") ?? false
       return <li key={file.id} className={`min-w-0 rounded-xl border border-border/80 bg-card/85 ${compact ? "p-2" : "p-2.5"} shadow-sm transition hover:border-primary/25 hover:shadow-md`}>
         {compact ? <div className="flex min-w-0 items-center gap-3">
           <div className="h-[68px] w-28 shrink-0 overflow-hidden rounded-lg border bg-muted/35">

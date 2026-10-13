@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 vi.mock("@/app/content/actions", () => ({ archiveContentItem: vi.fn(), saveContentItem: vi.fn() }))
 vi.mock("@/features/clients/client-files", () => ({ ClientFiles: () => null }))
 vi.mock("@/features/content/content-import", () => ({ ContentImport: () => null }))
+vi.mock("@/features/tasks/task-drawer", () => ({ useTaskDrawer: () => ({ openNewTask: vi.fn(), openTask: vi.fn() }) }))
 
 import { ContentTracker, type TrackerItem } from "@/features/content/content-tracker"
 
@@ -22,16 +23,15 @@ const items: TrackerItem[] = [
   },
 ]
 
-describe("My Content worklist", () => {
-  it("shows accessible content, useful workflow details, and can search it", () => {
-    render(<ContentTracker clients={[{ id: "client-1", name: "Northwind" }, { id: "client-2", name: "Contoso" }]} campaigns={[]} assignees={{}} items={items} canCreate={false} canEdit={false} workView />)
+describe("unified content tracker", () => {
+  it("shows content, owner and workflow details, and can search it", () => {
+    render(<ContentTracker clients={[{ id: "client-1", name: "Northwind" }, { id: "client-2", name: "Contoso" }]} campaigns={[]} assignees={{}} items={items} canCreate={false} canEdit={false} canCreateTask={false} currentUserId="user-1" canAssignContent={false} />)
 
-    expect(screen.getByRole("heading", { name: "My Content" })).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "Content tracker" })).toBeInTheDocument()
     expect(screen.getByText("Finish first cut")).toBeInTheDocument()
     expect(screen.getByText("Creator/editor: Editor")).toBeInTheDocument()
-    expect(screen.getByText(/creator assignment is shown separately/i)).toBeInTheDocument()
 
-    fireEvent.change(screen.getByRole("textbox", { name: "Search my content" }), { target: { value: "contoso" } })
+    fireEvent.change(screen.getByRole("textbox", { name: "Search content" }), { target: { value: "contoso" } })
     expect(screen.getByText("November announcement")).toBeInTheDocument()
     expect(screen.queryByText("October product reel")).not.toBeInTheDocument()
   })

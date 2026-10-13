@@ -25,6 +25,10 @@ const persistentTaskNotificationsMigrationPath = "supabase/migrations/2026101600
 const taskCommentDueNotificationsMigrationPath = "supabase/migrations/202610170001_task_comment_and_due_notifications.sql"
 const notificationWebPushMigrationPath = "supabase/migrations/202610180001_notification_web_push.sql"
 const taskAssignmentTrashMigrationPath = "supabase/migrations/202610190001_task_assignment_and_trash.sql"
+const defaultCampaignPauseGuardMigrationPath = "supabase/migrations/202610200001_default_campaign_and_pause_guard.sql"
+const contentLinkedTasksMigrationPath = "supabase/migrations/202610210001_content_linked_tasks.sql"
+const completedTaskTrashMigrationPath = "supabase/migrations/202610220001_completed_task_trash.sql"
+const profileSecurityMigrationPath = "supabase/migrations/202610230001_profile_photos_and_password_approval.sql"
 const seedPath = "supabase/seed.sql"
 
 const database = new PGlite()
@@ -40,9 +44,21 @@ migration = migration
 await database.exec(`
   create role anon;
   create role authenticated;
-  create role service_role;
+  create role service_role bypassrls;
   create schema auth;
+  create schema storage;
+  grant usage on schema storage to authenticated;
   create table auth.users (id uuid primary key, email text);
+  create table storage.buckets (
+    id text primary key, name text not null, public boolean not null default false,
+    file_size_limit bigint, allowed_mime_types text[]
+  );
+  create table storage.objects (bucket_id text not null, name text not null, primary key (bucket_id, name));
+  alter table storage.objects enable row level security;
+  grant select, insert, update, delete on storage.objects to authenticated;
+  create function storage.foldername(p_name text) returns text[] language sql immutable as $$
+    select string_to_array(p_name, '/')
+  $$;
   create function auth.uid() returns uuid language sql stable as $$
     select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
   $$;
@@ -118,6 +134,10 @@ await database.exec(persistentTaskNotificationsMigration)
 await database.exec(await fs.readFile(taskCommentDueNotificationsMigrationPath, "utf8"))
 await database.exec(await fs.readFile(notificationWebPushMigrationPath, "utf8"))
 await database.exec(await fs.readFile(taskAssignmentTrashMigrationPath, "utf8"))
+await database.exec(await fs.readFile(defaultCampaignPauseGuardMigrationPath, "utf8"))
+await database.exec(await fs.readFile(contentLinkedTasksMigrationPath, "utf8"))
+await database.exec(await fs.readFile(completedTaskTrashMigrationPath, "utf8"))
+await database.exec(await fs.readFile(profileSecurityMigrationPath, "utf8"))
 const providerSecretAccess = await database.query(`
   select has_table_privilege('authenticated', 'public.google_drive_connections', 'select') as can_read_tokens,
          has_table_privilege('authenticated', 'public.client_drive_folders', 'select') as can_read_folder_map,
@@ -202,6 +222,58 @@ async function asUser(userId, callback) {
     await database.exec("reset role")
   }
 }
+
+const passwordRequestId = "91000000-0000-0000-0000-000000000001"
+await database.exec("set role service_role")
+try {
+  await database.query(`insert into public.password_change_requests (id, organization_id, user_id, request_note)
+    values ('${passwordRequestId}', '10000000-0000-0000-0000-000000000001', '${employeeOne}', 'Lost access to current password')`)
+} finally { await database.exec("reset role") }
+let duplicatePasswordRequestRejected = false
+await database.exec("set role service_role")
+try {
+  await database.query(`insert into public.password_change_requests (organization_id, user_id)
+    values ('10000000-0000-0000-0000-000000000001', '${employeeOne}')`)
+} catch (error) {
+  duplicatePasswordRequestRejected = error?.code === "23505"
+} finally { await database.exec("reset role") }
+if (!duplicatePasswordRequestRejected) throw new Error("A user was allowed more than one pending/approved password request")
+let employeePasswordRequestReadRejected = false
+try {
+  await asUser(employeeOne, () => database.query(`select * from public.password_change_requests where id = '${passwordRequestId}'`))
+} catch (error) {
+  employeePasswordRequestReadRejected = error?.code === "42501"
+}
+if (!employeePasswordRequestReadRejected) throw new Error("Authenticated users can read password request records directly")
+const requestPermissions = await database.query(`
+  select has_table_privilege('authenticated', 'public.password_change_requests', 'select') as employee_can_read,
+         has_table_privilege('service_role', 'public.password_change_requests', 'select') as service_can_read,
+         (select count(*)::int from information_schema.columns where table_schema = 'public'
+           and table_name = 'password_change_requests' and column_name ilike '%password%') as password_columns,
+         (select count(*)::int from pg_policies where schemaname = 'storage' and tablename = 'objects'
+           and policyname like 'profile_avatars_%') as avatar_policies
+`)
+if (requestPermissions.rows[0]?.employee_can_read !== false
+  || requestPermissions.rows[0]?.service_can_read !== true
+  || requestPermissions.rows[0]?.password_columns !== 0
+  || requestPermissions.rows[0]?.avatar_policies !== 3) {
+  throw new Error(`Profile photo/password request security configuration failed: ${JSON.stringify(requestPermissions.rows[0])}`)
+}
+await asUser(employeeOne, () => database.query(`insert into storage.objects (bucket_id, name) values ('profile-avatars', '${employeeOne}/avatar.webp')`))
+let crossUserAvatarUploadRejected = false
+try {
+  await asUser(employeeTwo, () => database.query(`insert into storage.objects (bucket_id, name) values ('profile-avatars', '${employeeOne}/intruder.webp')`))
+} catch (error) {
+  crossUserAvatarUploadRejected = error?.code === "42501"
+}
+if (!crossUserAvatarUploadRejected) throw new Error("Users can upload an avatar into another user's storage folder")
+await database.exec("set role service_role")
+try {
+  await database.query(`update public.password_change_requests set status = 'approved', decided_by = '${administrator}', decided_at = now()
+    where id = '${passwordRequestId}'`)
+  await database.query(`update public.password_change_requests set status = 'completed', completed_at = now()
+    where id = '${passwordRequestId}'`)
+} finally { await database.exec("reset role") }
 
 const reviewFileOne = "90000000-0000-0000-0000-000000000001"
 const reviewFileTwo = "90000000-0000-0000-0000-000000000002"
@@ -406,6 +478,19 @@ if (alignedContent.rows[0]?.status !== "waiting_client" || alignedContent.rows[0
   throw new Error(`Aligned content tracker update failed: ${JSON.stringify(alignedContent.rows[0])}`)
 }
 
+const defaultCampaignId = await asUser(employeeOne, async () => (await database.query(`
+  select public.ensure_default_campaign_for_current_user('30000000-0000-0000-0000-000000000001') as id
+`)).rows[0]?.id)
+const repeatedDefaultCampaignId = await asUser(employeeOne, async () => (await database.query(`
+  select public.ensure_default_campaign_for_current_user('30000000-0000-0000-0000-000000000001') as id
+`)).rows[0]?.id)
+const defaultCampaign = await database.query("select name, status::text as status from public.campaigns where id = $1", [defaultCampaignId])
+if (typeof defaultCampaignId !== "string" || repeatedDefaultCampaignId !== defaultCampaignId
+  || defaultCampaign.rows[0]?.name !== "General / Ongoing"
+  || !["draft", "active"].includes(defaultCampaign.rows[0]?.status)) {
+  throw new Error("Per-client General / Ongoing campaign creation or reuse failed")
+}
+
 const createdCampaignId = await asUser(employeeOne, async () => {
   const result = await database.query(`select public.create_campaign_for_current_user(
     '30000000-0000-0000-0000-000000000001', 'Schema campaign', 'Test campaign scope', 'draft', '2026-10-10', '2026-11-10'
@@ -413,6 +498,39 @@ const createdCampaignId = await asUser(employeeOne, async () => {
   return result.rows[0]?.id
 })
 if (typeof createdCampaignId !== "string") throw new Error("Campaign creation RPC failed")
+
+const contentInDraftCampaignId = await asUser(employeeOne, async () => (await database.query(`
+  select public.create_content_tracker_item_for_current_user(
+    '30000000-0000-0000-0000-000000000001', '${createdCampaignId}',
+    'Campaign status guard test', 'Instagram', 'Graphic', null, 'planned', null, null,
+    null, null, null, null, null, '${employeeOne}'
+  ) as id
+`)).rows[0]?.id)
+if (typeof contentInDraftCampaignId !== "string") throw new Error("Draft campaign should accept new content")
+await asUser(employeeOne, async () => database.query(`select public.update_campaign_for_current_user(
+  '${createdCampaignId}', 'Schema campaign', 'Test campaign scope', 'paused', '2026-10-10', '2026-11-10'
+)`))
+let pausedCampaignContentRejected = false
+try {
+  await asUser(employeeOne, () => database.query(`
+    select public.create_content_tracker_item_for_current_user(
+      '30000000-0000-0000-0000-000000000001', '${createdCampaignId}',
+      'Should not enter paused campaign', 'Instagram', 'Graphic', null, 'planned', null, null,
+      null, null, null, null, null, '${employeeOne}'
+    )
+  `))
+} catch (error) {
+  pausedCampaignContentRejected = error?.code === "23514"
+}
+if (!pausedCampaignContentRejected) throw new Error("Paused campaign accepted new content")
+await asUser(employeeOne, async () => database.query(`select public.update_content_tracker_item_for_current_user(
+  '${contentInDraftCampaignId}', '30000000-0000-0000-0000-000000000001', '${createdCampaignId}',
+  'Campaign status guard test', 'Instagram', 'Graphic', null, 'in_production', null, null,
+  null, null, null, null, null, null, '${employeeOne}'
+)`))
+await asUser(employeeOne, async () => database.query(`select public.update_campaign_for_current_user(
+  '${createdCampaignId}', 'Schema campaign', 'Test campaign scope', 'draft', '2026-10-10', '2026-11-10'
+)`))
 
 let duplicateCampaignUpdateRejected = false
 try {
@@ -624,6 +742,35 @@ try {
   employeeCannotAssignTaskRejected = error?.code === "42501"
 }
 if (!employeeCannotAssignTaskRejected) throw new Error("Account Manager unexpectedly assigned a task to another person")
+
+const linkedContentTaskId = await asUser(employeeOne, async () => (await database.query(`select public.workflow_create_task_for_content(
+  '50000000-0000-0000-0000-000000000001', 'Create graphics for launch carousel', 'high', now() + interval '2 days', '${employeeOne}'
+) as id`)).rows[0]?.id)
+const linkedContentTask = await database.query(`
+  select t.client_id, t.campaign_id, t.content_item_id, t.title, ta.user_id
+  from public.tasks t join public.task_assignees ta on ta.task_id = t.id and ta.is_primary
+  where t.id = '${linkedContentTaskId}'
+`)
+if (!linkedContentTaskId
+  || linkedContentTask.rows[0]?.client_id !== "30000000-0000-0000-0000-000000000001"
+  || linkedContentTask.rows[0]?.campaign_id !== "40000000-0000-0000-0000-000000000001"
+  || linkedContentTask.rows[0]?.content_item_id !== "50000000-0000-0000-0000-000000000001"
+  || linkedContentTask.rows[0]?.user_id !== employeeOne) {
+  throw new Error("Content-linked task did not preserve the content client, campaign, and assignment")
+}
+let crossClientContentTaskRejected = false
+try {
+  await asUser(employeeOne, () => database.query(`select public.workflow_create_task_for_content(
+    '50000000-0000-0000-0000-000000000002', 'Unauthorized linked task', 'medium', now() + interval '2 days', '${employeeOne}'
+  )`))
+} catch (error) {
+  crossClientContentTaskRejected = error?.code === "P0002"
+}
+if (!crossClientContentTaskRejected) throw new Error("Account Manager created a task linked to content outside their client access")
+const linkedTaskRpcGrant = await database.query(`select has_function_privilege(
+  'authenticated', 'public.workflow_create_task_for_content(uuid,text,public.task_priority,timestamptz,uuid)', 'execute'
+) as allowed`)
+if (linkedTaskRpcGrant.rows[0]?.allowed !== true) throw new Error("Authenticated role cannot call the permission-checked content-linked task RPC")
 
 const supervisorTaskId = await asUser(supervisor, async () => (await database.query(`select public.workflow_create_task(
   'Supervisor off-calendar request', '30000000-0000-0000-0000-000000000002', null, 'medium', now() + interval '4 days', '${employeeTwo}'
@@ -869,6 +1016,21 @@ const completedTask = await database.query(`select status::text as status, compl
 if (completedTask.rows[0]?.status !== 'completed' || !completedTask.rows[0]?.completed_at) {
   throw new Error("Supervisor could not complete an approved task")
 }
+await asUser(supervisor, () => database.query(`select public.workflow_trash_task_for_current_user('60000000-0000-0000-0000-000000000001')`))
+const completedTaskTrashState = await database.query(`
+  select t.deleted_at,
+    (select count(*)::int from public.submissions s where s.task_id = t.id) as submissions,
+    (select count(*)::int from public.attachments a where a.task_id = t.id) as attachments
+  from public.tasks t where t.id = '60000000-0000-0000-0000-000000000001'
+`)
+if (!completedTaskTrashState.rows[0]?.deleted_at
+  || completedTaskTrashState.rows[0]?.submissions !== 1
+  || completedTaskTrashState.rows[0]?.attachments !== 2) {
+  throw new Error("Completed task Trash did not preserve its submission and files")
+}
+await asUser(supervisor, () => database.query(`select public.workflow_restore_task_from_trash('60000000-0000-0000-0000-000000000001')`))
+const restoredCompletedTask = await database.query(`select deleted_at from public.tasks where id = '60000000-0000-0000-0000-000000000001'`)
+if (restoredCompletedTask.rows[0]?.deleted_at !== null) throw new Error("Completed task could not be restored after Trash")
 let immutableTaskReviewRejected = false
 try {
   await database.query(`update public.reviews set comment = 'Changed' where submission_version_id = '${taskVersionOne}'`)
@@ -952,7 +1114,7 @@ try {
 }
 const tombstone = await database.query(`select display_name, email::text as email, auth_user_id, purged_at from public.profiles where id = '${employeeOne}'`)
 const retainedTaskAssignment = await database.query(`select count(*)::int as count from public.task_assignees where user_id = '${employeeOne}'`)
-if (tombstone.rows[0]?.display_name !== "Deleted employee" || tombstone.rows[0]?.auth_user_id !== null || !tombstone.rows[0]?.purged_at || retainedTaskAssignment.rows[0]?.count !== 2) {
+if (tombstone.rows[0]?.display_name !== "Deleted employee" || tombstone.rows[0]?.auth_user_id !== null || !tombstone.rows[0]?.purged_at || retainedTaskAssignment.rows[0]?.count !== 3) {
   throw new Error(`Expired account purge did not preserve history: ${JSON.stringify({ tombstone: tombstone.rows[0], retained: retainedTaskAssignment.rows[0] })}`)
 }
 
@@ -975,21 +1137,21 @@ const taskCount = taskResult.rows[0]?.count
 const tablesWithoutRls = rlsResult.rows[0]?.count
 const policyCount = policyResult.rows[0]?.count
 
-if (tableCount !== 38) {
-  throw new Error(`Expected 38 public tables, found ${tableCount}`)
+if (tableCount !== 39) {
+  throw new Error(`Expected 39 public tables, found ${tableCount}`)
 }
 
-if (taskCount !== 5) {
-  throw new Error(`Seed should be idempotent before the two RPC-created task cases; found ${taskCount} tasks`)
+if (taskCount !== 6) {
+  throw new Error(`Seed should be idempotent before the remaining RPC-created task case; found ${taskCount} tasks`)
 }
 
 if (tablesWithoutRls !== 0) {
   throw new Error(`Unexpected RLS coverage: ${tablesWithoutRls} unchecked table(s)`)
 }
 
-if (policyCount !== 37 || postMutationCount !== 2) {
+if (policyCount !== 37 || postMutationCount !== 3) {
   throw new Error(`Unexpected policy or task mutation coverage: ${policyCount} policies, employee sees ${postMutationCount} tasks`)
 }
 
-console.log(`Schema validated: ${tableCount} tables, task assignment/review/comment/due notifications, private push subscriptions and service-only delivery queue, notification RLS/RPCs/triggers, content workflow/import/campaign/content-review RLS and RPCs, immutable task/content versions and decisions, private Drive token/folder tables, client platforms, multi-manager ownership, client status and recoverable Trash, employee provisioning and Trash, first-admin bootstrap, profile updates, and ${policyCount} policies.`)
+console.log(`Schema validated: ${tableCount} tables, task assignment/review/comment/due notifications, password-change notifications, private push subscriptions and service-only delivery queue, notification RLS/RPCs/triggers, content workflow/import/campaign/content-review RLS and RPCs, immutable task/content versions and decisions, private Drive token/folder tables, client platforms, multi-manager ownership, client status and recoverable Trash, employee provisioning and Trash, profile photo storage policies, service-only password-change requests, first-admin bootstrap, profile updates, and ${policyCount} policies.`)
 await database.close()

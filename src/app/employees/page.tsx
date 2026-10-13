@@ -6,7 +6,9 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { getEmployeeManagementContext } from "@/lib/supabase/employee-admin"
 import { createClient } from "@/lib/supabase/server"
+import { createServiceClient } from "@/lib/supabase/service"
 import { createEmployee, moveEmployeeToTrash, restoreEmployeeFromTrash, setEmployeeActiveState, updateEmployee } from "./actions"
+import { decidePasswordChangeRequest } from "@/app/profile/password-actions"
 
 type EmployeeRow = {
   id: string
@@ -20,6 +22,7 @@ type EmployeeRow = {
   purged_at: string | null
   role: { code: string; name: string } | null
 }
+type PasswordRequestRow = { id: string; user_id: string; request_note: string | null; requested_at: string }
 
 const notices: Record<string, string> = {
   created: "Employee account created. Share the temporary sign-in credentials with them securely.",
@@ -37,6 +40,10 @@ const notices: Record<string, string> = {
   delete_failed: "The account could not be moved to Trash. Refresh and try again.",
   restore_failed: "The account could not be restored. It may have passed the 30-day period.",
   trash_setup: "The employee roster loaded, but Trash is unavailable until the account-trash database migration is applied.",
+  approved: "Password change approved. The employee can now change it from their Profile page.",
+  rejected: "Password change request declined.",
+  stale: "That request has already been reviewed. Refresh the list.",
+  decision_failed: "The request decision could not be saved. Refresh and try again.",
 }
 
 function isMissingTrashColumns(error: { code?: string; message?: string }) {
@@ -58,7 +65,7 @@ const inputClass = "h-9 min-w-0 rounded-md border border-input bg-background px-
 
 export default async function EmployeesPage({ searchParams }: { searchParams: Promise<{ notice?: string | string[]; view?: string }> }) {
   const params = await searchParams
-  const view = params.view === "trash" ? "trash" : "roster"
+  const view = params.view === "trash" ? "trash" : params.view === "password-requests" ? "password-requests" : "roster"
   const viewer = await getEmployeeManagementContext("employees.view")
   if (!viewer) redirect("/access-denied")
   const [creator, editor, deactivator, deletionManager] = await Promise.all([
@@ -118,10 +125,24 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
     ...employee,
     role: roleByUser.get(employee.id) ?? null,
   }))
+  const isAdministrator = roleByUser.get(viewer.actorId)?.code === "administrator"
+  if (view === "password-requests" && !isAdministrator) redirect("/access-denied")
   const roster = employees.filter((employee) => employee.deletion_requested_at === null && employee.purged_at === null)
   const trashed = employees.filter((employee) => employee.deletion_requested_at !== null && employee.purged_at === null)
   const visibleEmployees = view === "trash" ? trashed : roster
   const notice = typeof params.notice === "string" ? notices[params.notice] : undefined
+  let passwordRequests: PasswordRequestRow[] = []
+  let passwordRequestsReady = true
+  if (isAdministrator && view === "password-requests") {
+    try {
+      const service = createServiceClient()
+      const result = await service.from("password_change_requests").select("id,user_id,request_note,requested_at")
+        .eq("organization_id", viewer.organizationId).eq("status", "pending").order("requested_at", { ascending: true })
+      if (result.error) passwordRequestsReady = false
+      else passwordRequests = (result.data ?? []) as PasswordRequestRow[]
+    } catch { passwordRequestsReady = false }
+  }
+  const employeeById = new Map(employees.map((employee) => [employee.id, employee]))
 
   return (
     <DashboardShell>
@@ -141,9 +162,27 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
         <div className="mb-4 flex gap-1 border-b border-border/80">
           <Link href="/employees" aria-current={view === "roster" ? "page" : undefined} className={`border-b-2 px-3 py-2 text-xs font-medium ${view === "roster" ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}>Roster <span className="ml-1 text-[10px]">{roster.length}</span></Link>
           {deletionManager && <Link href="/employees?view=trash" aria-current={view === "trash" ? "page" : undefined} className={`border-b-2 px-3 py-2 text-xs font-medium ${view === "trash" ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}>Trash <span className="ml-1 text-[10px]">{trashed.length}</span></Link>}
+          {isAdministrator && <Link href="/employees?view=password-requests" aria-current={view === "password-requests" ? "page" : undefined} className={`border-b-2 px-3 py-2 text-xs font-medium ${view === "password-requests" ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}>Password requests</Link>}
         </div>
 
-        {view === "roster" && creator && (
+        {view === "password-requests" ? <section className="rounded-lg border bg-card">
+          <div className="border-b px-4 py-3"><h2 className="text-sm font-semibold">Pending password requests</h2><p className="mt-0.5 text-[11px] text-muted-foreground">Approve or decline requests. Employees set their own password after approval; passwords are never shown here.</p></div>
+          {!passwordRequestsReady ? <p className="p-5 text-xs text-amber-800 dark:text-amber-300">Password requests are unavailable until migration 202610230001_profile_photos_and_password_approval.sql is applied.</p>
+            : passwordRequests.length === 0 ? <p className="p-5 text-xs text-muted-foreground">No password change requests are waiting.</p>
+              : <div className="divide-y">{passwordRequests.map((request) => {
+                const employee = employeeById.get(request.user_id)
+                return <article key={request.id} className="grid gap-3 p-4 sm:grid-cols-[minmax(180px,1fr)_minmax(220px,2fr)_auto] sm:items-center">
+                  <div className="min-w-0"><p className="truncate text-xs font-semibold">{employee?.display_name ?? "Employee"}</p><p className="truncate text-[11px] text-muted-foreground">{employee?.email ?? "Account"} · {new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(request.requested_at))}</p></div>
+                  <p className="text-xs text-muted-foreground">{request.request_note || "No reason provided."}</p>
+                  <form action={decidePasswordChangeRequest} className="flex flex-wrap items-center gap-2">
+                    <input type="hidden" name="requestId" value={request.id} />
+                    <input className={inputClass + " sm:w-44"} name="decisionNote" maxLength={500} placeholder="Note (optional)" aria-label="Optional decision note" />
+                    <Button type="submit" size="sm" name="decision" value="approved">Approve</Button>
+                    <Button type="submit" size="sm" variant="outline" name="decision" value="rejected">Decline</Button>
+                  </form>
+                </article>
+              })}</div>}
+        </section> : view === "roster" && creator && (
           <section className="rounded-lg border bg-card p-4">
             <h2 className="text-sm font-semibold">Create employee account</h2>
             <p className="mt-1 text-[11px] text-muted-foreground">The employee can sign in immediately. Share their initial password privately; it is never shown again.</p>
@@ -174,7 +213,7 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
           </section>
         )}
 
-        <section className="mt-5 overflow-visible rounded-lg border bg-card">
+        {view !== "password-requests" && <section className="mt-5 overflow-visible rounded-lg border bg-card">
           <div className="flex items-center justify-between border-b px-4 py-3">
             <div><h2 className="text-sm font-semibold">{view === "trash" ? "Trash" : "Organization roster"}</h2><p className="mt-0.5 text-[11px] text-muted-foreground">{visibleEmployees.length} {view === "trash" ? "deleted accounts" : "accounts"}{view === "trash" && " · Accounts are permanently removed after 30 days"}</p></div>
           </div>
@@ -237,7 +276,7 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
               })}
             </div>
           )}
-        </section>
+        </section>}
       </main>
     </DashboardShell>
   )

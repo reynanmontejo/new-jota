@@ -10,6 +10,7 @@ export function NotificationSettings({ userId, demoMode }: { userId: string; dem
   const [soundEnabled, setSoundEnabled] = useState(false)
   const [pushEnabled, setPushEnabled] = useState(false)
   const [pushAvailable, setPushAvailable] = useState(false)
+  const [browserPermission, setBrowserPermission] = useState<NotificationPermission | "unsupported">("default")
   const [vapidPublicKey, setVapidPublicKey] = useState<string | null>(null)
   const [loading, setLoading] = useState(!demoMode)
   const [saving, setSaving] = useState(false)
@@ -38,6 +39,7 @@ export function NotificationSettings({ userId, demoMode }: { userId: string; dem
   useEffect(() => {
     if (demoMode) return
     let active = true
+    const permission = "Notification" in window ? Notification.permission : "unsupported"
     Promise.all([
       fetch("/api/notifications/push", { cache: "no-store" })
         .then(async (response) => response.ok ? response.json() as Promise<{ available?: boolean; publicKey?: string | null }> : null),
@@ -46,6 +48,7 @@ export function NotificationSettings({ userId, demoMode }: { userId: string; dem
     ])
       .then(([payload, subscription]) => {
         if (!active) return
+        setBrowserPermission(permission)
         setPushAvailable(Boolean(payload?.available && payload.publicKey))
         setVapidPublicKey(payload?.publicKey ?? null)
         setPushEnabled(Boolean(subscription))
@@ -103,7 +106,12 @@ export function NotificationSettings({ userId, demoMode }: { userId: string; dem
       if (!pushAvailable || !vapidPublicKey) throw new Error("Browser push is not configured on this Jota server yet.")
       if (!window.isSecureContext) throw new Error("Browser push requires HTTPS (localhost is supported for local testing).")
       const permission = await Notification.requestPermission()
-      if (permission !== "granted") throw new Error("Allow notifications in your browser to turn on push alerts.")
+      setBrowserPermission(permission)
+      if (permission !== "granted") {
+        throw new Error(permission === "denied"
+          ? "Notifications are blocked for this site. Allow them in your browser’s site settings, then try again."
+          : "Allow notifications in the browser prompt to turn on desktop alerts.")
+      }
       const registration = await navigator.serviceWorker.register("/sw.js", { scope: "/" })
       const existing = await registration.pushManager.getSubscription()
       const subscription = existing ?? await registration.pushManager.subscribe({
@@ -135,7 +143,7 @@ export function NotificationSettings({ userId, demoMode }: { userId: string; dem
       <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-secondary/35 text-primary"><BellRing className="size-4" /></span>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div><h2 className="text-sm font-semibold">Sound alerts</h2><p className="mt-1 text-xs leading-5 text-muted-foreground">Play a brief tone when a new notification arrives. This setting is off by default.</p></div>
+          <div><h2 className="text-sm font-semibold">Sound alerts</h2><p className="mt-1 text-xs leading-5 text-muted-foreground">Play a short bell chime for new notifications while Jota is open. Off by default.</p></div>
           <Button type="button" role="switch" aria-checked={soundEnabled} aria-label="Sound alerts" variant={soundEnabled ? "default" : "outline"} size="sm" disabled={loading || saving} onClick={() => void updateSound(!soundEnabled)}>
             {loading ? "Loading…" : soundEnabled ? "On" : "Off"}
           </Button>
@@ -149,15 +157,16 @@ export function NotificationSettings({ userId, demoMode }: { userId: string; dem
     </div>
     <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
       <div className="min-w-0">
-        <h2 className="text-sm font-semibold">Browser push notifications</h2>
+        <h2 className="text-sm font-semibold">Computer / browser notifications</h2>
         <p className="mt-1 max-w-xl text-xs leading-5 text-muted-foreground">
-          Receive task alerts when Jota is closed. This device must allow browser notifications. Mobile support depends on the browser and operating system.
+          Show Jota alerts in your computer’s notification center, including when Jota is closed. Click Request access, then Allow in the browser prompt. This applies to this browser and device only. Desktop alert sounds follow your computer’s notification settings.
         </p>
+        {!demoMode && <p className="mt-1 text-[11px] text-muted-foreground" role="status">Browser access: {browserPermission === "unsupported" ? "not supported" : browserPermission === "granted" ? "allowed" : browserPermission === "denied" ? "blocked in browser settings" : "not requested yet"}.</p>}
         {!pushAvailable && !demoMode && <p className="mt-1 text-[11px] text-amber-800 dark:text-amber-300">Server push keys are not configured yet.</p>}
         {demoMode && <p className="mt-1 text-[11px] text-muted-foreground">Sign in with a workspace account to enable push.</p>}
       </div>
-      <Button type="button" variant={pushEnabled ? "default" : "outline"} size="sm" disabled={pushSaving || loading || (!pushEnabled && (!pushAvailable || demoMode))} onClick={() => void updatePush(!pushEnabled)}>
-        {pushSaving ? "Saving…" : pushEnabled ? "On" : "Enable"}
+      <Button type="button" role="switch" aria-checked={pushEnabled} aria-label="Computer notifications" variant={pushEnabled ? "default" : "outline"} size="sm" disabled={pushSaving || loading || (!pushEnabled && (!pushAvailable || demoMode || browserPermission === "unsupported" || browserPermission === "denied"))} onClick={() => void updatePush(!pushEnabled)}>
+        {pushSaving ? "Saving…" : pushEnabled ? "On" : browserPermission === "denied" ? "Blocked" : browserPermission === "granted" ? "Enable" : "Request access"}
       </Button>
     </div>
   </section>

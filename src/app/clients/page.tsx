@@ -5,10 +5,11 @@ import { initialWorkflowState } from "@/features/workflow/mock-data"
 import { isSupabaseConfigured } from "@/lib/env"
 import { getClientLifecyclePermissions, getClientManagementContext } from "@/lib/supabase/client-admin"
 import { createClient } from "@/lib/supabase/server"
+import { getStorageActor, hasStoragePermission } from "@/lib/storage/authorization"
 
 type ClientRow = Omit<ClientDirectoryItem, "campaignCount" | "openTaskCount" | "primaryAccountManager">
 type TrashedClient = { id: string; name: string; description: string | null; status: "active" | "paused" | "archived"; deleted_at: string }
-type RecentClientFile = { id: string; clientId: string; clientName: string; fileName: string; mimeType: string; sizeBytes: number; createdAt: string; taskId: string | null }
+type RecentClientFile = { id: string; clientId: string; clientName: string; canBrowseClient: boolean; canTrash: boolean; fileName: string; mimeType: string; sizeBytes: number; createdAt: string; taskId: string | null }
 
 export default async function ClientsPage({ searchParams }: { searchParams: Promise<{ notice?: string | string[]; tab?: string; view?: string }> }) {
   const params = await searchParams
@@ -72,7 +73,7 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
       clientIds.length ? supabase.from("tasks").select("id, client_id, status").is("deleted_at", null).in("client_id", clientIds) : Promise.resolve({ data: [], error: null }),
       clientIds.length ? supabase.from("client_members").select("client_id,user_id,is_primary").eq("client_role", "account_manager").is("removed_at", null).in("client_id", clientIds) : Promise.resolve({ data: [], error: null }),
       initialTab === "files" && initialView === "active"
-        ? supabase.from("attachments").select("id,client_id,file_name,mime_type,size_bytes,created_at,task_id").is("deleted_at", null).order("created_at", { ascending: false }).limit(8)
+        ? supabase.from("attachments").select("id,client_id,file_name,mime_type,size_bytes,created_at,task_id,uploaded_by").is("deleted_at", null).order("created_at", { ascending: false }).limit(60)
         : Promise.resolve({ data: [], error: null }),
     ])
 
@@ -106,10 +107,12 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
         }),
     }))
     const clientNames = new Map(rows.map((client) => [client.id, client.name]))
-    recentFiles = ((recentFileResult.data ?? []) as unknown as { id: string; client_id: string; file_name: string; mime_type: string; size_bytes: number; created_at: string; task_id: string | null }[])
+    const storageActor = await getStorageActor()
+    const canManageAllFiles = storageActor ? await hasStoragePermission(storageActor, ["storage.manage"]) : false
+    recentFiles = ((recentFileResult.data ?? []) as unknown as { id: string; client_id: string; file_name: string; mime_type: string; size_bytes: number; created_at: string; task_id: string | null; uploaded_by: string }[])
       .flatMap((file) => {
         const clientName = clientNames.get(file.client_id)
-        return [{ id: file.id, clientId: file.client_id, clientName: clientName ?? "Accessible task", canBrowseClient: Boolean(clientName), fileName: file.file_name, mimeType: file.mime_type, sizeBytes: file.size_bytes, createdAt: file.created_at, taskId: file.task_id }]
+        return [{ id: file.id, clientId: file.client_id, clientName: clientName ?? "Accessible task", canBrowseClient: Boolean(clientName), canTrash: canManageAllFiles || file.uploaded_by === storageActor?.userId, fileName: file.file_name, mimeType: file.mime_type, sizeBytes: file.size_bytes, createdAt: file.created_at, taskId: file.task_id }]
       })
   }
 

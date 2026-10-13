@@ -158,7 +158,7 @@ export function NotificationBell({
   return <DropdownMenu>
     <DropdownMenuTrigger render={<Button variant="ghost" size="icon" className={cn("relative", compact ? "size-8 rounded-lg" : "rounded-xl")} aria-label={`${unreadCount} unread notifications`} />}>
       <Bell className="size-[18px]" />
-      {unreadCount > 0 && <span className="absolute right-2 top-2 size-1.5 rounded-full bg-accent ring-2 ring-background" />}
+      {unreadCount > 0 && <span aria-hidden="true" className="absolute -right-1 -top-1 grid h-[18px] min-w-[18px] place-items-center rounded-full border-2 border-background bg-destructive px-1 text-[9px] font-bold leading-none text-destructive-foreground shadow-sm">{unreadCount > 99 ? "99+" : unreadCount}</span>}
     </DropdownMenuTrigger>
     <DropdownMenuContent align="end" className="w-80 rounded-lg p-1.5">
       <div className="flex items-center justify-between px-2 py-1.5">

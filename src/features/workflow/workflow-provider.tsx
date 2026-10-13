@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation"
 import { addTaskCommentAction, createTaskAction, toggleTaskChecklistAction, updateTaskStatusAction } from "@/app/tasks/actions"
 import { initialWorkflowState } from "@/features/workflow/mock-data"
 import { canCreateTask, canEditTask, currentEmployee, currentSupervisor, taskStatusOptions, type DemoUser } from "@/features/workflow/task-permissions"
-import type { TaskStatus, WorkflowClient, WorkflowFile, WorkflowState, WorkflowUpcomingContent } from "@/features/workflow/types"
+import type { TaskStatus, WorkflowClient, WorkflowContentWorkItem, WorkflowFile, WorkflowState, WorkflowUpcomingContent } from "@/features/workflow/types"
 import { isSupabaseConfigured } from "@/lib/env"
 import { createClient as createSupabaseClient } from "@/lib/supabase/client"
 
@@ -19,6 +19,8 @@ type NewTaskInputFields = {
   campaign: string
   priority: "low" | "medium" | "high" | "urgent"
   assigneeId: string
+  contentItemId?: string | null
+  contentItemTitle?: string
 }
 export type NewTaskInput = NewTaskInputFields & ({ dueAt: string; dueDate?: string } | { dueDate: string; dueAt?: string })
 
@@ -136,6 +138,7 @@ type WorkflowContextValue = {
   tasks: WorkflowState["tasks"]
   clients: WorkflowClient[]
   upcomingContent: WorkflowUpcomingContent[]
+  contentWorkItems: WorkflowContentWorkItem[]
   currentUser: DemoUser
   demoMode: boolean
   realtimeRevision: number
@@ -180,6 +183,7 @@ export function WorkflowProvider({
   initialTasks,
   initialClients,
   initialUpcomingContent,
+  initialContentWorkItems,
   demoMode = true,
 }: {
   children: ReactNode
@@ -187,6 +191,7 @@ export function WorkflowProvider({
   initialTasks?: WorkflowState["tasks"]
   initialClients?: WorkflowClient[]
   initialUpcomingContent?: WorkflowUpcomingContent[]
+  initialContentWorkItems?: WorkflowContentWorkItem[]
   demoMode?: boolean
 }) {
   const [state, dispatch] = useReducer(workflowReducer, { tasks: initialTasks ?? initialWorkflowState.tasks })
@@ -209,6 +214,10 @@ export function WorkflowProvider({
       "submission_versions",
       "submission_version_files",
       "reviews",
+      "content_items",
+      "content_submissions",
+      "content_submission_versions",
+      "content_reviews",
     ] as const
     let refreshTimer: number | undefined
     const refreshWorkflow = () => {
@@ -244,6 +253,7 @@ export function WorkflowProvider({
     tasks: state.tasks,
     clients,
     upcomingContent: initialUpcomingContent ?? [],
+    contentWorkItems: initialContentWorkItems ?? [],
     currentUser,
     demoMode,
     realtimeRevision,
@@ -308,7 +318,15 @@ export function WorkflowProvider({
         setError("Enter a valid due date.")
         return null
       }
-      const created = demoMode ? null : await createTaskAction({ ...input, dueAt })
+      const created = demoMode ? null : await createTaskAction({
+        title: input.title,
+        clientId: input.clientId,
+        campaign: input.campaign,
+        priority: input.priority,
+        assigneeId: input.assigneeId,
+        dueAt,
+        contentItemId: input.contentItemId,
+      })
       const id = demoMode ? fakeId : created?.id
       if (!id) {
         if (!demoMode) setError(created?.error ?? "Task creation failed. Check your access and task details.")
@@ -324,7 +342,8 @@ export function WorkflowProvider({
           clientId: input.clientId,
           clientName: input.clientName,
           campaign: input.campaign || "General work",
-          contentItem: "General campaign work",
+          contentItem: input.contentItemTitle ?? "General campaign work",
+          contentItemId: input.contentItemId ?? null,
           priority: input.priority,
           status: "todo",
           startDate: "Today",
@@ -340,7 +359,7 @@ export function WorkflowProvider({
       })
       return id
     },
-  }), [state.tasks, clients, currentUser, demoMode, error, initialUpcomingContent, realtimeRevision])
+  }), [state.tasks, clients, currentUser, demoMode, error, initialUpcomingContent, initialContentWorkItems, realtimeRevision])
 
   return <WorkflowContext.Provider value={value}>{children}</WorkflowContext.Provider>
 }

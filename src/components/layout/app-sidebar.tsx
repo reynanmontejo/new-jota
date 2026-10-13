@@ -1,10 +1,12 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useSearchParams } from "next/navigation"
 import {
   BriefcaseBusiness,
   CalendarDays,
+  ChartNoAxesCombined,
   ClipboardList,
   CircleHelp,
   FileStack,
@@ -23,7 +25,6 @@ import {
 
 import { cn } from "@/lib/utils"
 import { useWorkflow } from "@/features/workflow/workflow-provider"
-import { useSearchParams } from "next/navigation"
 
 type NavigationItem = {
   name: string
@@ -34,9 +35,10 @@ type NavigationItem = {
 
 const accountManagerNavigation: NavigationItem[] = [
   { name: "Overview", href: "/", icon: Gauge },
-  { name: "My tasks", href: "/tasks", icon: LayoutList, count: 4 },
-  { name: "My Content", href: "/content?view=work", icon: ClipboardList },
+  { name: "My Work", href: "/tasks", icon: LayoutList, count: 4 },
+  { name: "Content", href: "/content", icon: ClipboardList },
   { name: "Calendar", href: "/calendar", icon: CalendarDays },
+  { name: "Insights", href: "/insights", icon: ChartNoAxesCombined },
   { name: "Campaigns", href: "/clients?tab=campaigns", icon: Megaphone },
   { name: "Files", href: "/clients?tab=files", icon: FileStack },
 ]
@@ -48,10 +50,11 @@ const accountManagerWorkspace: NavigationItem[] = [
 const supervisorNavigation: NavigationItem[] = [
   { name: "Dashboard", href: "/", icon: Gauge },
   { name: "Clients", href: "/clients", icon: BriefcaseBusiness },
-  { name: "Team tasks", href: "/tasks", icon: Users },
-  { name: "Content tracker", href: "/content", icon: ClipboardList },
+  { name: "Team work", href: "/tasks", icon: Users },
+  { name: "Content", href: "/content", icon: ClipboardList },
   { name: "Reviews", href: "/reviews", icon: SendToBack, count: 1 },
   { name: "Calendar", href: "/calendar", icon: CalendarDays },
+  { name: "Insights", href: "/insights", icon: ChartNoAxesCombined },
   { name: "Campaigns", href: "/clients?tab=campaigns", icon: Megaphone },
   { name: "Files", href: "/clients?tab=files", icon: FileStack },
 ]
@@ -72,22 +75,44 @@ type AppSidebarProps = {
 export function AppSidebar({ className, collapsed = false, onToggle, onNavigate, variant = "account_manager", isAdministrator = false }: AppSidebarProps) {
   const pathname = usePathname() ?? "/"
   const searchParams = useSearchParams()
-  const { tasks, currentUser } = useWorkflow()
+  const { tasks, contentWorkItems, currentUser, demoMode, realtimeRevision } = useWorkflow()
   const navigationBase = variant === "supervisor"
     ? isAdministrator ? [...supervisorNavigation, employeeManagementItem, storageSettingsItem, systemSettingsItem] : supervisorNavigation
     : accountManagerNavigation
   const isOpenTask = (status: string) => !["approved", "completed", "cancelled"].includes(status)
   const taskCount = tasks.filter((task) => isOpenTask(task.status) && (currentUser.role === "supervisor" || task.primaryOwner.id === currentUser.id)).length
+    + contentWorkItems.length
   const reviewCount = tasks.filter((task) => task.versions.at(-1)?.status === "submitted").length
+  const [liveCounts, setLiveCounts] = useState<{ taskCount: number; reviewCount: number } | null>(null)
+
+  useEffect(() => {
+    if (demoMode) return
+
+    const controller = new AbortController()
+    fetch("/api/sidebar-counts", { cache: "no-store", signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Could not refresh sidebar counts")
+        return response.json() as Promise<{ taskCount: number; reviewCount: number }>
+      })
+      .then((counts) => setLiveCounts(counts))
+      .catch((error: unknown) => {
+        if (error instanceof Error && error.name === "AbortError") return
+      })
+
+    return () => controller.abort()
+  }, [demoMode, realtimeRevision])
+
+  const visibleTaskCount = !demoMode && liveCounts ? liveCounts.taskCount : taskCount
+  const visibleReviewCount = !demoMode && liveCounts ? liveCounts.reviewCount : reviewCount
   const navigation = navigationBase.map((item) =>
-    item.name === "My tasks" || item.name === "Team tasks" ? { ...item, count: taskCount }
-      : item.name === "Reviews" ? { ...item, count: reviewCount }
+    item.name === "My Work" || item.name === "Team work" ? { ...item, count: visibleTaskCount }
+      : item.name === "Reviews" ? { ...item, count: visibleReviewCount }
         : item,
   )
 
   function isActive(item: NavigationItem) {
     const path = item.href.split("?")[0]
-    if ((item.name === "My tasks" || item.name === "Team tasks") && pathname === "/tasks/trash") return false
+    if ((item.name === "My Work" || item.name === "Team work") && pathname === "/tasks/trash") return false
     if (item.name === "Files" && pathname === "/tasks/trash") return true
     if (item.href.includes("?")) {
       const expectedParams = new URLSearchParams(item.href.split("?")[1])

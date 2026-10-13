@@ -143,7 +143,18 @@ export async function POST(request: NextRequest) {
       stage: uploadStage,
       reason: error instanceof Error ? error.message : "Unknown error",
     })
-    const message = error instanceof Error && error.message.includes("not connected") ? "Google Drive has not been connected yet." : "Upload failed. Check the Drive connection and try again."
+    const reason = error instanceof Error ? error.message : ""
+    // These messages are deliberately allow-listed: useful connection guidance
+    // without returning arbitrary provider or server details to the browser.
+    const message = reason === "Google Drive is not connected"
+      ? "Google Drive has not been connected yet. Ask an administrator to connect it under File storage settings."
+      : reason.startsWith("Google Drive refresh access was revoked or expired")
+        ? "Google Drive authorization expired. Ask an administrator to reconnect the approved account under File storage settings."
+        : reason.startsWith("Google rejected the configured OAuth client")
+          ? "Google Drive configuration needs attention. Ask an administrator to check the OAuth settings."
+          : reason.startsWith("Google Drive authorization could not be refreshed")
+            ? "Google Drive could not authorize this upload. Ask an administrator to reconnect the account or check its OAuth settings."
+            : "Upload failed. Check the Drive connection and try again."
     return NextResponse.json({ error: message }, { status: 503 })
   }
 }

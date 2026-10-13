@@ -37,13 +37,12 @@ export function DashboardShell({ children, compact = false }: DashboardShellProp
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const searchKey = searchParams.toString()
-  const { openTask } = useTaskDrawer()
+  const { openTask, openNewTask, newTaskOpen, newTaskSeed, closeNewTask } = useTaskDrawer()
   const { currentUser, switchDemoUser, demoMode, error: workflowError, clearError, tasks, clients } = useWorkflow()
   const navigationVariant = currentUser.role === "supervisor" ? "supervisor" : "account_manager"
   const isAdministrator = !demoMode && currentUser.title?.toLowerCase() === "administrator"
   const initials = currentUser.name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase()
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
-  const [taskSheetOpen, setTaskSheetOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const [searchOpen, setSearchOpen] = useState(false)
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false)
@@ -134,7 +133,7 @@ export function DashboardShell({ children, compact = false }: DashboardShellProp
             <Button
               aria-label="Create new task"
               className={cn("border border-primary/60 bg-primary text-primary-foreground hover:bg-primary/88", compact ? "h-8 rounded-lg px-3 text-xs shadow-sm" : "h-9 rounded-xl px-3.5 shadow-[0_12px_24px_-12px_rgb(175_134_83/78%)]")}
-              onClick={() => setTaskSheetOpen(true)}
+              onClick={() => openNewTask()}
             >
               <Plus data-icon="inline-start" />
               <span className="hidden sm:inline">New task</span>
@@ -194,7 +193,7 @@ export function DashboardShell({ children, compact = false }: DashboardShellProp
         {workflowError && <div className="fixed right-4 top-[4.5rem] z-50 flex max-w-md items-center gap-3 border border-destructive/25 bg-background px-4 py-3 text-xs text-foreground shadow-lg" role="alert"><span>{workflowError}</span><button className="font-semibold text-primary" onClick={clearError}>Dismiss</button></div>}
         {children}
       </div>
-      {taskSheetOpen && <NewTaskSheet open={taskSheetOpen} onOpenChange={setTaskSheetOpen} />}
+      {newTaskOpen && <NewTaskSheet open={newTaskOpen} seed={newTaskSeed} onOpenChange={(open) => { if (!open) closeNewTask() }} />}
     </div>
   )
 }

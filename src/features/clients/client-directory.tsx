@@ -1,13 +1,16 @@
 "use client"
 
 import Link from "next/link"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
+import { createPortal } from "react-dom"
 import Image from "next/image"
-import { ArrowUpRight, Download, ExternalLink, FileText, Film, Play, Search, Trash2 } from "lucide-react"
+import { ArrowUpRight, Download, Eye, FileText, Film, LoaderCircle, MoreHorizontal, Play, Search, Trash2, X } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { createClientRecord, restoreClientFromTrash } from "@/app/clients/actions"
+import { getPreviewMimeType } from "@/lib/storage/preview-types"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 
 export type ClientDirectoryItem = {
   id: string
@@ -25,21 +28,93 @@ export type ClientDirectoryItem = {
 const filters = ["all", "active", "paused", "archived"] as const
 type Filter = (typeof filters)[number]
 export type TrashedClientItem = Pick<ClientDirectoryItem, "id" | "name" | "description" | "status"> & { deleted_at: string }
-type RecentClientFile = { id: string; clientId: string; clientName: string; canBrowseClient?: boolean; fileName: string; mimeType: string; sizeBytes: number; createdAt: string; taskId: string | null }
+type RecentClientFile = { id: string; clientId: string; clientName: string; canBrowseClient?: boolean; canTrash?: boolean; fileName: string; mimeType: string; sizeBytes: number; createdAt: string; taskId: string | null }
 const socialPlatforms = ["Instagram", "Facebook", "TikTok", "LinkedIn", "YouTube", "X", "Pinterest", "Threads", "Snapchat"]
 const imagePreviewTypes = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"])
 const videoPreviewTypes = new Set(["video/mp4", "video/webm", "video/quicktime"])
 
-function RecentFileThumbnail({ file, fileUrl }: { file: RecentClientFile; fileUrl: string }) {
-  const [failed, setFailed] = useState(false)
-  const image = imagePreviewTypes.has(file.mimeType.toLowerCase())
-  const video = videoPreviewTypes.has(file.mimeType.toLowerCase())
+const INITIAL_RECENT_FILE_COUNT = 6
 
-  return <a href={fileUrl} target="_blank" rel="noreferrer" aria-label={`Preview ${file.fileName}`} title={`Preview ${file.fileName}`} className="relative grid size-14 shrink-0 place-items-center overflow-hidden rounded-md border border-border/70 bg-muted/35 text-primary">
-    {image && !failed ? <Image src={fileUrl} alt={`Thumbnail: ${file.fileName}`} width={112} height={112} unoptimized onError={() => setFailed(true)} className="size-full object-cover" />
-      : video && !failed ? <><video src={fileUrl} muted playsInline preload="metadata" onError={() => setFailed(true)} className="size-full bg-black object-cover" /><span aria-hidden="true" className="absolute inset-0 grid place-items-center bg-black/15 text-white"><Play className="size-4 fill-current drop-shadow" /></span></>
-        : video ? <Film aria-hidden="true" className="size-5" /> : <FileText aria-hidden="true" className="size-5" />}
-  </a>
+function formatFileSize(bytes: number) {
+  return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+function RecentFileCard({ file, onOpen, onTrash, busy }: { file: RecentClientFile; onOpen: () => void; onTrash: (file: RecentClientFile) => void; busy: boolean }) {
+  const [failed, setFailed] = useState(false)
+  const previewMimeType = getPreviewMimeType(file.mimeType, file.fileName)
+  const image = previewMimeType?.startsWith("image/") ?? false
+  const video = previewMimeType?.startsWith("video/") ?? false
+  const fileUrl = `/api/files/${encodeURIComponent(file.id)}?inline=1`
+
+  return <li className="min-w-0">
+    <div className="group relative min-w-0 rounded-lg border border-border/70 bg-background/65 p-2 transition hover:border-primary/35 hover:bg-background">
+      <button type="button" onClick={onOpen} aria-label={`Review ${file.fileName}`} title={`Review ${file.fileName}`} className="block w-full rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <span className="relative grid aspect-[4/3] w-full place-items-center overflow-hidden rounded-md border border-border/60 bg-muted/35 text-primary">
+          {image && !failed ? <Image src={fileUrl} alt={`Thumbnail: ${file.fileName}`} fill sizes="(max-width: 640px) 45vw, (max-width: 1024px) 30vw, 220px" unoptimized onError={() => setFailed(true)} className="object-cover transition group-hover:scale-[1.02]" />
+            : video && !failed ? <><video src={fileUrl} muted playsInline preload="metadata" onError={() => setFailed(true)} className="size-full bg-black object-cover" /><span aria-hidden="true" className="absolute bottom-2 right-2 grid size-7 place-items-center rounded-full bg-foreground/80 text-background"><Play className="ml-0.5 size-3.5 fill-current" /></span></>
+              : video ? <Film aria-hidden="true" className="size-8" />
+              : <FileText aria-hidden="true" className="size-8" />}
+        </span>
+        <span className="mt-2 block truncate pr-7 text-[11px] font-medium group-hover:text-primary" title={file.fileName}>{file.fileName}</span>
+        <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">{file.clientName} · {formatFileSize(file.sizeBytes)}</span>
+      </button>
+      <DropdownMenu>
+        <DropdownMenuTrigger render={<Button type="button" variant="ghost" size="icon-xs" aria-label={`Actions for ${file.fileName}`} className="absolute right-2 top-2 z-10 rounded-full bg-background/90 text-muted-foreground shadow-sm" />}><MoreHorizontal className="size-4" /></DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="min-w-44 rounded-lg p-1.5">
+          <DropdownMenuItem onClick={onOpen} className="min-h-8 rounded-md px-2 text-xs"><Eye className="size-3.5" />Preview</DropdownMenuItem>
+          <DropdownMenuItem render={<a href={`/api/files/${encodeURIComponent(file.id)}`} />} className="min-h-8 rounded-md px-2 text-xs"><Download className="size-3.5" />Download</DropdownMenuItem>
+          {file.canBrowseClient && <DropdownMenuItem render={<Link href={`/clients/${encodeURIComponent(file.clientId)}?tab=files`} />} className="min-h-8 rounded-md px-2 text-xs"><ArrowUpRight className="size-3.5" />Open client files</DropdownMenuItem>}
+          {file.canTrash && <><DropdownMenuSeparator /><DropdownMenuItem onClick={() => onTrash(file)} disabled={busy} className="min-h-8 rounded-md px-2 text-xs text-destructive focus:text-destructive">{busy ? <LoaderCircle className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}Move to Trash</DropdownMenuItem></>}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  </li>
+}
+
+function RecentFilePreview({ file, onClose }: { file: RecentClientFile; onClose: () => void }) {
+  const [previewFailed, setPreviewFailed] = useState(false)
+  const [previewError, setPreviewError] = useState("")
+  const mimeType = getPreviewMimeType(file.mimeType, file.fileName) ?? file.mimeType.toLowerCase()
+  const fileUrl = `/api/files/${encodeURIComponent(file.id)}?inline=1`
+  const isImage = imagePreviewTypes.has(mimeType)
+  const isVideo = videoPreviewTypes.has(mimeType)
+  const isPdf = mimeType === "application/pdf"
+
+  async function inspectPreviewFailure() {
+    setPreviewFailed(true)
+    try {
+      const response = await fetch(fileUrl, { cache: "no-store" })
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null) as { error?: string } | null
+        setPreviewError(payload?.error ?? `Preview request failed (${response.status}).`)
+      } else {
+        setPreviewError(`The file endpoint returned ${response.headers.get("content-type") ?? "an unknown file type"}, which this browser could not display as ${mimeType}.`)
+      }
+    } catch {
+      setPreviewError("The browser could not reach the private file preview endpoint.")
+    }
+  }
+
+  useEffect(() => {
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose()
+    }
+    window.addEventListener("keydown", closeOnEscape)
+    return () => window.removeEventListener("keydown", closeOnEscape)
+  }, [onClose])
+
+  return createPortal(<div role="dialog" aria-modal="true" aria-label={`File preview: ${file.fileName}`} onClick={onClose} className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/80 p-3 sm:p-6">
+    <div className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-white/15 bg-card shadow-2xl" onClick={(event) => event.stopPropagation()}>
+      <div className="flex min-w-0 items-center gap-3 border-b px-4 py-3"><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{file.fileName}</p><p className="mt-0.5 truncate text-[11px] text-muted-foreground">{file.clientName} · {formatFileSize(file.sizeBytes)}</p></div><a href={`/api/files/${encodeURIComponent(file.id)}`} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium hover:bg-muted"><Download className="size-3.5" />Download</a><button type="button" onClick={onClose} aria-label="Close preview" className="grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"><X className="size-4" /></button></div>
+      <div className="grid min-h-0 flex-1 place-items-center overflow-auto bg-black/5 p-2 sm:p-4">
+        {previewFailed ? <div className="max-w-lg py-12 text-center"><FileText aria-hidden="true" className="mx-auto size-10 text-primary" /><p className="mt-3 text-sm font-medium">This file could not be previewed.</p><p className="mt-1 text-xs text-muted-foreground">{previewError || "Try downloading it, or ask an administrator to check the Google Drive connection."}</p></div>
+          : isImage ? <Image src={fileUrl} alt={file.fileName} width={2200} height={1800} unoptimized onError={() => void inspectPreviewFailure()} className="max-h-[78vh] max-w-full object-contain" />
+          : isVideo ? <video src={fileUrl} controls autoPlay preload="metadata" playsInline onError={() => void inspectPreviewFailure()} className="max-h-[78vh] max-w-full bg-black" aria-label={`Video preview: ${file.fileName}`} />
+            : isPdf ? <iframe src={fileUrl} title={`PDF preview: ${file.fileName}`} className="h-[78vh] w-full rounded-md bg-white" />
+              : <div className="py-12 text-center"><FileText aria-hidden="true" className="mx-auto size-10 text-primary" /><p className="mt-3 text-sm font-medium">Preview is not available for this file type.</p><p className="mt-1 text-xs text-muted-foreground">Download the file to review it.</p></div>}
+      </div>
+    </div>
+  </div>, document.body)
 }
 
 const statusClass: Record<ClientDirectoryItem["status"], string> = {
@@ -64,6 +139,12 @@ const noticeText: Record<string, string> = {
 export function ClientDirectory({ clients, recentFiles = [], trashedClients = [], canManageTrash = false, canCreate = false, notice, initialTab = "overview", initialView = "active" }: { clients: ClientDirectoryItem[]; recentFiles?: RecentClientFile[]; trashedClients?: TrashedClientItem[]; canManageTrash?: boolean; canCreate?: boolean; notice?: string; initialTab?: "overview" | "campaigns" | "files"; initialView?: "active" | "trash" }) {
   const [query, setQuery] = useState("")
   const [filter, setFilter] = useState<Filter>("all")
+  const [showAllRecentFiles, setShowAllRecentFiles] = useState(false)
+  const [previewFile, setPreviewFile] = useState<RecentClientFile | null>(null)
+  const [visibleRecentFiles, setVisibleRecentFiles] = useState(recentFiles)
+  const [busyFileId, setBusyFileId] = useState<string | null>(null)
+  const [fileActionMessage, setFileActionMessage] = useState("")
+  const [undoFile, setUndoFile] = useState<RecentClientFile | null>(null)
   const counts = useMemo(() => ({
     all: clients.length,
     active: clients.filter((client) => client.status === "active").length,
@@ -79,6 +160,32 @@ export function ClientDirectory({ clients, recentFiles = [], trashedClients = []
       return matchesStatus && matchesQuery
     })
   }, [clients, filter, query])
+
+  async function setRecentFileState(file: RecentClientFile, action: "archive" | "restore") {
+    if (busyFileId) return
+    setBusyFileId(file.id)
+    setFileActionMessage("")
+    try {
+      const response = await fetch(`/api/files/${encodeURIComponent(file.id)}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action }),
+      })
+      const payload = await response.json() as { error?: string }
+      if (!response.ok) throw new Error(payload.error ?? "The file could not be updated.")
+      if (action === "archive") {
+        setVisibleRecentFiles((current) => current.filter((item) => item.id !== file.id))
+        setUndoFile(file)
+        setFileActionMessage("Moved to Trash.")
+      } else {
+        setVisibleRecentFiles((current) => [...current, file].sort((a, b) => b.createdAt.localeCompare(a.createdAt)))
+        setUndoFile(null)
+        setFileActionMessage("File restored.")
+      }
+    } catch (error) {
+      setFileActionMessage(error instanceof Error ? error.message : "The file could not be updated.")
+    } finally { setBusyFileId(null) }
+  }
 
   return (
     <main className="mx-auto w-full max-w-6xl px-4 py-5 sm:px-6 lg:px-8 lg:py-6">
@@ -133,19 +240,12 @@ export function ClientDirectory({ clients, recentFiles = [], trashedClients = []
       {initialTab === "campaigns" && <p className="mt-4 rounded-md border border-primary/15 bg-primary/5 px-3 py-2.5 text-xs text-muted-foreground">Select a client to open its campaigns section. Some workspace sections may be unavailable until they are connected for your account.</p>}
 
       {initialTab === "files" && initialView === "active" && <section aria-labelledby="recent-client-files" className="mt-4 rounded-lg border border-border bg-card/75 p-3 sm:p-4">
-        <div className="flex items-center justify-between gap-3"><div><h2 id="recent-client-files" className="text-sm font-semibold">Recent files</h2><p className="mt-0.5 text-[11px] text-muted-foreground">Latest uploads from client and task workspaces you can access.</p></div><span className="rounded-full border bg-background px-2 py-0.5 text-[10px] text-muted-foreground">{recentFiles.length}</span></div>
-        {recentFiles.length ? <ul className="mt-2 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">{recentFiles.map((file) => {
-          const canPreview = imagePreviewTypes.has(file.mimeType.toLowerCase()) || videoPreviewTypes.has(file.mimeType.toLowerCase()) || file.mimeType === "application/pdf"
-          const fileUrl = `/api/files/${encodeURIComponent(file.id)}${canPreview ? "?inline=1" : ""}`
-          const size = file.sizeBytes < 1024 * 1024 ? `${Math.max(1, Math.round(file.sizeBytes / 1024))} KB` : `${(file.sizeBytes / 1024 / 1024).toFixed(1)} MB`
-          return <li key={file.id} className="flex min-w-0 items-center gap-2 rounded-md border border-border/70 bg-background/65 p-2">
-            <RecentFileThumbnail file={file} fileUrl={fileUrl} />
-            <div className="min-w-0 flex-1"><a href={fileUrl} target="_blank" rel="noreferrer" className="block truncate text-[11px] font-medium hover:text-primary hover:underline" title={file.fileName}>{file.fileName}</a><p className="mt-0.5 truncate text-[10px] text-muted-foreground">{file.clientName}{file.taskId ? " · Task" : " · Client"} · {size} · {new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(new Date(file.createdAt))}</p></div>
-            <a href={fileUrl} target="_blank" rel="noreferrer" aria-label={`${canPreview ? "Preview" : "Download"} ${file.fileName}`} title={canPreview ? "Preview file" : "Download file"} className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground">{canPreview ? <ExternalLink className="size-3.5" /> : <Download className="size-3.5" />}</a>
-            {file.canBrowseClient !== false && <Link href={`/clients/${encodeURIComponent(file.clientId)}?tab=files`} aria-label={`Browse ${file.clientName} files`} title={`Browse ${file.clientName} files`} className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"><ArrowUpRight className="size-3.5" /></Link>}
-          </li>
-        })}</ul> : <p className="mt-2 rounded-md border border-dashed px-3 py-4 text-center text-[11px] text-muted-foreground">No recent files yet. Files uploaded to your accessible client and task workspaces will appear here.</p>}
+        <div className="flex items-center justify-between gap-3"><h2 id="recent-client-files" className="text-sm font-semibold">Recent files</h2><span className="text-[10px] text-muted-foreground">{visibleRecentFiles.length}</span></div>
+        {fileActionMessage && <p role="status" className="mt-2 flex items-center justify-between gap-2 rounded-md border bg-background/80 px-2.5 py-1.5 text-[11px] text-muted-foreground">{fileActionMessage}{undoFile && <button type="button" onClick={() => void setRecentFileState(undoFile, "restore")} disabled={busyFileId !== null} className="font-medium text-primary hover:underline">Undo</button>}</p>}
+        {visibleRecentFiles.length ? <ul className="mt-2 grid list-none grid-cols-2 gap-2 p-0 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">{(showAllRecentFiles ? visibleRecentFiles : visibleRecentFiles.slice(0, INITIAL_RECENT_FILE_COUNT)).map((file) => <RecentFileCard key={file.id} file={file} busy={busyFileId === file.id} onOpen={() => setPreviewFile(file)} onTrash={(target) => void setRecentFileState(target, "archive")} />)}</ul> : <p className="mt-2 rounded-md border border-dashed px-3 py-4 text-center text-[11px] text-muted-foreground">No recent files yet.</p>}
+        {visibleRecentFiles.length > INITIAL_RECENT_FILE_COUNT && <button type="button" aria-expanded={showAllRecentFiles} onClick={() => setShowAllRecentFiles((shown) => !shown)} className="mt-2 text-[11px] font-medium text-primary hover:underline">{showAllRecentFiles ? "Show fewer" : `View all ${visibleRecentFiles.length} files`}</button>}
       </section>}
+      {previewFile && <RecentFilePreview file={previewFile} onClose={() => setPreviewFile(null)} />}
 
       {initialView === "active" && <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-b border-border/80 pb-3">
         <div className="flex flex-wrap gap-1.5" aria-label="Filter clients by status">

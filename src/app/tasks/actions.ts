@@ -15,6 +15,7 @@ export async function createTaskAction(input: {
   priority: "low" | "medium" | "high" | "urgent"
   dueAt: string
   assigneeId: string
+  contentItemId?: string | null
 }) {
   const parsed = z.object({
     title: z.string().trim().min(2).max(220),
@@ -23,21 +24,32 @@ export async function createTaskAction(input: {
     priority: z.enum(["low", "medium", "high", "urgent"]),
     dueAt: z.iso.datetime(),
     assigneeId: uuid,
+    contentItemId: uuid.nullable().optional(),
   }).safeParse(input)
   if (!parsed.success) return { id: null, error: "Check the task details and try again." }
 
   const supabase = await createClient()
-  const { data, error } = await supabase.rpc("workflow_create_task", {
-    p_title: parsed.data.title,
-    p_client_id: parsed.data.clientId,
-    p_campaign_name: parsed.data.campaign || null,
-    p_priority: parsed.data.priority,
-    p_due_at: parsed.data.dueAt,
-    p_assigned_to: parsed.data.assigneeId,
-  })
+  const { data, error } = parsed.data.contentItemId
+    ? await supabase.rpc("workflow_create_task_for_content", {
+      p_content_item_id: parsed.data.contentItemId,
+      p_title: parsed.data.title,
+      p_priority: parsed.data.priority,
+      p_due_at: parsed.data.dueAt,
+      p_assigned_to: parsed.data.assigneeId,
+    })
+    : await supabase.rpc("workflow_create_task", {
+      p_title: parsed.data.title,
+      p_client_id: parsed.data.clientId,
+      p_campaign_name: parsed.data.campaign || null,
+      p_priority: parsed.data.priority,
+      p_due_at: parsed.data.dueAt,
+      p_assigned_to: parsed.data.assigneeId,
+    })
   if (error || !data) return { id: null, error: error?.message ?? "Task creation failed." }
   revalidatePath("/")
   revalidatePath("/tasks")
+  revalidatePath("/content")
+  revalidatePath("/calendar")
   return { id: data, error: null }
 }
 
@@ -48,6 +60,7 @@ export async function trashTaskAction(taskId: string) {
   if (error) return { error: error.message }
   revalidatePath("/")
   revalidatePath("/tasks")
+  revalidatePath("/tasks/trash")
   return { error: null }
 }
 
@@ -60,6 +73,17 @@ export async function restoreTaskFromTrashAction(taskId: string) {
   revalidatePath("/tasks")
   revalidatePath("/tasks/trash")
   redirect("/tasks/trash?notice=restored")
+}
+
+export async function undoTaskTrashAction(taskId: string) {
+  if (!uuid.safeParse(taskId).success) return { error: "Invalid task." }
+  const supabase = await createClient()
+  const { error } = await supabase.rpc("workflow_restore_task_from_trash", { p_task_id: taskId })
+  if (error) return { error: error.message }
+  revalidatePath("/")
+  revalidatePath("/tasks")
+  revalidatePath("/tasks/trash")
+  return { error: null }
 }
 
 export async function listTaskTrashAction() {

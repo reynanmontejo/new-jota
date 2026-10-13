@@ -5,6 +5,7 @@ import { FormEvent, useState } from "react"
 import {
   Activity,
   ArrowLeft,
+  ArrowUpRight,
   CalendarDays,
   Check,
   CheckCircle2,
@@ -49,16 +50,10 @@ export function TaskDetail({ taskId, embedded = false }: { taskId: string; embed
   const canEdit = canEditTask(task, currentUser.id)
   const statusOptions = taskStatusOptions(task, currentUser)
   const canManageTrash = currentUser.role === "supervisor" || task.primaryOwner.id === currentUser.id
-  const trashStatusEligible = ["todo", "in_progress", "cancelled"].includes(task.status)
-  const trashBlockedByHistory = Boolean(task.hasSubmissions) || task.versions.length > 0 || task.comments.length > 0 || (task.fileCount ?? 0) > 0
-  const trashEligibilityUnknown = task.fileCount === null
+  const trashStatusEligible = ["todo", "in_progress", "cancelled", "completed"].includes(task.status)
   const trashUnavailableMessage = !trashStatusEligible
-    ? "Tasks under review, approved, or completed stay in the task history."
-    : trashBlockedByHistory
-      ? "This task has files, comments, or review history. Cancel it instead so its history stays available."
-      : trashEligibilityUnknown
-        ? "Task files could not be checked. Trash is unavailable until their status can be verified."
-        : null
+    ? "Tasks awaiting review or approval must remain on the active board. Finish or resolve their workflow first."
+    : null
 
   async function handleComment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -94,6 +89,7 @@ export function TaskDetail({ taskId, embedded = false }: { taskId: string; embed
           <div className="flex flex-wrap items-center gap-2"><StatusBadge status={task.status} /><Badge variant="outline" className="capitalize">{task.priority} priority</Badge></div>
           <h1 className={cn("mt-2 font-semibold tracking-tight", embedded ? "text-xl" : "text-2xl sm:text-[28px]")}>{task.title}</h1>
           <p className="mt-1 text-sm text-muted-foreground">{task.clientName} · {task.campaign} · {task.contentItem}</p>
+          {task.contentItemId && <Link href={`/content#content-item-${encodeURIComponent(task.contentItemId)}`} className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline">Open linked content <ArrowUpRight className="size-3.5" /></Link>}
         </div>
         {statusOptions.length > 0 && <label className="flex items-center gap-2 rounded-xl border border-primary/20 bg-background/65 px-3 py-2 text-xs font-semibold">
           Status

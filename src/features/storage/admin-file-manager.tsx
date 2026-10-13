@@ -2,10 +2,11 @@
 
 import Image from "next/image"
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { Archive, Download, FileText, Film, Image as ImageIcon, LoaderCircle, Play, RotateCcw, Search, X } from "lucide-react"
+import { Archive, Download, FileText, Film, Image as ImageIcon, LoaderCircle, Play, RotateCcw, Search, Trash2, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { fileCategoryLabels, getFileCategory, type FileCategory } from "@/lib/storage/file-types"
+import { getPreviewMimeType } from "@/lib/storage/preview-types"
 
 type ManagedFile = {
   id: string
@@ -104,9 +105,32 @@ export function AdminFileManager() {
     } finally { setBusyId(null) }
   }
 
+  async function permanentlyDeleteFile(file: ManagedFile) {
+    if (busyId || view !== "trash" || file.in_submission_history) return
+    const confirmed = window.confirm(`Permanently delete “${file.file_name}” from Jota and Google Drive? This cannot be undone.`)
+    if (!confirmed) return
+    setBusyId(file.id)
+    setMessage("")
+    try {
+      const response = await fetch(`/api/admin/files/${encodeURIComponent(file.id)}`, {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ confirm: true }),
+      })
+      const payload = await response.json() as { error?: string; auditRecorded?: boolean }
+      if (!response.ok) throw new Error(payload.error ?? "Could not permanently delete this file.")
+      setFiles((current) => current.filter((item) => item.id !== file.id))
+      setMessage(payload.auditRecorded === false
+        ? "File permanently deleted, but the activity log could not be saved."
+        : "File permanently deleted from Jota and Google Drive.")
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not permanently delete this file.")
+    } finally { setBusyId(null) }
+  }
+
   return <section className="mt-5 rounded-xl border bg-card/75 p-3 sm:p-4">
     <div className="flex flex-wrap items-start justify-between gap-3">
-      <div className="min-w-0"><h2 className="text-sm font-semibold">Organization files</h2><p className="mt-1 max-w-2xl text-xs leading-5 text-muted-foreground">Browse client, task, and content files. Archive retains the private Drive copy; submitted review history is protected.</p></div>
+      <div className="min-w-0"><h2 className="text-sm font-semibold">Organization files</h2><p className="mt-1 max-w-2xl text-xs leading-5 text-muted-foreground">Browse client, task, and content files. Archived files can be permanently deleted; submitted review history stays protected.</p></div>
       <div className="flex shrink-0 rounded-lg border bg-background p-1" role="group" aria-label="File archive view">
         {(["active", "trash"] as const).map((item) => <button key={item} type="button" onClick={() => setView(item)} aria-pressed={view === item} className={`rounded-md px-3 py-1.5 text-xs font-medium ${view === item ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>{item === "active" ? "Active files" : "Archive"}</button>)}
       </div>
@@ -121,9 +145,10 @@ export function AdminFileManager() {
     {loading ? <div className="flex items-center justify-center gap-2 py-12 text-xs text-muted-foreground"><LoaderCircle className="size-4 animate-spin" />Loading organization files…</div> : visibleFiles.length ? <>
       <p className="mt-3 text-[10px] text-muted-foreground">{visibleFiles.length} {visibleFiles.length === 1 ? "file" : "files"}</p>
       <ul className="mt-2 grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">{visibleFiles.map((file) => {
-        const image = file.mime_type.startsWith("image/")
-        const video = file.mime_type.startsWith("video/")
-        const pdf = file.mime_type === "application/pdf"
+        const previewMimeType = getPreviewMimeType(file.mime_type, file.file_name)
+        const image = previewMimeType?.startsWith("image/") ?? false
+        const video = previewMimeType?.startsWith("video/") ?? false
+        const pdf = previewMimeType === "application/pdf"
         const location = file.content_title ? `Content · ${file.content_title}` : file.task_title ? `Task · ${file.task_title}` : file.campaign_name ? `Campaign · ${file.campaign_name}` : "Client files"
         const inlineUrl = `/api/files/${encodeURIComponent(file.id)}?inline=1`
         return <li key={file.id} className="group min-w-0 overflow-hidden rounded-lg border bg-background/75 transition hover:border-primary/35 hover:shadow-sm">
@@ -144,7 +169,16 @@ export function AdminFileManager() {
                 {pdf && <a href={inlineUrl} target="_blank" rel="noreferrer" className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground" aria-label={`Preview ${file.file_name}`} title="Preview"><FileText className="size-3.5" /></a>}
                 <a href={`/api/files/${encodeURIComponent(file.id)}`} className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground" aria-label={`Download ${file.file_name}`} title="Download"><Download className="size-3.5" /></a>
               </div>
-              {file.in_submission_history ? <span className="text-[9px] text-muted-foreground">History kept</span> : <Button type="button" variant="ghost" size="icon" className="size-7 shrink-0" disabled={busyId !== null} onClick={() => void changeFileState(file)} aria-label={`${view === "trash" ? "Restore" : "Archive"} ${file.file_name}`} title={view === "trash" ? "Restore" : "Archive"}>{busyId === file.id ? <LoaderCircle className="size-3.5 animate-spin" /> : view === "trash" ? <RotateCcw className="size-3.5" /> : <Archive className="size-3.5" />}</Button>}
+              {view === "active"
+                ? file.in_submission_history
+                  ? <span className="text-[9px] text-muted-foreground">History kept</span>
+                  : <Button type="button" variant="ghost" size="icon" className="size-7 shrink-0" disabled={busyId !== null} onClick={() => void changeFileState(file)} aria-label={`Archive ${file.file_name}`} title="Move to Archive">{busyId === file.id ? <LoaderCircle className="size-3.5 animate-spin" /> : <Archive className="size-3.5" />}</Button>
+                : <div className="flex items-center gap-1">
+                  <Button type="button" variant="ghost" size="icon" className="size-7 shrink-0" disabled={busyId !== null} onClick={() => void changeFileState(file)} aria-label={`Restore ${file.file_name}`} title="Restore">{busyId === file.id ? <LoaderCircle className="size-3.5 animate-spin" /> : <RotateCcw className="size-3.5" />}</Button>
+                  {file.in_submission_history
+                    ? <span className="px-1 text-[9px] text-muted-foreground" title="Submitted review history is protected">Protected</span>
+                    : <Button type="button" variant="ghost" size="icon" className="size-7 shrink-0 text-destructive hover:text-destructive" disabled={busyId !== null} onClick={() => void permanentlyDeleteFile(file)} aria-label={`Permanently delete ${file.file_name}`} title="Permanently delete from Drive">{busyId === file.id ? <LoaderCircle className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}</Button>}
+                </div>}
             </div>
           </div>
         </li>

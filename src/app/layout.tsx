@@ -34,7 +34,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
     >
       <body className="min-h-full flex flex-col">
         <TooltipProvider>
-          <WorkflowProvider initialUser={initialUser} initialTasks={workflowData?.tasks} initialClients={workflowData?.clients} initialUpcomingContent={workflowData?.upcomingContent} demoMode={demoMode}><TaskDrawerProvider>{children}</TaskDrawerProvider></WorkflowProvider>
+          <WorkflowProvider initialUser={initialUser} initialTasks={workflowData?.tasks} initialClients={workflowData?.clients} initialUpcomingContent={workflowData?.upcomingContent} initialContentWorkItems={workflowData?.contentWorkItems} demoMode={demoMode}><TaskDrawerProvider>{children}</TaskDrawerProvider></WorkflowProvider>
         </TooltipProvider>
       </body>
     </html>
