@@ -46,7 +46,7 @@ function actionLabel(action: string) {
 export async function loadWorkflowData(): Promise<{ tasks: WorkflowTask[]; clients: WorkflowClient[]; upcomingContent: WorkflowUpcomingContent[]; contentWorkItems: WorkflowContentWorkItem[] }> {
   const supabase = await createClient()
   const [taskResult, clientResult] = await Promise.all([
-    supabase.from("tasks").select("id,title,description,client_id,campaign_id,content_item_id,status,priority,start_at,due_at,completed_at,created_by,created_at").is("deleted_at", null).order("due_at", { ascending: true, nullsFirst: false }),
+    supabase.from("tasks").select("id,title,description,client_id,campaign_id,content_item_id,status,priority,start_at,due_at,completed_at,created_by,created_at").is("deleted_at", null).is("archived_at", null).order("due_at", { ascending: true, nullsFirst: false }),
     supabase.from("clients").select("id,name").is("deleted_at", null).order("name"),
   ])
   if (taskResult.error) throw new Error(`Could not load tasks: ${taskResult.error.message}`)

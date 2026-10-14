@@ -9,6 +9,7 @@ vi.mock("next/navigation", () => ({
 
 import { WorkflowProvider } from "@/features/workflow/workflow-provider"
 import { TaskDrawerProvider } from "@/features/tasks/task-drawer"
+import type { WorkflowTask } from "@/features/workflow/types"
 import Home from "./page"
 
 afterEach(cleanup)
@@ -21,12 +22,12 @@ function renderDashboard() {
   )
 }
 
-function renderAuthenticatedDashboard() {
+function renderAuthenticatedDashboard(initialTasks: WorkflowTask[] = []) {
   return render(
     <WorkflowProvider
       demoMode={false}
       initialUser={{ id: "admin-1", name: "Test Admin", role: "supervisor", title: "Administrator" }}
-      initialTasks={[]}
+      initialTasks={initialTasks}
       initialClients={[{ id: "client-1", name: "Live Client" }]}
       initialUpcomingContent={[{ id: "content-1", title: "Database Schedule", clientId: "client-1", clientName: "Live Client", platform: "Instagram", publishAt: "2026-10-08T16:00:00.000Z" }]}
     >
@@ -65,6 +66,15 @@ describe("Account Manager dashboard", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument()
   })
 
+  it("labels task actions distinctly and does not show a duplicate submission shortcut", async () => {
+    renderDashboard()
+    fireEvent.click(screen.getByRole("button", { name: "More options for Finalize launch-day captions" }))
+
+    expect(await screen.findByRole("menuitem", { name: "Move to To do" })).toBeInTheDocument()
+    expect(screen.getByRole("menuitem", { name: "Cancel task" })).toBeInTheDocument()
+    expect(screen.queryByRole("menuitem", { name: "Open submission" })).not.toBeInTheDocument()
+  })
+
   it("renders authorized workspace clients and scheduled content in authenticated mode", () => {
     renderAuthenticatedDashboard()
 
@@ -72,5 +82,37 @@ describe("Account Manager dashboard", () => {
     expect(screen.getByText("Database Schedule")).toBeInTheDocument()
     expect(screen.queryByText("Luma Skincare")).not.toBeInTheDocument()
     expect(screen.queryByText("Founder story reel")).not.toBeInTheDocument()
+  })
+
+  it("hides completed and cancelled tasks from Today’s focus", () => {
+    const makeTask = (id: string, title: string, status: WorkflowTask["status"]): WorkflowTask => ({
+      id,
+      title,
+      description: "",
+      clientId: "client-1",
+      clientName: "Live Client",
+      campaign: "General work",
+      contentItem: "General work",
+      priority: "medium",
+      status,
+      startDate: "Oct 14, 2026",
+      dueDate: "Oct 14, 2026",
+      primaryOwner: { id: "admin-1", name: "Test Admin", initials: "TA", role: "Supervisor" },
+      collaborators: [],
+      checklist: [],
+      comments: [],
+      versions: [],
+      activity: [],
+    })
+
+    renderAuthenticatedDashboard([
+      makeTask("active", "Still needs work", "todo"),
+      makeTask("completed", "Already completed", "completed"),
+      makeTask("cancelled", "Cancelled work", "cancelled"),
+    ])
+
+    expect(screen.getByText("Still needs work")).toBeInTheDocument()
+    expect(screen.queryByText("Already completed")).not.toBeInTheDocument()
+    expect(screen.queryByText("Cancelled work")).not.toBeInTheDocument()
   })
 })

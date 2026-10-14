@@ -77,7 +77,14 @@ export async function uploadProfilePhoto(formData: FormData) {
     cacheControl: "3600",
     upsert: false,
   })
-  if (uploadError) redirect("/profile?photo=upload-failed")
+  if (uploadError) {
+    console.error("[profile photo upload failed]", {
+      userId: user.id,
+      statusCode: uploadError.statusCode,
+      message: uploadError.message,
+    })
+    redirect("/profile?photo=upload-failed")
+  }
 
   const avatarUrl = storage.getPublicUrl(objectPath).data.publicUrl
   const { error: profileError } = await supabase.rpc("update_own_profile", {

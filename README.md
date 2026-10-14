@@ -11,7 +11,10 @@ provider when configured.
   ownership. Account Managers can create clients; Supervisors and Administrators
   can oversee and assign Account Managers.
 - **Tasks:** plan and assign operational work, track status, dates, checklists,
-  comments, and activity.
+  comments, activity, and attached work files. Assigned work can be submitted as
+  versioned task review; Supervisors can approve it or request revisions. A
+  completed task can be archived separately from Trash, preserving its files and
+  review history.
 - **Content tracker:** manage one content item per piece of work, including its
   client, campaign, platform, format, dates, owner, status, revision notes, and
   next action. Content items do not automatically create tasks.
@@ -21,6 +24,9 @@ provider when configured.
   select a date to view its items.
 - **Content review:** attach files to content items, submit immutable versions,
   and let Supervisors approve or request changes with feedback.
+- **Review separation:** task submissions and content submissions have their
+  own review histories. A task approval does not publish content, and content
+  approval does not complete a task.
 - **Private files:** upload and access client, task, and content files through
   the app. Google Drive files are not made public. The Clients → Files view also
   shows recent accessible uploads.
@@ -36,7 +42,7 @@ provider when configured.
 - **Account Manager:** manages assigned client work, creates clients, updates
   content, uploads work, and submits content for review.
 - **Supervisor:** oversees organization-wide client/task progress, assigns
-  Account Managers, and reviews submitted content.
+  Account Managers, and reviews submitted task work and content.
 - **Administrator:** manages the organization, employee access, and storage
   settings in addition to supervisory access.
 
@@ -157,22 +163,29 @@ assets to the content items after import.
 | `/clients?tab=files` | Recent files and links to client file libraries |
 | `/clients/[clientId]` | A client’s workspace: overview, files, team, tasks, campaigns, and activity |
 | `/tasks` | Task board/list and task details |
+| `/tasks/archive` | Restore completed tasks archived from the board |
+| `/tasks/trash` | Restore tasks moved to Trash |
 | `/content` | Content tracker and CSV import |
 | `/calendar` | Content dates and task deadlines |
-| `/reviews` | Supervisor content-review queue |
+| `/reviews` | Supervisor queues for task and content submissions |
 | `/employees` | Administrator employee and role management |
 | `/settings/storage` | Administrator Google Drive connection and file management |
 | `/settings` | Personal sound and browser push notification preferences |
 | `/profile` | Personal display name, job title, and avatar URL |
+| `/help` | Role-oriented guides for the main Jota workflows |
 
-## Known workflow boundary
+## Workflow boundaries and current limitations
 
-Content-item review is persisted as immutable numbered submissions with
-supervisor decisions and revision feedback. In the task details view, Task files
-are currently stored attachments; persistent task-specific versioned submission
-and review is not connected in the hosted workflow. Do not treat uploading a
-task file as submitting it for formal approval. Use the content tracker and its
-review flow for marketing assets that require approval.
+Task and content review are both persistent workflows with numbered submissions,
+supervisor decisions, and revision history. Uploading a file alone does not
+submit it: select the files and submit them for review. Keep marketing-content
+approval in the content item's review flow and operational task approval in the
+task review flow.
+
+Global search currently covers tasks, clients, and campaigns; content and files
+are not included. Filtered content export is not currently available. CSV import
+creates content tracker items, not tasks or file attachments; add a linked task
+only when the work needs its own task owner, progress, and due date.
 
 ## Quality checks
 

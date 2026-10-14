@@ -93,6 +93,39 @@ export async function listTaskTrashAction() {
   return { rows: data ?? [], error: null }
 }
 
+export async function archiveCompletedTaskAction(taskId: string) {
+  if (!uuid.safeParse(taskId).success) return { error: "Invalid task." }
+  const supabase = await createClient()
+  const { error } = await supabase.rpc("workflow_archive_completed_task", { p_task_id: taskId })
+  if (error) return { error: error.message }
+  revalidatePath("/")
+  revalidatePath("/tasks")
+  revalidatePath("/tasks/archive")
+  return { error: null }
+}
+
+export async function restoreTaskFromArchiveAction(taskId: string) {
+  if (!uuid.safeParse(taskId).success) redirect("/tasks/archive?notice=restore-failed")
+  const supabase = await createClient()
+  const { error } = await supabase.rpc("workflow_restore_task_from_archive", { p_task_id: taskId })
+  if (error) redirect("/tasks/archive?notice=restore-failed")
+  revalidatePath("/")
+  revalidatePath("/tasks")
+  revalidatePath("/tasks/archive")
+  redirect("/tasks/archive?notice=restored")
+}
+
+export async function undoTaskArchiveAction(taskId: string) {
+  if (!uuid.safeParse(taskId).success) return { error: "Invalid task." }
+  const supabase = await createClient()
+  const { error } = await supabase.rpc("workflow_restore_task_from_archive", { p_task_id: taskId })
+  if (error) return { error: error.message }
+  revalidatePath("/")
+  revalidatePath("/tasks")
+  revalidatePath("/tasks/archive")
+  return { error: null }
+}
+
 export async function updateTaskStatusAction(taskId: string, status: string) {
   if (!uuid.safeParse(taskId).success || !z.enum(["todo", "in_progress", "for_review", "revision_requested", "approved", "completed", "cancelled"]).safeParse(status).success) {
     return { error: "Invalid task or status." }

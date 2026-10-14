@@ -1,10 +1,33 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { BellRing, Volume2 } from "lucide-react"
+import { useEffect, useState, type ChangeEvent } from "react"
+import { BellRing, MonitorCheck, Music2, Trash2, Upload, Volume2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import { playNotificationChime } from "@/features/notifications/notification-sound"
+import {
+  getCustomNotificationSound,
+  getNotificationVolume,
+  maxNotificationSoundBytes,
+  playNotificationChime,
+  removeCustomNotificationSound,
+  saveCustomNotificationSound,
+  saveNotificationVolume,
+  supportedNotificationSoundTypes,
+} from "@/features/notifications/notification-sound"
+
+async function waitForServiceWorkerReady(timeoutMs = 10_000) {
+  let timer: number | undefined
+  try {
+    return await Promise.race([
+      navigator.serviceWorker.ready,
+      new Promise<never>((_, reject) => {
+        timer = window.setTimeout(() => reject(new Error("Jota's notification service worker did not start. Refresh the page and try again.")), timeoutMs)
+      }),
+    ])
+  } finally {
+    if (timer !== undefined) window.clearTimeout(timer)
+  }
+}
 
 export function NotificationSettings({ userId, demoMode }: { userId: string; demoMode: boolean }) {
   const [soundEnabled, setSoundEnabled] = useState(false)
@@ -15,7 +38,22 @@ export function NotificationSettings({ userId, demoMode }: { userId: string; dem
   const [loading, setLoading] = useState(!demoMode)
   const [saving, setSaving] = useState(false)
   const [pushSaving, setPushSaving] = useState(false)
+  const [testingBrowser, setTestingBrowser] = useState(false)
+  const [volume, setVolume] = useState(65)
+  const [customSoundName, setCustomSoundName] = useState<string | null>(null)
+  const [customSoundSaving, setCustomSoundSaving] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
+
+  useEffect(() => {
+    let active = true
+    const timer = window.setTimeout(() => {
+      if (active) setVolume(getNotificationVolume(userId))
+    }, 0)
+    void getCustomNotificationSound(userId)
+      .then((sound) => { if (active) setCustomSoundName(sound?.name ?? null) })
+      .catch(() => { if (active) setCustomSoundName(null) })
+    return () => { active = false; window.clearTimeout(timer) }
+  }, [userId])
 
   useEffect(() => {
     if (demoMode) {
@@ -37,24 +75,46 @@ export function NotificationSettings({ userId, demoMode }: { userId: string; dem
   }, [demoMode, userId])
 
   useEffect(() => {
-    if (demoMode) return
     let active = true
-    const permission = "Notification" in window ? Notification.permission : "unsupported"
-    Promise.all([
-      fetch("/api/notifications/push", { cache: "no-store" })
-        .then(async (response) => response.ok ? response.json() as Promise<{ available?: boolean; publicKey?: string | null }> : null),
-      "serviceWorker" in navigator ? navigator.serviceWorker.getRegistration("/")
-        .then((registration) => registration?.pushManager.getSubscription() ?? null) : Promise.resolve(null),
-    ])
-      .then(([payload, subscription]) => {
+    const refreshBrowserStatus = async () => {
+      const permission = "Notification" in window && window.isSecureContext ? Notification.permission : "unsupported"
+      setBrowserPermission(permission)
+      const supported = window.isSecureContext && "serviceWorker" in navigator
+        && "PushManager" in window && "Notification" in window
+      if (!supported || demoMode) {
+        setPushAvailable(false)
+        setPushEnabled(false)
+        setVapidPublicKey(null)
+        return
+      }
+      try {
+        const [response, registration] = await Promise.all([
+          fetch("/api/notifications/push", { cache: "no-store" }),
+          navigator.serviceWorker.getRegistration("/"),
+        ])
+        const payload = response.ok
+          ? await response.json() as { available?: boolean; publicKey?: string | null }
+          : null
+        const subscription = await registration?.pushManager.getSubscription()
         if (!active) return
-        setBrowserPermission(permission)
         setPushAvailable(Boolean(payload?.available && payload.publicKey))
         setVapidPublicKey(payload?.publicKey ?? null)
         setPushEnabled(Boolean(subscription))
-      })
-      .catch(() => { if (active) { setPushAvailable(false); setPushEnabled(false) } })
-    return () => { active = false }
+      } catch {
+        if (active) { setPushAvailable(false); setPushEnabled(false); setVapidPublicKey(null) }
+      }
+    }
+    void refreshBrowserStatus()
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void refreshBrowserStatus()
+    }
+    window.addEventListener("focus", refreshWhenVisible)
+    document.addEventListener("visibilitychange", refreshWhenVisible)
+    return () => {
+      active = false
+      window.removeEventListener("focus", refreshWhenVisible)
+      document.removeEventListener("visibilitychange", refreshWhenVisible)
+    }
   }, [demoMode])
 
   async function updateSound(enabled: boolean) {
@@ -73,11 +133,72 @@ export function NotificationSettings({ userId, demoMode }: { userId: string; dem
       }
       setSoundEnabled(enabled)
       window.dispatchEvent(new CustomEvent("jota-notification-sound-changed", { detail: { userId, enabled } }))
-      if (enabled) playNotificationChime()
-      setMessage(enabled ? "Sound alerts are on. A short test sound played." : "Sound alerts are off.")
+      if (enabled) await playNotificationChime(userId)
+      setMessage(enabled ? "Sound alerts are on." : "Sound alerts are off.")
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not save notification preferences.")
     } finally { setSaving(false) }
+  }
+
+  function updateVolume(nextVolume: number) {
+    setVolume(nextVolume)
+    saveNotificationVolume(userId, nextVolume)
+  }
+
+  async function chooseCustomSound(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0]
+    event.currentTarget.value = ""
+    if (!file) return
+
+    const validExtension = /\.(mp3|wav|ogg|m4a|aac|webm)$/i.test(file.name)
+    if (file.type && !supportedNotificationSoundTypes.includes(file.type) && !validExtension) {
+      setMessage("Choose an MP3, WAV, OGG, M4A, AAC, or WebM audio file.")
+      return
+    }
+    if (file.size > maxNotificationSoundBytes) {
+      setMessage("Custom notification sounds must be 2 MB or smaller.")
+      return
+    }
+    if (file.size === 0) {
+      setMessage("That sound file is empty. Choose another audio file.")
+      return
+    }
+
+    setCustomSoundSaving(true)
+    setMessage(null)
+    try {
+      await saveCustomNotificationSound(userId, file)
+      setCustomSoundName(file.name)
+      setMessage("Custom sound saved. Use Test sound to preview it.")
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not save the custom sound.")
+    } finally {
+      setCustomSoundSaving(false)
+    }
+  }
+
+  async function clearCustomSound() {
+    setCustomSoundSaving(true)
+    setMessage(null)
+    try {
+      await removeCustomNotificationSound(userId)
+      setCustomSoundName(null)
+      setMessage("Using Jota's default notification sound.")
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not remove the custom sound.")
+    } finally {
+      setCustomSoundSaving(false)
+    }
+  }
+
+  async function testSound() {
+    setMessage(null)
+    if (volume === 0) {
+      setMessage("Sound volume is at 0%. Increase it to preview the notification sound.")
+      return
+    }
+    const played = await playNotificationChime(userId)
+    if (!played) setMessage("The custom sound could not be played. Try another supported audio format.")
   }
 
   async function updatePush(enabled: boolean) {
@@ -112,7 +233,8 @@ export function NotificationSettings({ userId, demoMode }: { userId: string; dem
           ? "Notifications are blocked for this site. Allow them in your browser’s site settings, then try again."
           : "Allow notifications in the browser prompt to turn on desktop alerts.")
       }
-      const registration = await navigator.serviceWorker.register("/sw.js", { scope: "/" })
+      await navigator.serviceWorker.register("/sw.js", { scope: "/" })
+      const registration = await waitForServiceWorkerReady()
       const existing = await registration.pushManager.getSubscription()
       const subscription = existing ?? await registration.pushManager.subscribe({
         userVisibleOnly: true,
@@ -131,6 +253,54 @@ export function NotificationSettings({ userId, demoMode }: { userId: string; dem
     } finally { setPushSaving(false) }
   }
 
+  async function testBrowserNotification() {
+    setTestingBrowser(true)
+    setMessage(null)
+    try {
+      if (!window.isSecureContext || !("serviceWorker" in navigator) || !("Notification" in window)) {
+        throw new Error("This browser cannot show Jota notifications here. Use a supported browser on HTTPS.")
+      }
+      const permission = Notification.permission
+      setBrowserPermission(permission)
+      if (permission !== "granted") throw new Error("Browser access is not currently allowed for this site. Allow it in the browser's site settings, then try again.")
+      await navigator.serviceWorker.register("/sw.js", { scope: "/" })
+      const registration = await waitForServiceWorkerReady()
+      const testTag = `jota-notification-test-${Date.now()}`
+      await registration.showNotification("Jota test notification", {
+        body: `Jota successfully sent this test at ${new Date().toLocaleTimeString()}.`,
+        tag: testTag,
+        silent: false,
+        icon: "/jota-notification-icon.svg",
+        badge: "/jota-notification-icon.svg",
+        data: { path: "/settings" },
+      })
+      setMessage("The browser accepted the test notification. If no banner appeared, check the notification center and your computer's banner or Do Not Disturb settings.")
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not show a test notification.")
+    } finally { setTestingBrowser(false) }
+  }
+
+  async function requestBrowserAccess() {
+    setPushSaving(true)
+    setMessage(null)
+    try {
+      if (!("Notification" in window) || !window.isSecureContext) {
+        throw new Error("Browser notifications require a supported browser on HTTPS. Localhost is supported for testing.")
+      }
+      const permission = await Notification.requestPermission()
+      setBrowserPermission(permission)
+      if (permission === "granted") {
+        setMessage("Browser access is allowed. Use the test button to check your computer's notification display.")
+      } else if (permission === "denied") {
+        setMessage("Access was blocked. Allow Notifications in this site's browser permissions, then return here.")
+      } else {
+        setMessage("Browser access was not allowed. You can request it again here.")
+      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not request browser notification access.")
+    } finally { setPushSaving(false) }
+  }
+
   function toApplicationServerKey(base64Url: string) {
     const normalized = base64Url.replace(/-/g, "+").replace(/_/g, "/")
     const padded = normalized + "=".repeat((4 - normalized.length % 4) % 4)
@@ -138,36 +308,74 @@ export function NotificationSettings({ userId, demoMode }: { userId: string; dem
     return Uint8Array.from(binary, (character) => character.charCodeAt(0))
   }
 
+  const desktopStatus = demoMode
+    ? "Sign in to enable desktop notifications."
+    : browserPermission === "unsupported"
+      ? "Desktop notifications aren't supported in this browser."
+      : browserPermission === "denied"
+        ? "Browser access is blocked. Allow notifications in this site's browser settings."
+        : browserPermission === "default"
+          ? "Browser access hasn't been granted yet."
+          : !pushAvailable
+            ? "Browser access is allowed, but desktop alerts aren't configured for this workspace yet."
+            : pushEnabled
+              ? "Desktop notifications are on for this device."
+              : "Browser access is allowed; desktop notifications are off on this device."
+
   return <section className="mt-5 rounded-lg border bg-card/80 p-5">
     <div className="flex items-start gap-3">
       <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-secondary/35 text-primary"><BellRing className="size-4" /></span>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div><h2 className="text-sm font-semibold">Sound alerts</h2><p className="mt-1 text-xs leading-5 text-muted-foreground">Play a short bell chime for new notifications while Jota is open. Off by default.</p></div>
-          <Button type="button" role="switch" aria-checked={soundEnabled} aria-label="Sound alerts" variant={soundEnabled ? "default" : "outline"} size="sm" disabled={loading || saving} onClick={() => void updateSound(!soundEnabled)}>
+          <div><h2 className="text-sm font-semibold">Sound alerts</h2><p className="mt-1 text-xs leading-5 text-muted-foreground">Play a chime for new notifications while Jota is open.</p></div>
+          <Button type="button" role="switch" aria-checked={soundEnabled} aria-label="Sound alerts" variant="ghost" className={`relative h-6 w-11 shrink-0 rounded-full border p-0 text-transparent hover:text-transparent before:absolute before:left-1 before:top-1/2 before:size-4 before:-translate-y-1/2 before:rounded-full before:bg-background before:shadow-sm before:transition-transform ${soundEnabled ? "border-primary bg-primary hover:bg-primary before:translate-x-5" : "border-input bg-muted hover:bg-muted before:translate-x-0"}`} disabled={loading || saving} onClick={() => void updateSound(!soundEnabled)}>
             {loading ? "Loading…" : soundEnabled ? "On" : "Off"}
           </Button>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <Button type="button" variant="outline" size="sm" disabled={loading || saving} onClick={playNotificationChime}><Volume2 className="size-3.5" /> Test sound</Button>
-          <span className="text-[10px] text-muted-foreground">The browser may require a click before it allows sounds.</span>
+          <Button type="button" variant="outline" size="sm" disabled={loading || saving} onClick={() => void testSound()}><Volume2 className="size-3.5" /> Test sound</Button>
         </div>
-        {message && <p role="status" className="mt-3 text-xs text-muted-foreground">{message}</p>}
+        <div className="mt-3 rounded-md border bg-background/50 p-3">
+          <label htmlFor="notification-volume" className="flex items-center justify-between gap-3 text-xs font-medium">
+            <span>Volume</span><span className="text-muted-foreground">{volume}%</span>
+          </label>
+          <input id="notification-volume" aria-label="Notification sound volume" type="range" min="0" max="100" step="5" value={volume} onChange={(event) => updateVolume(Number(event.currentTarget.value))} className="mt-2 h-2 w-full cursor-pointer accent-primary" />
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t pt-3">
+            <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+              <Music2 className="size-4 shrink-0 text-primary" />
+              <span className="truncate">{customSoundName ? `Custom: ${customSoundName}` : "Jota default sound"}</span>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <label className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium hover:bg-accent has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50">
+                <Upload className="size-3.5" />{customSoundSaving ? "Saving…" : "Choose sound"}
+                <input type="file" accept="audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/ogg,audio/mp4,audio/aac,audio/webm,.mp3,.wav,.ogg,.m4a,.aac,.webm" className="sr-only" disabled={customSoundSaving} onChange={(event) => void chooseCustomSound(event)} />
+              </label>
+              {customSoundName && <Button type="button" variant="ghost" size="sm" aria-label="Remove custom notification sound" disabled={customSoundSaving} onClick={() => void clearCustomSound()}><Trash2 className="size-3.5" /> Remove</Button>}
+            </div>
+          </div>
+          <p className="mt-2 text-[10px] leading-4 text-muted-foreground">MP3, WAV, OGG, M4A, AAC, or WebM · up to 2 MB · saved in this browser.</p>
+        </div>
       </div>
     </div>
-    <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
       <div className="min-w-0">
-        <h2 className="text-sm font-semibold">Computer / browser notifications</h2>
-        <p className="mt-1 max-w-xl text-xs leading-5 text-muted-foreground">
-          Show Jota alerts in your computer’s notification center, including when Jota is closed. Click Request access, then Allow in the browser prompt. This applies to this browser and device only. Desktop alert sounds follow your computer’s notification settings.
-        </p>
-        {!demoMode && <p className="mt-1 text-[11px] text-muted-foreground" role="status">Browser access: {browserPermission === "unsupported" ? "not supported" : browserPermission === "granted" ? "allowed" : browserPermission === "denied" ? "blocked in browser settings" : "not requested yet"}.</p>}
-        {!pushAvailable && !demoMode && <p className="mt-1 text-[11px] text-amber-800 dark:text-amber-300">Server push keys are not configured yet.</p>}
-        {demoMode && <p className="mt-1 text-[11px] text-muted-foreground">Sign in with a workspace account to enable push.</p>}
+        <h2 className="text-sm font-semibold">Desktop notifications</h2>
+        <p className="mt-1 text-xs leading-5 text-muted-foreground" role="status">{desktopStatus}</p>
       </div>
-      <Button type="button" role="switch" aria-checked={pushEnabled} aria-label="Computer notifications" variant={pushEnabled ? "default" : "outline"} size="sm" disabled={pushSaving || loading || (!pushEnabled && (!pushAvailable || demoMode || browserPermission === "unsupported" || browserPermission === "denied"))} onClick={() => void updatePush(!pushEnabled)}>
-        {pushSaving ? "Saving…" : pushEnabled ? "On" : browserPermission === "denied" ? "Blocked" : browserPermission === "granted" ? "Enable" : "Request access"}
+      {!demoMode && !pushAvailable && browserPermission === "default" && <Button type="button" variant="outline" size="sm" disabled={pushSaving} onClick={() => void requestBrowserAccess()}>{pushSaving ? "Requesting…" : "Allow notifications"}</Button>}
+      {pushAvailable && <Button type="button" role="switch" aria-checked={pushEnabled} aria-label="Computer notifications" variant="ghost" className={`relative h-6 w-11 shrink-0 rounded-full border p-0 text-transparent hover:text-transparent before:absolute before:left-1 before:top-1/2 before:size-4 before:-translate-y-1/2 before:rounded-full before:bg-background before:shadow-sm before:transition-transform ${pushEnabled ? "border-primary bg-primary hover:bg-primary before:translate-x-5" : "border-input bg-muted hover:bg-muted before:translate-x-0"}`} disabled={pushSaving || loading || (!pushEnabled && (!pushAvailable || demoMode || browserPermission === "unsupported" || browserPermission === "denied"))} onClick={() => void updatePush(!pushEnabled)}>
+        {pushSaving ? "Saving…" : pushEnabled ? "On" : browserPermission === "default" ? "Allow & enable" : browserPermission === "denied" ? "Blocked" : browserPermission === "granted" ? "Off" : "Unavailable"}
+      </Button>}
+    </div>
+    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+      <div className="min-w-0">
+        <h3 className="text-sm font-semibold">Test notification</h3>
+        <p className="mt-1 text-xs text-muted-foreground">Show a sample notification on this device.</p>
+      </div>
+      <Button type="button" variant="outline" size="sm" disabled={testingBrowser || browserPermission !== "granted"} onClick={() => void testBrowserNotification()}>
+        <MonitorCheck className="size-3.5" />{testingBrowser ? "Sending…" : "Test device"}
       </Button>
     </div>
+    {message && <p role="status" aria-live="polite" className="mt-3 text-xs text-muted-foreground">{message}</p>}
   </section>
 }

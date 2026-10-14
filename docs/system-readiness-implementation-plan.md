@@ -24,36 +24,41 @@ These checks validate the local code and schema test harness. They do not prove
 that hosted authorization, Google Drive, role-specific screens, or full browser
 workflows work against real accounts.
 
-## Known gaps to keep visible
+### Owner verification checkpoint — 2026-10-14
 
-These are known limitations, not presumed regressions. Confirm whether each is
-in scope before implementing it:
+The owner reports that the task-archive migration has been applied to the
+intended Supabase project, archiving and restoring completed tasks work, and the
+current end-to-end smoke test is passing. This is owner-reported verification;
+the repository does not independently attest to the hosted project state. The
+remaining release work is to run the local checks against the current worktree,
+keep this plan and the README aligned with the implementation, and review and
+publish the resulting changes.
 
-1. **Task submissions:** task-file upload is available, but task-specific
-   versioned submission and review are not connected. Content-item submission
-   and supervisor review are a separate implemented workflow. Decide whether
-   operational tasks also need formal review; do not build a second review
-   system by accident.
-2. **Notifications:** the dashboard currently displays sample notifications;
-   read state is browser-local rather than persisted and recipient-scoped.
-3. **Search:** global search covers tasks, clients, and campaigns. It does not
-   currently search content items or files.
-4. **Content assignment meaning:** My Content is scoped to clients a user can
-   access. `assigned_to` identifies a creator/editor, not the Account Manager
-   responsible for a content row. Do not label client access as personal
-   assignment.
-5. **CSV status mapping:** the social-calendar importer saves the source status
-   as a note and creates new rows as Planned. This is intentional until the
-   source status terms are mapped to Jota statuses with the owner.
-6. **CSV platform requirement:** the sample calendar has no Platform column, so
-   the importer requires a common platform value or a Platform column before
-   rows can be added.
-7. **Tracker export:** filtered CSV/XLSX export is not part of the verified
-   workflow yet.
+## Implemented workflows and deferred improvements
 
-The known gaps above should be resolved as product decisions after core
-readiness testing, unless a smoke test shows that one blocks the agreed daily
-workflow.
+The following workflow details should not be treated as known core blockers:
+
+1. **Task and content reviews:** both have persistent, versioned submission and
+   supervisor-decision flows, but they intentionally remain separate. Task
+   review does not publish content; content review does not complete a task.
+2. **Notifications:** in-app notifications are persisted and recipient-scoped.
+   Browser push requires the deployment's VAPID configuration, HTTPS, and a
+   scheduled call to the dispatch endpoint; see `docs/notifications-setup.md`.
+3. **Search:** global search covers tasks, clients, and campaigns, not content
+   items or files. Adding those result types is an optional enhancement that
+   must preserve client access boundaries.
+4. **Content assignment:** client membership determines which account-manager
+   content is visible; `assigned_to` remains the creator/editor. Keep the two
+   concepts clearly labeled.
+5. **CSV behavior:** the social-calendar importer preserves source status in
+   notes and creates imported rows as Planned. When the CSV omits Platform, the
+   user must supply a default platform. This is documented behavior, not a
+   failed import.
+6. **Tracker export:** filtered CSV/XLSX export is a possible future reporting
+   feature, not part of the currently verified core workflow.
+
+Search expansion and export should be prioritized only if actual user workflows
+need them; they are not release blockers for the current core flow.
 
 ## Safety and stop-first rules
 
@@ -228,9 +233,9 @@ Run this test with separate Account Manager and Supervisor sessions.
 
 Do not begin this phase until Phases 0–4 pass.
 
-1. Decide whether task-specific versioned review is needed in addition to
-   content-item review. If yes, define the state machine and ownership first;
-   reuse review concepts without duplicating content records or decisions.
+1. Consider whether the supervisor review queue needs a unified presentation for
+   task and content submissions. Keep their underlying histories and decisions
+   separate even if the UI combines them.
 2. Decide whether content should have a distinct Account Manager owner per row,
    separate from creator/editor assignment and client access.
 3. Decide which workflow events should generate persisted notifications, who
@@ -274,8 +279,9 @@ The system-readiness phase is complete only when:
 - Required roles cannot access clients/files outside their authorization.
 - Automated checks pass and hosted behavior has been exercised in a safe test
   environment.
-- Deferred task-review, notifications, ownership, search, and export decisions
-  are recorded as either in-scope work or accepted limitations.
+- Remaining optional work (searching content/files, filtered exports, and any
+  combined task/content review-queue presentation) is recorded as accepted
+  backlog or separately approved implementation.
 
 Production deployment and production database changes remain a separate release
 approval.

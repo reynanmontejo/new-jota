@@ -70,7 +70,7 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
     const clientIds = rows.map(({ id }) => id)
     const [campaignResult, taskResult, membershipResult, recentFileResult] = await Promise.all([
       clientIds.length ? supabase.from("campaigns").select("id, client_id").is("deleted_at", null).in("client_id", clientIds) : Promise.resolve({ data: [], error: null }),
-      clientIds.length ? supabase.from("tasks").select("id, client_id, status").is("deleted_at", null).in("client_id", clientIds) : Promise.resolve({ data: [], error: null }),
+      clientIds.length ? supabase.from("tasks").select("id, client_id, status").is("deleted_at", null).is("archived_at", null).in("client_id", clientIds) : Promise.resolve({ data: [], error: null }),
       clientIds.length ? supabase.from("client_members").select("client_id,user_id,is_primary").eq("client_role", "account_manager").is("removed_at", null).in("client_id", clientIds) : Promise.resolve({ data: [], error: null }),
       initialTab === "files" && initialView === "active"
         ? supabase.from("attachments").select("id,client_id,file_name,mime_type,size_bytes,created_at,task_id,uploaded_by").is("deleted_at", null).order("created_at", { ascending: false }).limit(60)

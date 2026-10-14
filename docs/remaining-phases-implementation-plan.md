@@ -34,6 +34,17 @@ The hosted content migrations were applied through the Supabase SQL Editor and
 the migration history was repaired after checking live objects. Verify live
 catalog state again before any future `supabase db push`.
 
+### Current owner-reported status — 2026-10-14
+
+This status supersedes older dated checkpoints below where they describe work as
+still pending: the owner confirms the task-archive migration was applied to the
+intended Supabase project, completed-task archive/restore works, and the current
+workflow smoke test passed. Earlier checkpoint notes are retained as historical
+records. Current remaining work is automated validation and review of the
+present worktree, then publishing the approved changes. Search expansion and
+content export remain optional enhancements rather than blockers for the core
+workflow.
+
 ## Cross-phase change controls
 
 1. **Preserve the current worktree.** It already contains substantial modified

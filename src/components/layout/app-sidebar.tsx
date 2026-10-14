@@ -3,15 +3,16 @@
 import { useEffect, useState } from "react"
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
+import Image from "next/image"
 import {
   BriefcaseBusiness,
   CalendarDays,
   ChartNoAxesCombined,
   ClipboardList,
   CircleHelp,
+  Archive,
   FileStack,
   HardDrive,
-  FolderKanban,
   Gauge,
   LayoutList,
   Megaphone,
@@ -41,6 +42,7 @@ const accountManagerNavigation: NavigationItem[] = [
   { name: "Insights", href: "/insights", icon: ChartNoAxesCombined },
   { name: "Campaigns", href: "/clients?tab=campaigns", icon: Megaphone },
   { name: "Files", href: "/clients?tab=files", icon: FileStack },
+  { name: "Task archive", href: "/tasks/archive", icon: Archive },
 ]
 
 const accountManagerWorkspace: NavigationItem[] = [
@@ -57,6 +59,7 @@ const supervisorNavigation: NavigationItem[] = [
   { name: "Insights", href: "/insights", icon: ChartNoAxesCombined },
   { name: "Campaigns", href: "/clients?tab=campaigns", icon: Megaphone },
   { name: "Files", href: "/clients?tab=files", icon: FileStack },
+  { name: "Task archive", href: "/tasks/archive", icon: Archive },
 ]
 
 const employeeManagementItem: NavigationItem = { name: "Employees", href: "/employees", icon: Users }
@@ -112,7 +115,7 @@ export function AppSidebar({ className, collapsed = false, onToggle, onNavigate,
 
   function isActive(item: NavigationItem) {
     const path = item.href.split("?")[0]
-    if ((item.name === "My Work" || item.name === "Team work") && pathname === "/tasks/trash") return false
+    if ((item.name === "My Work" || item.name === "Team work") && ["/tasks/trash", "/tasks/archive"].includes(pathname)) return false
     if (item.name === "Files" && pathname === "/tasks/trash") return true
     if (item.href.includes("?")) {
       const expectedParams = new URLSearchParams(item.href.split("?")[1])
@@ -154,8 +157,8 @@ export function AppSidebar({ className, collapsed = false, onToggle, onNavigate,
     <aside className={cn("sidebar-glass relative flex h-full flex-col text-foreground", className)}>
       <div className={cn("flex h-16 items-center border-b border-primary/10 px-4", collapsed ? "justify-center" : "justify-start")}>
         <Link href="/" onClick={onNavigate} className="flex items-center gap-2.5" aria-label="Jota home">
-          <span className="grid size-8 place-items-center rounded-xl bg-gradient-to-br from-primary to-accent text-foreground shadow-[0_10px_22px_-10px_rgb(175_134_83/72%)] ring-1 ring-background/80">
-            <FolderKanban className="size-[18px]" strokeWidth={2.2} />
+          <span className="grid size-10 shrink-0 place-items-center rounded-lg">
+            <Image src="/jota-logo.svg" width={40} height={31} alt="" priority className="h-auto w-10 object-contain" />
           </span>
           <span className={cn(collapsed && "hidden")}>
             <span className="block text-sm font-semibold leading-4 tracking-tight">Jota</span>

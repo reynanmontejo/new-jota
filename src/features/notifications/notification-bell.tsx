@@ -49,6 +49,28 @@ export function NotificationBell({
   const soundEnabled = useRef(false)
   const unreadCountRef = useRef(0)
 
+  const showDesktopNotification = useCallback(async (item: NotificationItem) => {
+    if (typeof window === "undefined" || !window.isSecureContext
+      || !("Notification" in window) || Notification.permission !== "granted"
+      || !("serviceWorker" in navigator) || !("PushManager" in window)) return
+
+    try {
+      const registration = await navigator.serviceWorker.getRegistration("/")
+      const subscription = await registration?.pushManager.getSubscription()
+      if (!registration || !subscription) return
+      const href = item.href && item.href.startsWith("/") && !item.href.startsWith("//") ? item.href : "/"
+      await registration.showNotification(item.title, {
+        body: item.body ?? "You have a new workspace update.",
+        tag: item.id,
+        icon: "/jota-notification-icon.svg",
+        badge: "/jota-notification-icon.svg",
+        data: { path: href },
+      })
+    } catch {
+      // In-app alerts continue to work if this browser cannot show desktop notifications.
+    }
+  }, [])
+
   const loadNotifications = useCallback(async () => {
     try {
       const response = await fetch("/api/notifications", { cache: "no-store" })
@@ -83,7 +105,8 @@ export function NotificationBell({
           unreadCountRef.current += 1
           setUnreadCount(unreadCountRef.current)
         }
-        if (soundEnabled.current) import("@/features/notifications/notification-sound").then(({ playNotificationChime }) => playNotificationChime())
+        void showDesktopNotification(incoming)
+        if (soundEnabled.current) import("@/features/notifications/notification-sound").then(({ playNotificationChime }) => playNotificationChime(currentUser.id))
       })
       .on("postgres_changes", {
         event: "UPDATE", schema: "public", table: "notifications", filter: `recipient_id=eq.${currentUser.id}`,
@@ -121,7 +144,7 @@ export function NotificationBell({
       window.removeEventListener("storage", refreshSoundPreferenceFromStorage)
       void supabase.removeChannel(channel)
     }
-  }, [currentUser.id, demoMode, loadNotifications])
+  }, [currentUser.id, demoMode, loadNotifications, showDesktopNotification])
 
   async function markRead(id: string) {
     const target = notifications.find((item) => item.id === id)

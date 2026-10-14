@@ -100,12 +100,11 @@ function FocusTaskMenu({
           <DropdownMenuItem
             key={status}
             onClick={() => onMove(task.id, status)}
-            className="min-h-8 rounded-md px-2 text-xs"
+            className={`min-h-8 rounded-md px-2 text-xs ${status === "cancelled" ? "text-destructive focus:text-destructive" : ""}`}
           >
-            {status === "in_progress" ? "Start work" : status === "completed" ? "Mark completed" : "Move to do"}
+            {status === "in_progress" ? "Start work" : status === "todo" ? "Move to To do" : status === "cancelled" ? "Cancel task" : status === "completed" ? "Mark completed" : getStatusLabel(status)}
           </DropdownMenuItem>
         ))}
-        {moves.some((status) => status === "todo" || status === "in_progress") && <DropdownMenuItem onClick={() => onOpen(task.id)} className="min-h-8 rounded-md px-2 text-xs">Open submission</DropdownMenuItem>}
       </DropdownMenuContent>
     </DropdownMenu>
   )
@@ -134,7 +133,8 @@ export default function Home() {
       return { id: item.id, title: item.title, day: new Intl.DateTimeFormat("en-US", { day: "2-digit" }).format(date), month: new Intl.DateTimeFormat("en-US", { month: "short" }).format(date).toUpperCase(), client: item.clientName, type: item.platform }
     })
   const priorityOrder: Record<WorkflowTask["priority"], number> = { urgent: 0, high: 1, medium: 2, low: 3 }
-  const focusTasks = [...visibleFocusTasks]
+  const focusTasks = visibleFocusTasks
+    .filter((task) => !["completed", "cancelled"].includes(task.status))
     .sort((a, b) => priorityOrder[a.priority] - priorityOrder[b.priority] || getTaskDueTimestamp(a) - getTaskDueTimestamp(b))
     .slice(0, 4)
   const dueToday = visibleFocusTasks.filter((task) => isTaskDueOnDate(task, new Date()))
@@ -144,6 +144,10 @@ export default function Home() {
   const completedTasks = visibleFocusTasks.filter((task) => task.status === "completed").length
   const progress = visibleFocusTasks.length ? Math.round((completedTasks / visibleFocusTasks.length) * 100) : 0
   const latestRevisionTask = revisionTasks[0]
+  function moveFocusTask(taskId: string, status: TaskStatus) {
+    if (status === "cancelled" && !window.confirm("Cancel this task? Its files and review history will be kept.")) return
+    void updateStatus(taskId, status)
+  }
   const metrics: DashboardMetric[] = [
     { label: "Due today", value: String(dueToday.length), detail: `${dueToday.filter((task) => task.priority === "high" || task.priority === "urgent").length} high priority` },
     { label: "Remaining", value: String(remainingTasks.length), detail: `Across ${new Set(remainingTasks.map((task) => task.clientId)).size} clients` },
@@ -229,7 +233,7 @@ export default function Home() {
                         <Badge variant="outline" className="hidden h-5 min-w-20 justify-center rounded-[5px] bg-background px-1.5 text-[9px] font-medium text-muted-foreground md:inline-flex">
                           {getStatusLabel(task.status)}
                         </Badge>
-                        <FocusTaskMenu task={task} onMove={updateStatus} onOpen={openTask} actor={currentUser} />
+                        <FocusTaskMenu task={task} onMove={moveFocusTask} onOpen={openTask} actor={currentUser} />
                       </div>
                     </article>
                   ))}

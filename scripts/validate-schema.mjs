@@ -29,6 +29,7 @@ const defaultCampaignPauseGuardMigrationPath = "supabase/migrations/202610200001
 const contentLinkedTasksMigrationPath = "supabase/migrations/202610210001_content_linked_tasks.sql"
 const completedTaskTrashMigrationPath = "supabase/migrations/202610220001_completed_task_trash.sql"
 const profileSecurityMigrationPath = "supabase/migrations/202610230001_profile_photos_and_password_approval.sql"
+const taskArchiveMigrationPath = "supabase/migrations/202610250001_task_archive.sql"
 const seedPath = "supabase/seed.sql"
 
 const database = new PGlite()
@@ -138,6 +139,7 @@ await database.exec(await fs.readFile(defaultCampaignPauseGuardMigrationPath, "u
 await database.exec(await fs.readFile(contentLinkedTasksMigrationPath, "utf8"))
 await database.exec(await fs.readFile(completedTaskTrashMigrationPath, "utf8"))
 await database.exec(await fs.readFile(profileSecurityMigrationPath, "utf8"))
+await database.exec(await fs.readFile(taskArchiveMigrationPath, "utf8"))
 const providerSecretAccess = await database.query(`
   select has_table_privilege('authenticated', 'public.google_drive_connections', 'select') as can_read_tokens,
          has_table_privilege('authenticated', 'public.client_drive_folders', 'select') as can_read_folder_map,

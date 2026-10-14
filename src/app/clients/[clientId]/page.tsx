@@ -36,7 +36,7 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
 
   const [campaignResult, taskResult, contentResult, teamResult, campaignPermissions, assignmentContext, lifecyclePermissions] = await Promise.all([
     supabase.from("campaigns").select("id,client_id,name,description,status,start_date,end_date").eq("client_id", clientId).is("deleted_at", null).order("start_date", { ascending: true, nullsFirst: false }).order("name"),
-    supabase.from("tasks").select("id,title,campaign_id,status,due_at").eq("client_id", clientId).is("deleted_at", null).order("due_at", { ascending: true, nullsFirst: false }),
+    supabase.from("tasks").select("id,title,campaign_id,status,due_at").eq("client_id", clientId).is("deleted_at", null).is("archived_at", null).order("due_at", { ascending: true, nullsFirst: false }),
     supabase.from("content_items").select("id,title,client_id,platform,content_type,description,status,publish_at,next_action,revision_notes").eq("client_id", clientId).is("deleted_at", null).order("publish_at", { ascending: true, nullsFirst: false }),
     supabase.from("client_members").select("user_id,client_role,is_primary,assigned_at").eq("client_id", clientId).is("removed_at", null).order("is_primary", { ascending: false }).order("assigned_at"),
     getCampaignPermissions(),

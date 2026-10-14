@@ -9,8 +9,8 @@ self.addEventListener("push", (event) => {
   event.waitUntil(self.registration.showNotification(title, {
     body,
     tag: id,
-    icon: "/favicon.ico",
-    badge: "/favicon.ico",
+    icon: "/jota-notification-icon.svg",
+    badge: "/jota-notification-icon.svg",
     data: { path },
   }));
 });

@@ -40,7 +40,7 @@ export default async function TaskTrashPage({ searchParams }: { searchParams: Pr
       <div>
         <p className="text-xs font-semibold uppercase tracking-wider text-primary">Task management</p>
         <h1 className="mt-1 text-2xl font-semibold tracking-tight">Task Trash</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Mistaken or completed tasks can be restored. Moving a task here hides it without deleting its files or review history.</p>
+        <p className="mt-1 text-sm text-muted-foreground">Trash is for mistaken tasks. Completed work can be archived and restored without losing files or review history.</p>
       </div>
       <p className="rounded-full border border-primary/15 bg-background/60 px-3 py-1.5 text-xs text-muted-foreground">{rows.length} {rows.length === 1 ? "task" : "tasks"}</p>
     </div>
