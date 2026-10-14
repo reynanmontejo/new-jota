@@ -4,6 +4,7 @@ import Image from "next/image"
 import { Button } from "@/components/ui/button"
 import { isSupabaseConfigured } from "@/lib/env"
 import { signIn } from "@/app/auth/actions"
+import { SignInSubmitButton } from "./submit-button"
 
 const errorMessages: Record<string, string> = {
   invalid: "Email or password is incorrect, or this account is not active.",
@@ -41,7 +42,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
               <span>Password</span>
               <input name="password" type="password" autoComplete="current-password" required className="h-10 w-full border border-input bg-background px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/15" />
             </label>
-            <Button type="submit" className="h-10 w-full rounded-md">Continue</Button>
+            <SignInSubmitButton />
           </form>
         ) : (
           <div className="mt-5 space-y-3">
