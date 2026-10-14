@@ -102,7 +102,7 @@ export function ProfileSecurity({ email, isAdministrator, request, requestsReady
     } finally { setBusy(false) }
   }
 
-  return <section className="rounded-lg border border-border bg-card p-4 sm:p-5">
+  return <section id="password-security" className="scroll-mt-24 rounded-lg border border-border bg-card p-4 sm:p-5">
     <h2 className="text-sm font-semibold">Password & security</h2>
     {isAdministrator ? <>
       <p className="mt-1 text-xs leading-5 text-muted-foreground">Verify your current password. If email confirmation is available, a code is required before the change.</p>

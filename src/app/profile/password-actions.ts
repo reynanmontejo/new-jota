@@ -53,7 +53,7 @@ async function notifyRequester(organizationId: string, requestId: string, userId
     body: approved ? "You can now change your password from your Profile page." : "Your password change request was declined. Contact an administrator if you need help.",
     entity_type: "password_change_request",
     entity_id: requestId,
-    href: "/profile",
+    href: "/profile#password-security",
     dedupe_key: `password-change-decision:${requestId}:${status}`,
   })
   if (error) console.error("[password request decision notification failed]", { requestId, message: error.message })

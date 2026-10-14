@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { Bell, CheckCheck } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -36,12 +36,15 @@ export function NotificationBell({
   demoMode,
   compact = false,
   onOpenTask,
+  onNavigate,
 }: {
   currentUser: DemoUser
   demoMode: boolean
   compact?: boolean
   onOpenTask: (taskId: string) => void
+  onNavigate?: () => void
 }) {
+  const router = useRouter()
   const [notifications, setNotifications] = useState<NotificationItem[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -176,6 +179,12 @@ export function NotificationBell({
     void markRead(item.id)
     const href = item.href && item.href.startsWith("/") && !item.href.startsWith("//") ? item.href : null
     if (href?.startsWith("/tasks/")) onOpenTask(href.slice("/tasks/".length))
+    else if (href) {
+      const target = new URL(href, window.location.href)
+      if (target.origin !== window.location.origin) return
+      if (target.pathname !== window.location.pathname || target.search !== window.location.search) onNavigate?.()
+      router.push(`${target.pathname}${target.search}${target.hash}`)
+    }
   }
 
   return <DropdownMenu>
@@ -190,9 +199,8 @@ export function NotificationBell({
       </div>
       <DropdownMenuSeparator />
       {demoMode ? <p className="px-3 py-5 text-center text-xs text-muted-foreground">Sign in to receive workspace notifications.</p> : notifications.length ? notifications.map((item) => {
-        const href = item.href && item.href.startsWith("/") && !item.href.startsWith("//") ? item.href : null
         const content = <><span className={cn("mt-1 size-1.5 shrink-0 rounded-full", item.read_at ? "bg-transparent" : "bg-primary")} /><span className="min-w-0"><span className="block text-xs font-medium">{item.title}</span>{item.body && <span className="mt-0.5 block text-[10px] leading-4 text-muted-foreground">{item.body}</span>}<time className="mt-1 block text-[9px] text-muted-foreground" dateTime={item.created_at}>{new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(item.created_at))}</time></span></>
-        return <DropdownMenuItem key={item.id} className="min-h-12 items-start rounded-md px-2 py-2" onClick={() => activate(item)} render={href && !href.startsWith("/tasks/") ? <Link href={href} /> : undefined}>{content}</DropdownMenuItem>
+        return <DropdownMenuItem key={item.id} className="min-h-12 items-start rounded-md px-2 py-2" onClick={() => activate(item)}>{content}</DropdownMenuItem>
       }) : <p className="px-3 py-5 text-center text-xs text-muted-foreground">{error ?? "You’re all caught up."}</p>}
       {error && notifications.length > 0 && <p role="status" className="px-2 py-1 text-[10px] text-destructive">{error}</p>}
       <DropdownMenuSeparator />

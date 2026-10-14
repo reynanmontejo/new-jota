@@ -138,7 +138,7 @@ export function DashboardShell({ children, compact = false }: DashboardShellProp
               <Plus data-icon="inline-start" />
               <span className="hidden sm:inline">New task</span>
             </Button>
-            <NotificationBell currentUser={currentUser} demoMode={demoMode} compact={compact} onOpenTask={openTask} />
+              <NotificationBell currentUser={currentUser} demoMode={demoMode} compact={compact} onOpenTask={openTask} onNavigate={() => setNavigationPending(true)} />
             <ThemeModeToggle />
             <Separator orientation="vertical" className="mx-1 hidden h-6 sm:block" />
             <DropdownMenu>

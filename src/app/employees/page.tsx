@@ -4,10 +4,11 @@ import Link from "next/link"
 import { DashboardShell } from "@/components/layout/dashboard-shell"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { getEmployeeManagementContext } from "@/lib/supabase/employee-admin"
+import { getEmployeeManagementAccess } from "@/lib/supabase/employee-admin"
 import { createClient } from "@/lib/supabase/server"
 import { createServiceClient } from "@/lib/supabase/service"
-import { createEmployee, moveEmployeeToTrash, restoreEmployeeFromTrash, setEmployeeActiveState, updateEmployee } from "./actions"
+import { EmployeeRowActions } from "@/features/employees/employee-row-actions"
+import { createEmployee, restoreEmployeeFromTrash, updateEmployee } from "./actions"
 import { decidePasswordChangeRequest } from "@/app/profile/password-actions"
 
 type EmployeeRow = {
@@ -22,7 +23,13 @@ type EmployeeRow = {
   purged_at: string | null
   role: { code: string; name: string } | null
 }
-type PasswordRequestRow = { id: string; user_id: string; request_note: string | null; requested_at: string }
+type PasswordRequestRow = {
+  id: string
+  user_id: string
+  request_note: string | null
+  requested_at: string
+  employee: { display_name: string; email: string } | null
+}
 
 const notices: Record<string, string> = {
   created: "Employee account created. Share the temporary sign-in credentials with them securely.",
@@ -66,70 +73,72 @@ const inputClass = "h-9 min-w-0 rounded-md border border-input bg-background px-
 export default async function EmployeesPage({ searchParams }: { searchParams: Promise<{ notice?: string | string[]; view?: string }> }) {
   const params = await searchParams
   const view = params.view === "trash" ? "trash" : params.view === "password-requests" ? "password-requests" : "roster"
-  const viewer = await getEmployeeManagementContext("employees.view")
-  if (!viewer) redirect("/access-denied")
-  const [creator, editor, deactivator, deletionManager] = await Promise.all([
-    getEmployeeManagementContext("employees.create"),
-    getEmployeeManagementContext("employees.update"),
-    getEmployeeManagementContext("employees.deactivate"),
-    getEmployeeManagementContext("employees.delete"),
-  ])
+  const access = await getEmployeeManagementAccess()
+  const viewer = access.context
+  if (!viewer || !access.permissions.includes("employees.view")) redirect("/access-denied")
+  const creator = access.permissions.includes("employees.create")
+  const editor = access.permissions.includes("employees.update")
+  const deactivator = access.permissions.includes("employees.deactivate")
+  const deletionManager = access.permissions.includes("employees.delete")
   if (view === "trash" && !deletionManager) redirect("/access-denied")
-  const supabase = await createClient()
   let trashSchemaReady = true
-  let { data, error } = await supabase.from("profiles")
-    .select("id, email, display_name, job_title, status, created_at, deletion_requested_at, purge_after_at, purged_at")
-    .eq("organization_id", viewer.organizationId).order("display_name")
-  if (error && isMissingTrashColumns(error)) {
-    // Keep the core roster usable when application code is deployed before
-    // the optional account-trash migration. Other query failures stay visible.
-    trashSchemaReady = false
-    const legacyResult = await supabase.from("profiles")
-      .select("id, email, display_name, job_title, status, created_at")
-      .eq("organization_id", viewer.organizationId).order("display_name")
-    data = legacyResult.data?.map((employee) => ({
-      ...employee,
-      deletion_requested_at: null,
-      purge_after_at: null,
-      purged_at: null,
-    })) ?? null
-    error = legacyResult.error
-  }
-  if (error) {
-    console.error("Employee roster query failed", { code: error.code, message: error.message })
-    throw new Error("Employee list could not be loaded. Check database migrations and employee-view access.")
-  }
-  if (view === "trash" && !trashSchemaReady) redirect("/employees?notice=trash_setup")
-  const profileRows = (data ?? []) as Omit<EmployeeRow, "role">[]
-  const employeeIds = profileRows.map(({ id }) => id)
-  const { data: memberships, error: membershipsError } = employeeIds.length
-    ? await supabase.from("user_roles").select("user_id, role_id")
-        .eq("organization_id", viewer.organizationId).in("user_id", employeeIds)
-    : { data: [], error: null }
-  if (membershipsError) throw new Error("Employee roles could not be loaded.")
-  const roleIds = [...new Set((memberships ?? []).map(({ role_id }) => role_id))]
-  const { data: roles, error: rolesError } = roleIds.length
-    ? await supabase.from("roles").select("id, code, name")
-        .eq("organization_id", viewer.organizationId).in("id", roleIds)
-    : { data: [], error: null }
-  if (rolesError) throw new Error("Employee roles could not be loaded.")
-  const roleById = new Map((roles ?? []).map(({ id, code, name }) => [id, { code, name }]))
-  const roleByUser = new Map<string, { code: string; name: string }>()
-  for (const membership of memberships ?? []) {
-    const role = roleById.get(membership.role_id)
-    const existing = roleByUser.get(membership.user_id)
-    // Prefer the protected role when an account has multiple memberships.
-    if (role && (!existing || role.code === "administrator")) roleByUser.set(membership.user_id, role)
-  }
-  const employees: EmployeeRow[] = profileRows.map((employee) => ({
-    ...employee,
-    role: roleByUser.get(employee.id) ?? null,
-  }))
-  const isAdministrator = roleByUser.get(viewer.actorId)?.code === "administrator"
+  const isAdministrator = access.roleCodes.includes("administrator")
   if (view === "password-requests" && !isAdministrator) redirect("/access-denied")
-  const roster = employees.filter((employee) => employee.deletion_requested_at === null && employee.purged_at === null)
-  const trashed = employees.filter((employee) => employee.deletion_requested_at !== null && employee.purged_at === null)
-  const visibleEmployees = view === "trash" ? trashed : roster
+  const employees: EmployeeRow[] = []
+  let roster: EmployeeRow[] = []
+  let trashed: EmployeeRow[] = []
+  let visibleEmployees: EmployeeRow[] = []
+  if (view !== "password-requests") {
+    const supabase = await createClient()
+    let { data, error } = await supabase.from("profiles")
+      .select("id, email, display_name, job_title, status, created_at, deletion_requested_at, purge_after_at, purged_at")
+      .eq("organization_id", viewer.organizationId).order("display_name")
+    if (error && isMissingTrashColumns(error)) {
+      // Keep the core roster usable when application code is deployed before
+      // the optional account-trash migration. Other query failures stay visible.
+      trashSchemaReady = false
+      const legacyResult = await supabase.from("profiles")
+        .select("id, email, display_name, job_title, status, created_at")
+        .eq("organization_id", viewer.organizationId).order("display_name")
+      data = legacyResult.data?.map((employee) => ({
+        ...employee,
+        deletion_requested_at: null,
+        purge_after_at: null,
+        purged_at: null,
+      })) ?? null
+      error = legacyResult.error
+    }
+    if (error) {
+      console.error("Employee roster query failed", { code: error.code, message: error.message })
+      throw new Error("Employee list could not be loaded. Check database migrations and employee-view access.")
+    }
+    if (view === "trash" && !trashSchemaReady) redirect("/employees?notice=trash_setup")
+    const profileRows = (data ?? []) as Omit<EmployeeRow, "role">[]
+    const employeeIds = profileRows.map(({ id }) => id)
+    const { data: memberships, error: membershipsError } = employeeIds.length
+      ? await supabase.from("user_roles").select("user_id, role_id")
+          .eq("organization_id", viewer.organizationId).in("user_id", employeeIds)
+      : { data: [], error: null }
+    if (membershipsError) throw new Error("Employee roles could not be loaded.")
+    const roleIds = [...new Set((memberships ?? []).map(({ role_id }) => role_id))]
+    const { data: roles, error: rolesError } = roleIds.length
+      ? await supabase.from("roles").select("id, code, name")
+          .eq("organization_id", viewer.organizationId).in("id", roleIds)
+      : { data: [], error: null }
+    if (rolesError) throw new Error("Employee roles could not be loaded.")
+    const roleById = new Map((roles ?? []).map(({ id, code, name }) => [id, { code, name }]))
+    const roleByUser = new Map<string, { code: string; name: string }>()
+    for (const membership of memberships ?? []) {
+      const role = roleById.get(membership.role_id)
+      const existing = roleByUser.get(membership.user_id)
+      // Prefer the protected role when an account has multiple memberships.
+      if (role && (!existing || role.code === "administrator")) roleByUser.set(membership.user_id, role)
+    }
+    employees.push(...profileRows.map((employee) => ({ ...employee, role: roleByUser.get(employee.id) ?? null })))
+    roster = employees.filter((employee) => employee.deletion_requested_at === null && employee.purged_at === null)
+    trashed = employees.filter((employee) => employee.deletion_requested_at !== null && employee.purged_at === null)
+    visibleEmployees = view === "trash" ? trashed : roster
+  }
   const notice = typeof params.notice === "string" ? notices[params.notice] : undefined
   let passwordRequests: PasswordRequestRow[] = []
   let passwordRequestsReady = true
@@ -139,10 +148,24 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
       const result = await service.from("password_change_requests").select("id,user_id,request_note,requested_at")
         .eq("organization_id", viewer.organizationId).eq("status", "pending").order("requested_at", { ascending: true })
       if (result.error) passwordRequestsReady = false
-      else passwordRequests = (result.data ?? []) as PasswordRequestRow[]
+      else {
+        const requests = result.data ?? []
+        const employeeIds = [...new Set(requests.map(({ user_id }) => user_id))]
+        const employeesResult = employeeIds.length
+          ? await service.from("profiles").select("id,display_name,email")
+              .eq("organization_id", viewer.organizationId).in("id", employeeIds)
+          : { data: [], error: null }
+        if (employeesResult.error) passwordRequestsReady = false
+        else {
+          const employeesById = new Map((employeesResult.data ?? []).map((employee) => [employee.id, employee]))
+          passwordRequests = requests.map((request) => ({
+            ...request,
+            employee: employeesById.get(request.user_id) ?? null,
+          }))
+        }
+      }
     } catch { passwordRequestsReady = false }
   }
-  const employeeById = new Map(employees.map((employee) => [employee.id, employee]))
 
   return (
     <DashboardShell>
@@ -160,8 +183,8 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
         {!trashSchemaReady && <p className="mb-4 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-foreground" role="status">Trash and account deletion are unavailable until the account-trash database migration is applied. The employee roster is still available.</p>}
 
         <div className="mb-4 flex gap-1 border-b border-border/80">
-          <Link href="/employees" aria-current={view === "roster" ? "page" : undefined} className={`border-b-2 px-3 py-2 text-xs font-medium ${view === "roster" ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}>Roster <span className="ml-1 text-[10px]">{roster.length}</span></Link>
-          {deletionManager && <Link href="/employees?view=trash" aria-current={view === "trash" ? "page" : undefined} className={`border-b-2 px-3 py-2 text-xs font-medium ${view === "trash" ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}>Trash <span className="ml-1 text-[10px]">{trashed.length}</span></Link>}
+          <Link href="/employees" aria-current={view === "roster" ? "page" : undefined} className={`border-b-2 px-3 py-2 text-xs font-medium ${view === "roster" ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}>Roster {view !== "password-requests" && <span className="ml-1 text-[10px]">{roster.length}</span>}</Link>
+          {deletionManager && <Link href="/employees?view=trash" aria-current={view === "trash" ? "page" : undefined} className={`border-b-2 px-3 py-2 text-xs font-medium ${view === "trash" ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}>Trash {view !== "password-requests" && <span className="ml-1 text-[10px]">{trashed.length}</span>}</Link>}
           {isAdministrator && <Link href="/employees?view=password-requests" aria-current={view === "password-requests" ? "page" : undefined} className={`border-b-2 px-3 py-2 text-xs font-medium ${view === "password-requests" ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}>Password requests</Link>}
         </div>
 
@@ -170,7 +193,7 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
           {!passwordRequestsReady ? <p className="p-5 text-xs text-amber-800 dark:text-amber-300">Password requests are unavailable until migration 202610230001_profile_photos_and_password_approval.sql is applied.</p>
             : passwordRequests.length === 0 ? <p className="p-5 text-xs text-muted-foreground">No password change requests are waiting.</p>
               : <div className="divide-y">{passwordRequests.map((request) => {
-                const employee = employeeById.get(request.user_id)
+                const employee = request.employee
                 return <article key={request.id} className="grid gap-3 p-4 sm:grid-cols-[minmax(180px,1fr)_minmax(220px,2fr)_auto] sm:items-center">
                   <div className="min-w-0"><p className="truncate text-xs font-semibold">{employee?.display_name ?? "Employee"}</p><p className="truncate text-[11px] text-muted-foreground">{employee?.email ?? "Account"} · {new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(request.requested_at))}</p></div>
                   <p className="text-xs text-muted-foreground">{request.request_note || "No reason provided."}</p>
@@ -238,7 +261,7 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
                       <p className="mt-1 text-[10px] text-muted-foreground">{employee.job_title || role.name}</p>
                     </div>
                     {editor && !protectedAdmin ? (
-                      <form action={updateEmployee} className="grid gap-2 sm:grid-cols-[1fr_1fr_150px_auto]">
+                      <form id={`employee-update-${employee.id}`} action={updateEmployee} className="grid gap-2 sm:grid-cols-[1fr_1fr_150px]">
                         <input type="hidden" name="employeeId" value={employee.id} />
                         <input type="hidden" name="status" value={employee.status === "inactive" ? "inactive" : "active"} />
                         <label className="sr-only" htmlFor={"name-" + employee.id}>Name</label>
@@ -247,29 +270,22 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
                         <select className={inputClass} name="roleCode" aria-label={"Role for " + employee.display_name} defaultValue={role.code}>
                           <option value="account_manager">Employee</option><option value="supervisor">Supervisor</option>
                         </select>
-                        <Button type="submit" size="sm" variant="outline">Save</Button>
                       </form>
                     ) : (
                       <div className="text-xs text-muted-foreground">{role.name}{protectedAdmin ? " � protected admin" : ""}</div>
                     )}
                     <div className="flex items-center justify-between gap-3 lg:justify-end">
                       <Badge variant={employee.status === "active" ? "secondary" : "outline"}>{employee.status === "inactive" ? "Deactivated" : employee.status === "invited" ? "Invited" : "Active"}</Badge>
-                      {deactivator && !protectedAdmin && employee.id !== viewer.actorId && employee.status !== "invited" && (
-                        <form action={setEmployeeActiveState}>
-                          <input type="hidden" name="employeeId" value={employee.id} />
-                          <input type="hidden" name="status" value={employee.status === "active" ? "inactive" : "active"} />
-                          <Button type="submit" size="sm" variant="ghost">{employee.status === "active" ? "Deactivate" : "Reactivate"}</Button>
-                        </form>
-                      )}
-                      {deletionManager && !protectedAdmin && employee.id !== viewer.actorId && <details className="relative z-20">
-                        <summary className="cursor-pointer list-none rounded-md px-2 py-1 text-xs font-medium text-destructive hover:bg-destructive/5 [&::-webkit-details-marker]:hidden">Delete account</summary>
-                        <form action={moveEmployeeToTrash} className="absolute bottom-full right-0 z-30 mb-2 grid w-64 max-w-[calc(100vw-2rem)] gap-2 rounded-md border border-border bg-card p-3 text-left shadow-lg">
-                          <input type="hidden" name="employeeId" value={employee.id} />
-                          <p className="text-[11px] leading-4 text-muted-foreground">This immediately blocks app access and schedules permanent removal in 30 days. Enter their email to confirm.</p>
-                          <input className={inputClass} name="confirmationEmail" type="email" required autoComplete="off" placeholder={employee.email} aria-label={`Confirm deletion of ${employee.display_name} by email`} />
-                          <Button type="submit" size="sm" variant="destructive">Move to trash</Button>
-                        </form>
-                      </details>}
+                      <EmployeeRowActions
+                        employeeId={employee.id}
+                        employeeName={employee.display_name}
+                        employeeEmail={employee.email}
+                        status={employee.status}
+                        updateFormId={`employee-update-${employee.id}`}
+                        canEdit={editor && !protectedAdmin}
+                        canChangeStatus={deactivator && !protectedAdmin && employee.id !== viewer.actorId}
+                        canDelete={deletionManager && !protectedAdmin && employee.id !== viewer.actorId}
+                      />
                     </div>
                   </article>
                 )
