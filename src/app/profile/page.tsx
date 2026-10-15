@@ -59,9 +59,7 @@ export default async function ProfilePage({ searchParams }: PageProps<"/profile"
     <DashboardShell>
       <main className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6 lg:px-8">
         <div className="mb-5">
-          <p className="text-xs font-medium text-muted-foreground">Account</p>
-          <h1 className="mt-1 text-xl font-semibold tracking-tight">Profile</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Manage the details teammates see about you.</p>
+          <h1 className="text-xl font-semibold tracking-tight">Profile</h1>
         </div>
 
         {query.saved === "1" && <p role="status" className="mb-4 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-sm">Profile saved.</p>}

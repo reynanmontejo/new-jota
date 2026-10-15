@@ -21,6 +21,31 @@ describe("content import mapping", () => {
     expect(mapping.assignee).toBe("5")
   })
 
+  it("automatically maps every header in the downloadable content import template", () => {
+    const mapping = detectContentImportMapping([
+      "Client / account",
+      "Campaign",
+      "Content title",
+      "Platform",
+      "Format",
+      "Status",
+      "Work date",
+      "Deadline",
+      "Publish date",
+      "Client approval",
+      "Client issues",
+      "Revision count",
+      "Notes / comments",
+      "Brief / caption",
+      "Next action",
+      "Revision feedback",
+      "Assigned creator / editor",
+    ])
+
+    expect(Object.keys(mapping)).toHaveLength(17)
+    expect(Object.values(mapping)).toEqual(Array.from({ length: 17 }, (_, index) => String(index)))
+  })
+
   it("does not map the reporting week to a workflow date", () => {
     expect(detectContentImportMapping(["DATE", "DEADLINE", "WEEK"]).publishAt).toBeUndefined()
   })

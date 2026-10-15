@@ -130,16 +130,40 @@ export async function saveContentItem(formData: FormData) {
   redirect(`/content?notice=${parsed.data.id ? "updated" : "created"}`)
 }
 
-export async function archiveContentItem(formData: FormData) {
-  const id = z.string().uuid().safeParse(field(formData, "id"))
-  if (!id.success) redirect("/content?notice=invalid")
+type ContentArchiveActionResult = { ok: true } | { ok: false; error: string }
+
+function contentArchiveError(message: string, code?: string) {
+  if (code === "42501") return "You don’t have permission to manage this content."
+  if (code === "P0002") return "This content was already archived or is no longer available. Refresh and try again."
+  if (code === "PGRST202") return "Apply the content archive restore migration in Supabase, then try again."
+  console.error("Content archive action failed", { code, message })
+  return "The change could not be saved. Check your connection and try again."
+}
+
+export async function archiveContentItem(contentId: string): Promise<ContentArchiveActionResult> {
+  const id = z.string().uuid().safeParse(contentId)
+  if (!id.success) return { ok: false, error: "This content item is invalid. Refresh and try again." }
   const supabase = await createClient()
   const { error } = await supabase.rpc("archive_content_item_for_current_user", { p_content_id: id.data })
-  if (error?.code === "42501") redirect("/content?notice=forbidden")
-  if (error) redirect("/content?notice=failed")
+  if (error) return { ok: false, error: contentArchiveError(error.message, error.code) }
   revalidatePath("/content")
   revalidatePath("/calendar")
-  redirect("/content?notice=archived")
+  revalidatePath("/tasks")
+  revalidatePath("/")
+  return { ok: true }
+}
+
+export async function restoreContentItem(contentId: string): Promise<ContentArchiveActionResult> {
+  const id = z.string().uuid().safeParse(contentId)
+  if (!id.success) return { ok: false, error: "This content item is invalid. Refresh and try again." }
+  const supabase = await createClient()
+  const { error } = await supabase.rpc("restore_content_item_for_current_user", { p_content_id: id.data })
+  if (error) return { ok: false, error: contentArchiveError(error.message, error.code) }
+  revalidatePath("/content")
+  revalidatePath("/calendar")
+  revalidatePath("/tasks")
+  revalidatePath("/")
+  return { ok: true }
 }
 
 export async function markScheduledContentPublished(contentId: string): Promise<{ ok: true } | { ok: false; error: string }> {

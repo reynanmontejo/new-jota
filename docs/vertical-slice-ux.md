@@ -28,7 +28,7 @@ mutation functions.
 - `/tasks` — cross-client assignment list
 - `/tasks/[taskId]` — task details and submission history
 - `/reviews` — supervisor review queue and decision surface
-- `/states` — shared state component gallery
+- `/states` — development-only shared state component gallery (not exposed in production)
 - `/access-denied` — permission failure
 - `/account-deactivated` — inactive account state
 

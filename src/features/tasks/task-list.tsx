@@ -11,7 +11,6 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
-  CircleDot,
   Columns3,
   LoaderCircle,
   ListPlus,
@@ -20,7 +19,6 @@ import {
   RotateCcw,
   Search,
   Send,
-  SlidersHorizontal,
   Trash2,
   Undo2,
 } from "lucide-react"
@@ -279,24 +277,22 @@ export function TaskList() {
   }
 
   return (
-    <main className="mx-auto max-w-[1480px] px-4 py-6 sm:px-6 lg:px-8">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+    <main className="mx-auto max-w-[1480px] px-4 py-4 sm:px-6 lg:px-8">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wider text-primary">{currentUser.role === "supervisor" ? "Supervision" : "My work"}</p>
-          <h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-[28px]">{currentUser.role === "supervisor" ? "Team work" : "My work"}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Calendar content and separate assignments, together.</p>
+          <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">{currentUser.role === "supervisor" ? "Team work" : "My work"}</h1>
         </div>
-        <div className="flex w-fit rounded-xl border border-primary/18 bg-background/65 p-1 shadow-sm" aria-label="Task view">
-          <button onClick={() => setView("kanban")} aria-pressed={view === "kanban"} className={cn("flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold transition", view === "kanban" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-muted hover:text-foreground")}><Columns3 className="size-3.5" /> Kanban</button>
-          <button onClick={() => setView("list")} aria-pressed={view === "list"} className={cn("flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold transition", view === "list" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-muted hover:text-foreground")}><LayoutList className="size-3.5" /> List</button>
+        <div className="flex w-fit rounded-xl border border-primary/18 bg-background/65 p-0.5 shadow-sm" aria-label="Task view">
+          <button onClick={() => setView("kanban")} aria-pressed={view === "kanban"} className={cn("flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[11px] font-semibold transition", view === "kanban" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-muted hover:text-foreground")}><Columns3 className="size-3" /> Kanban</button>
+          <button onClick={() => setView("list")} aria-pressed={view === "list"} className={cn("flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[11px] font-semibold transition", view === "list" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-muted hover:text-foreground")}><LayoutList className="size-3" /> Table</button>
         </div>
       </div>
 
-      <section className="glass-panel mt-5 rounded-2xl border p-3 sm:p-4" aria-label="Task filters">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
+      <section className="glass-panel mt-3 rounded-xl border p-2.5 sm:p-3" aria-label="Task filters">
+        <div className="flex flex-col gap-2.5 xl:flex-row xl:items-center">
           <label className="relative min-w-0 flex-1 xl:max-w-sm">
-            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-primary" />
-            <input value={filters.query} onChange={(event) => setFilters((current) => ({ ...current, query: event.target.value }))} placeholder="Search tasks, clients, campaigns..." aria-label="Search tasks" className="h-9 w-full rounded-xl border border-primary/20 bg-background/72 pl-9 pr-3 text-sm outline-none transition focus:border-primary focus:ring-3 focus:ring-primary/10" />
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-primary" />
+            <input value={filters.query} onChange={(event) => setFilters((current) => ({ ...current, query: event.target.value }))} placeholder="Search tasks, clients, campaigns..." aria-label="Search tasks" className="h-8 w-full rounded-lg border border-primary/20 bg-background/72 pl-8 pr-2.5 text-xs outline-none transition focus:border-primary focus:ring-3 focus:ring-primary/10" />
           </label>
 
           <div className="flex flex-wrap gap-2">
@@ -322,16 +318,16 @@ export function TaskList() {
             {activeFilterCount > 0 && <Button variant="ghost" size="sm" onClick={resetFilters} className="text-muted-foreground"><RotateCcw data-icon="inline-start" /> Clear <Badge className="ml-1 bg-primary/12 text-primary">{activeFilterCount}</Badge></Button>}
           </div>
         </div>
-        <div className="mt-3 flex items-center justify-between border-t border-primary/10 pt-3 text-xs text-muted-foreground"><span>{visibleTasks.length} of {myTasks.length} tasks</span><span className="hidden items-center gap-1 sm:flex"><SlidersHorizontal className="size-3.5" /> Search/client filter both sections; status/priority filter tasks</span></div>
+        <div className="mt-2 flex items-center justify-between border-t border-primary/10 pt-2 text-[11px] text-muted-foreground"><span>{visibleTasks.length} of {myTasks.length} tasks</span>{activeFilterCount > 0 && <span>{activeFilterCount} filter{activeFilterCount === 1 ? "" : "s"} active</span>}</div>
       </section>
 
-      <section className="glass-panel mt-4 rounded-2xl border p-2.5 sm:p-3" aria-labelledby="content-work-heading">
+      <section className="glass-panel mt-3 rounded-xl border p-2.5" aria-labelledby="content-work-heading">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 id="content-work-heading" className="text-sm font-semibold">{currentUser.role === "supervisor" ? "Team calendar content" : "My calendar content"}</h2>
-          <Link className="text-[11px] font-medium text-primary underline-offset-4 hover:underline" href="/content">Open tracker <ArrowUpRight className="ml-0.5 inline size-3" /></Link>
+          <h2 id="content-work-heading" className="text-xs font-semibold">{currentUser.role === "supervisor" ? "Team content" : "My content"}</h2>
+          <Link className="text-[10px] font-medium text-primary underline-offset-4 hover:underline" href="/content">Open tracker <ArrowUpRight className="ml-0.5 inline size-3" /></Link>
         </div>
-        {contentNotice && <p role={contentNotice.error ? "alert" : "status"} className={cn("mt-2 rounded-lg border px-2.5 py-1.5 text-[11px]", contentNotice.error ? "border-destructive/25 bg-destructive/5 text-destructive" : "border-primary/20 bg-primary/5 text-foreground")}>{contentNotice.message}</p>}
-        {!visibleContent.length ? <p className="mt-2 rounded-lg border border-dashed border-primary/18 px-3 py-4 text-center text-[11px] text-muted-foreground">{myContent.length ? "No calendar content matches these filters." : "No calendar content yet."}</p> : <div className="mt-2 grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3">
+        {contentNotice && <p role={contentNotice.error ? "alert" : "status"} className={cn("mt-1.5 rounded-lg border px-2 py-1 text-[10px]", contentNotice.error ? "border-destructive/25 bg-destructive/5 text-destructive" : "border-primary/20 bg-primary/5 text-foreground")}>{contentNotice.message}</p>}
+        {!visibleContent.length ? <p className="mt-1.5 rounded-lg border border-dashed border-primary/18 px-3 py-2.5 text-center text-[10px] text-muted-foreground">{myContent.length ? "No content matches these filters." : "No calendar content yet."}</p> : <div className="mt-1.5 flex flex-wrap gap-1.5">
           {visibleContent.map((item) => <CalendarContentCard key={item.id} item={item} demoMode={demoMode} publishing={publishingContentId === item.id} onReview={() => setReviewContent(item)} onPublish={() => void markContentPublished(item)} />)}
         </div>}
       </section>
@@ -366,9 +362,9 @@ function CalendarContentCard({ item, demoMode, publishing, onReview, onPublish }
   const canAddTask = !["published", "cancelled", "rejected"].includes(item.status)
   const canSubmitForReview = !demoMode && !["for_review", "published", "cancelled", "rejected"].includes(item.status)
 
-  return <article className="group min-w-0 rounded-xl border border-primary/15 bg-background/75 p-2.5 transition hover:border-primary/35 hover:bg-background">
+  return <article className="group w-full min-w-0 max-w-[320px] rounded-lg border border-primary/15 bg-background/75 px-2.5 py-2 transition hover:border-primary/35 hover:bg-background">
     <div className="flex items-start justify-between gap-2">
-      <Link href={`/content#content-item-${encodeURIComponent(item.id)}`} className="min-w-0 truncate text-[13px] font-semibold leading-5 hover:text-primary hover:underline">
+      <Link href={`/content#content-item-${encodeURIComponent(item.id)}`} className="min-w-0 truncate text-xs font-semibold leading-4 hover:text-primary hover:underline">
         {item.title}
       </Link>
       <DropdownMenu>
@@ -386,8 +382,8 @@ function CalendarContentCard({ item, demoMode, publishing, onReview, onPublish }
       </DropdownMenu>
     </div>
     <p className="truncate text-[10px] leading-4 text-muted-foreground">{item.clientName} · {item.platform} · {item.format}</p>
-    <p className="mt-1 truncate text-[10px] leading-4 text-muted-foreground">{contentStatusLabel(item.status)}{item.assigneeName ? ` · ${item.assigneeName}` : ""}</p>
-    <p className="truncate text-[10px] leading-4 text-muted-foreground">{item.deadlineAt ? `Due ${formatContentDate(item.deadlineAt)}` : "No deadline"}{item.publishAt ? ` · Post ${formatContentDate(item.publishAt)}` : " · Unscheduled"}</p>
+    <p className="truncate text-[10px] leading-4 text-muted-foreground">{contentStatusLabel(item.status)}{item.assigneeName ? ` · ${item.assigneeName}` : ""}</p>
+    {(item.deadlineAt || item.publishAt) && <p className="truncate text-[10px] leading-4 text-muted-foreground">{item.deadlineAt ? `Due ${formatContentDate(item.deadlineAt)}` : "No deadline"}{item.publishAt ? ` · Post ${formatContentDate(item.publishAt)}` : " · Unscheduled"}</p>}
   </article>
 }
 
@@ -409,10 +405,10 @@ function formatContentDate(value: string) {
 function FilterMenu({ label, value, active = false, icon: Icon = ChevronDown, children }: { label: string; value: string; active?: boolean; icon?: typeof ChevronDown; children: React.ReactNode }) {
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger render={<Button variant="outline" size="lg" className={cn("justify-between gap-2 border-primary/18 bg-background/70", active && "border-primary/45 bg-secondary/22 text-foreground")} />}>
-        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{label}</span>
-        <span className="max-w-28 truncate text-xs">{value}</span>
-        <Icon className="size-3.5 text-primary transition-transform group-aria-expanded/button:rotate-180" />
+      <DropdownMenuTrigger render={<Button variant="outline" size="sm" className={cn("h-7 justify-between gap-1.5 border-primary/18 bg-background/70 px-2", active && "border-primary/45 bg-secondary/22 text-foreground")} />}>
+        <span className="text-[9px] font-bold uppercase tracking-wide text-muted-foreground">{label}</span>
+        <span className="max-w-24 truncate text-[11px]">{value}</span>
+        <Icon className="size-3 text-primary transition-transform group-aria-expanded/button:rotate-180" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" sideOffset={7} className="min-w-48 rounded-xl border border-primary/16 bg-popover/95 p-1.5 shadow-xl backdrop-blur-xl">
         <DropdownMenuLabel>{label}</DropdownMenuLabel>
@@ -439,7 +435,7 @@ function KanbanBoard({ tasks, onMove, onOpen, onTrash, onArchive, trashPending, 
   const activeCount = tasks.length - closedCount
 
   return (
-    <section className="mt-5 overflow-x-auto pb-3" aria-label="Kanban board">
+    <section className="kanban-board-scroll mt-4 overflow-x-auto pb-2" aria-label="Kanban board">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2 px-1">
         <p className="text-[11px] text-muted-foreground">Drag tasks only between statuses your role can change. Closed tasks stay saved in history.</p>
         <div className="flex rounded-lg border border-primary/16 bg-background/65 p-0.5" aria-label="Kanban task group">
@@ -469,10 +465,10 @@ function KanbanBoard({ tasks, onMove, onOpen, onTrash, onArchive, trashPending, 
                 setDraggingTaskId(null)
                 setDropTarget(null)
               }}
-              className={cn("glass-panel flex h-[min(70vh,720px)] min-h-[430px] flex-col rounded-2xl border p-3 transition-colors", dropTarget === targetStatus && canDrop && "border-primary/50 bg-primary/5")}
+              className={cn("glass-panel flex max-h-[min(62vh,600px)] min-h-[205px] flex-col rounded-xl border p-2.5 transition-colors", dropTarget === targetStatus && canDrop && "border-primary/50 bg-primary/5")}
             >
-              <div className="flex shrink-0 items-center justify-between px-1 pb-3"><div className="flex items-center gap-2"><span className={cn("size-2 rounded-full", column.accent)} /><h2 className="text-xs font-bold uppercase tracking-wider">{column.label}</h2></div><Badge variant="outline" className="bg-background/65 text-[10px]">{columnTasks.length}</Badge></div>
-              <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain pr-1">{columnTasks.map((task, index) => <KanbanCard key={task.id} task={task} onOpen={onOpen} onMove={onMove} onTrash={onTrash} onArchive={onArchive} trashPending={trashPending} archivePending={archivePending} actor={actor} demoMode={demoMode} delayMs={Math.min(index, 5) * 45} dragging={draggingTaskId === task.id} onDragStart={() => setDraggingTaskId(task.id)} onDragEnd={() => { setDraggingTaskId(null); setDropTarget(null) }} />)}{columnTasks.length === 0 && <div className={cn("grid min-h-28 place-items-center rounded-xl border border-dashed border-primary/18 bg-background/28 px-3 text-center text-xs text-muted-foreground", dropTarget === targetStatus && "border-primary/45 bg-primary/5 text-primary")}>{canDrop ? "Drop an eligible task here" : "No matching tasks"}</div>}</div>
+              <div className="flex shrink-0 items-center justify-between px-1 pb-2"><div className="flex items-center gap-2"><span className={cn("size-2 rounded-full", column.accent)} /><h2 className="text-[11px] font-bold uppercase tracking-wide">{column.label}</h2></div><Badge variant="outline" className="h-5 bg-background/65 px-1.5 text-[9px]">{columnTasks.length}</Badge></div>
+              <div className="kanban-column-scroll min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain px-0.5 pr-1.5">{columnTasks.map((task, index) => <KanbanCard key={task.id} task={task} onOpen={onOpen} onMove={onMove} onTrash={onTrash} onArchive={onArchive} trashPending={trashPending} archivePending={archivePending} actor={actor} demoMode={demoMode} delayMs={Math.min(index, 5) * 45} dragging={draggingTaskId === task.id} onDragStart={() => setDraggingTaskId(task.id)} onDragEnd={() => { setDraggingTaskId(null); setDropTarget(null) }} />)}{columnTasks.length === 0 && <div className={cn("grid min-h-24 place-items-center rounded-lg border border-dashed border-primary/18 bg-background/28 px-2.5 text-center text-[11px] text-muted-foreground", dropTarget === targetStatus && "border-primary/45 bg-primary/5 text-primary")}>{canDrop ? "Drop an eligible task here" : "No matching tasks"}</div>}</div>
             </div>
           )
         })}
@@ -484,8 +480,8 @@ function KanbanBoard({ tasks, onMove, onOpen, onTrash, onArchive, trashPending, 
 function KanbanCard({ task, onOpen, onMove, onTrash, onArchive, trashPending, archivePending, actor, demoMode, delayMs, dragging, onDragStart, onDragEnd }: { task: WorkflowTask; onOpen: (taskId: string) => void; onMove: (taskId: string, status: TaskStatus) => void; onTrash: (task: WorkflowTask) => void; onArchive: (task: WorkflowTask) => void; trashPending: boolean; archivePending: boolean; actor: DemoUser; demoMode: boolean; delayMs: number; dragging: boolean; onDragStart: () => void; onDragEnd: () => void }) {
   const canMove = taskStatusOptions(task, actor).length > 0
   return (
-    <article draggable={canMove} onDragStart={(event) => { if (!canMove) { event.preventDefault(); return }; event.dataTransfer.setData("text/plain", task.id); event.dataTransfer.effectAllowed = "move"; onDragStart() }} onDragEnd={onDragEnd} title={canMove ? "Drag to a status you are allowed to change" : "Status is controlled by the review workflow"} className={cn("sticky-note rounded-xl border p-3.5", canMove && "cursor-grab active:cursor-grabbing", dragging && "opacity-45")} style={{ animationDelay: `${delayMs}ms` }}>
-      <div className="mb-2 flex items-start justify-between gap-2">
+    <article draggable={canMove} onDragStart={(event) => { if (!canMove) { event.preventDefault(); return }; event.dataTransfer.setData("text/plain", task.id); event.dataTransfer.effectAllowed = "move"; onDragStart() }} onDragEnd={onDragEnd} title={canMove ? "Drag to a status you are allowed to change" : "Status is controlled by the review workflow"} className={cn("sticky-note rounded-lg border p-2.5", canMove && "cursor-grab active:cursor-grabbing", dragging && "opacity-45")} style={{ animationDelay: `${delayMs}ms` }}>
+      <div className="mb-1.5 flex items-start justify-between gap-2">
         <PriorityBadge priority={task.priority} />
         <KanbanCardActions task={task} onOpen={onOpen} onMove={onMove} onTrash={onTrash} onArchive={onArchive} trashPending={trashPending} archivePending={archivePending} actor={actor} demoMode={demoMode} />
       </div>
@@ -496,12 +492,12 @@ function KanbanCard({ task, onOpen, onMove, onTrash, onArchive, trashPending, ar
         aria-label={`Open details for ${task.title}`}
         className="sticky-note__open group block w-full rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
       >
-        <span className="mt-3 block text-sm font-semibold leading-5 group-hover:text-primary">{task.title}</span>
-        <span className="mt-1.5 line-clamp-2 block text-[11px] leading-5 text-muted-foreground">{task.contentItem}</span>
-        <span className="mt-4 block border-t border-primary/15 pt-3"><span className="block truncate text-[11px] font-medium">{task.clientName}</span><span className="mt-0.5 block truncate text-[10px] text-muted-foreground">{task.campaign}</span></span>
-        <span className="mt-3 flex items-center justify-between gap-1"><span className="flex min-w-0 items-center gap-1 truncate text-[10px] text-muted-foreground"><CalendarDays className="size-3 shrink-0" />{task.dueDate.split(" · ")[0]}</span><span className="flex shrink-0 items-center gap-2"><span className="inline-flex items-center gap-0.5 rounded-full bg-primary/12 px-1.5 py-1 text-[9px] font-semibold text-primary">Open <ArrowUpRight className="size-3" /></span><span className="grid size-6 shrink-0 place-items-center rounded-full bg-secondary/50 text-[8px] font-bold">{task.primaryOwner.initials}</span></span></span>
+        <span className="mt-2 block text-[13px] font-semibold leading-4 group-hover:text-primary">{task.title}</span>
+        <span className="mt-1 line-clamp-1 block text-[10px] leading-4 text-muted-foreground">{task.contentItem}</span>
+        <span className="mt-2 block border-t border-primary/15 pt-2"><span className="block truncate text-[10px] font-medium">{task.clientName}</span><span className="mt-0.5 block truncate text-[9px] text-muted-foreground">{task.campaign}</span></span>
+        <span className="mt-2 flex items-center justify-between gap-1"><span className="flex min-w-0 items-center gap-1 truncate text-[9px] text-muted-foreground"><CalendarDays className="size-3 shrink-0" />{task.dueDate.split(" · ")[0]}</span><span className="flex shrink-0 items-center gap-1.5"><span className="inline-flex items-center gap-0.5 rounded-full bg-primary/12 px-1.5 py-0.5 text-[8px] font-semibold text-primary">Open <ArrowUpRight className="size-2.5" /></span><span className="grid size-5 shrink-0 place-items-center rounded-full bg-secondary/50 text-[8px] font-bold">{task.primaryOwner.initials}</span></span></span>
       </button>
-      {task.contentItemId && <Link href={`/content#content-item-${encodeURIComponent(task.contentItemId)}`} onClick={(event) => event.stopPropagation()} className="mt-2 inline-flex text-[10px] font-semibold text-primary hover:underline">Open linked content <ArrowUpRight className="ml-1 size-3" /></Link>}
+      {task.contentItemId && <Link href={`/content#content-item-${encodeURIComponent(task.contentItemId)}`} onClick={(event) => event.stopPropagation()} className="mt-1.5 inline-flex text-[9px] font-semibold text-primary hover:underline">Open linked content <ArrowUpRight className="ml-1 size-3" /></Link>}
     </article>
   )
 }
@@ -531,18 +527,28 @@ function KanbanCardActions({ task, onOpen, onMove, onTrash, onArchive, trashPend
 
 function ListView({ tasks, onMove, onOpen, onTrash, onArchive, trashPending, archivePending, actor, demoMode }: { tasks: WorkflowTask[]; onMove: (taskId: string, status: TaskStatus) => void; onOpen: (taskId: string) => void; onTrash: (task: WorkflowTask) => void; onArchive: (task: WorkflowTask) => void; trashPending: boolean; archivePending: boolean; actor: DemoUser; demoMode: boolean }) {
   return (
-    <section className="glass-panel mt-5 overflow-hidden rounded-2xl border" aria-label="Task list">
-      <div className="hidden grid-cols-[minmax(280px,1fr)_160px_120px_140px_44px] border-b px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-muted-foreground md:grid"><span>Task</span><span>Client</span><span>Due</span><span>Status</span><span /></div>
-      {tasks.length === 0 && <div className="grid min-h-52 place-items-center p-6 text-center"><div><CircleDot className="mx-auto size-6 text-primary" /><p className="mt-3 text-sm font-semibold">No matching tasks</p><p className="mt-1 text-xs text-muted-foreground">Change or clear the current filters.</p></div></div>}
-      {tasks.map((task, index) => (
-        <article key={task.id} className={cn("grid gap-3 border-b px-5 py-4 transition hover:brightness-[.985] md:grid-cols-[minmax(280px,1fr)_160px_120px_140px_44px] md:items-center", index % 2 ? "bg-[#ead5b9] dark:bg-[#33291f]" : "bg-[#fff9f1] dark:bg-[#241f19]")}>
-          <div className="min-w-0"><div className="flex items-center gap-2"><PriorityBadge priority={task.priority} /><button type="button" onClick={() => onOpen(task.id)} className="truncate text-left text-sm font-semibold hover:text-primary hover:underline">{task.title}</button></div><p className="mt-1 truncate text-xs text-muted-foreground">{task.campaign} · {task.contentItem}</p>{task.contentItemId && <Link href={`/content#content-item-${encodeURIComponent(task.contentItemId)}`} className="mt-1 inline-flex text-[10px] font-semibold text-primary hover:underline">Open linked content <ArrowUpRight className="ml-1 size-3" /></Link>}</div>
-          <div className="flex items-center gap-2 text-xs"><Avatar className="size-6"><AvatarFallback className="bg-secondary/40 text-[8px]">{task.clientName.split(" ").map((word) => word[0]).join("").slice(0, 2)}</AvatarFallback></Avatar><span className="truncate">{task.clientName}</span></div>
-          <span className="flex items-center gap-1 text-xs text-muted-foreground"><CalendarDays className="size-3.5" />{task.dueDate.split(" · ")[0]}</span>
-          <StatusBadge status={task.status} className="w-fit" />
-          <TaskStatusMenu task={task} onMove={onMove} onTrash={onTrash} onArchive={onArchive} trashPending={trashPending} archivePending={archivePending} actor={actor} demoMode={demoMode} />
-        </article>
-      ))}
+    <section className="glass-panel mt-3 overflow-hidden rounded-xl border" aria-label="Task table">
+      <div className="overflow-x-auto">
+        <table aria-label="Tasks" className="w-full min-w-[760px] table-fixed text-left">
+          <colgroup><col /><col className="w-[17%]" /><col className="w-[17%]" /><col className="w-[13%]" /><col className="w-[16%]" /><col className="w-10" /></colgroup>
+          <thead className="border-b border-primary/12 bg-background/35 text-[9px] font-bold uppercase tracking-wide text-muted-foreground">
+            <tr><th scope="col" className="px-3 py-2 font-bold">Task</th><th scope="col" className="px-2 py-2 font-bold">Client</th><th scope="col" className="px-2 py-2 font-bold">Owner</th><th scope="col" className="px-2 py-2 font-bold">Due</th><th scope="col" className="px-2 py-2 font-bold">Status</th><th scope="col" className="px-2 py-2"><span className="sr-only">Actions</span></th></tr>
+          </thead>
+          <tbody>
+            {tasks.length === 0 ? <tr><td colSpan={6} className="py-8 text-center"><span className="text-xs font-semibold">No matching tasks</span><span className="ml-2 text-[10px] text-muted-foreground">Adjust the filters to see tasks.</span></td></tr> : tasks.map((task) => <tr key={task.id} className="border-b border-primary/10 transition last:border-b-0 hover:bg-primary/[0.035]">
+                <td className="px-3 py-2">
+                  <div className="flex min-w-0 items-center gap-1.5"><PriorityBadge priority={task.priority} /><button type="button" onClick={() => onOpen(task.id)} className="truncate text-left text-xs font-semibold hover:text-primary hover:underline">{task.title}</button></div>
+                  <div className="mt-0.5 flex min-w-0 items-center gap-1 text-[10px] leading-4 text-muted-foreground"><span className="truncate">{task.campaign} · {task.contentItem}</span>{task.contentItemId && <Link href={`/content#content-item-${encodeURIComponent(task.contentItemId)}`} aria-label="Open linked content" className="shrink-0 text-primary hover:underline"><ArrowUpRight className="size-3" /></Link>}</div>
+                </td>
+                <td className="px-2 py-2"><span className="block truncate text-[11px]">{task.clientName}</span></td>
+                <td className="px-2 py-2"><span className="flex min-w-0 items-center gap-1.5"><Avatar className="size-5 shrink-0"><AvatarFallback className="bg-secondary/40 text-[8px]">{task.primaryOwner.initials}</AvatarFallback></Avatar><span className="truncate text-[11px]">{task.primaryOwner.name}</span></span></td>
+                <td className="px-2 py-2"><span className="flex items-center gap-1 whitespace-nowrap text-[10px] text-muted-foreground"><CalendarDays className="size-3 shrink-0" />{task.dueDate.split(" · ")[0]}</span></td>
+                <td className="px-2 py-2"><StatusBadge status={task.status} className="max-w-full px-1.5 py-0.5 text-[9px]" /></td>
+                <td className="px-1 py-2"><TaskStatusMenu task={task} onMove={onMove} onTrash={onTrash} onArchive={onArchive} trashPending={trashPending} archivePending={archivePending} actor={actor} demoMode={demoMode} /></td>
+              </tr>)}
+          </tbody>
+        </table>
+      </div>
     </section>
   )
 }

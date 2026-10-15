@@ -50,7 +50,9 @@ export async function GET(request: NextRequest) {
   if (taskId && contentItemId) return NextResponse.json({ error: "Choose a task or a content item, not both." }, { status: 400 })
   if (taskId) query = query.eq("task_id", taskId)
   else if (contentItemId) {
-    const { data: contentItem } = await actor.supabase.from("content_items").select("id").eq("id", contentItemId).eq("client_id", clientId).is("deleted_at", null).maybeSingle()
+    let contentItemQuery = actor.supabase.from("content_items").select("id").eq("id", contentItemId).eq("client_id", clientId)
+    if (!await hasStoragePermission(actor, ["content.update"])) contentItemQuery = contentItemQuery.is("deleted_at", null)
+    const { data: contentItem } = await contentItemQuery.maybeSingle()
     if (!contentItem) return NextResponse.json({ error: "Content files are unavailable." }, { status: 404 })
     query = query.eq("content_item_id", contentItemId).is("task_id", null)
   } else query = query.is("task_id", null).is("content_item_id", null)

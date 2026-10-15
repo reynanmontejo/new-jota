@@ -18,7 +18,7 @@ export type ImportField =
   | "assignee"
 
 export const contentImportFields: Array<{ id: ImportField; label: string; required?: boolean; aliases: string[] }> = [
-  { id: "client", label: "Client / account", required: true, aliases: ["client", "client name", "account", "account name", "brand"] },
+  { id: "client", label: "Client / account", required: true, aliases: ["client", "client name", "account", "account name", "brand", "client / account"] },
   { id: "campaign", label: "Campaign", aliases: ["campaign", "campaign name", "project", "content campaign"] },
   { id: "title", label: "Content title", required: true, aliases: ["title", "post title", "content title", "post idea", "content idea", "topic", "post name", "content name"] },
   { id: "platform", label: "Platform", required: true, aliases: ["platform", "social platform", "channel", "social media"] },
@@ -31,11 +31,11 @@ export const contentImportFields: Array<{ id: ImportField; label: string; requir
   { id: "clientApprovalStatus", label: "Client approval", aliases: ["client approval", "approval status", "client approval status"] },
   { id: "clientIssues", label: "Client issues", aliases: ["client issues", "issue", "issues"] },
   { id: "revisionCount", label: "Revision count", aliases: ["no. of revision", "no. of revisions", "revision count", "revisions"] },
-  { id: "notes", label: "Notes / comments", aliases: ["notes/comments", "notes and comments", "comments/notes", "notes"] },
-  { id: "description", label: "Brief / caption", aliases: ["description", "caption", "brief"] },
+  { id: "notes", label: "Notes / comments", aliases: ["notes/comments", "notes / comments", "notes and comments", "comments/notes", "notes"] },
+  { id: "description", label: "Brief / caption", aliases: ["description", "caption", "brief", "brief / caption"] },
   { id: "nextAction", label: "Next action", aliases: ["next action", "action", "next step"] },
-  { id: "revisionNotes", label: "Revision feedback", aliases: ["revision notes", "revision comments", "client comments", "feedback", "comments"] },
-  { id: "assignee", label: "Assigned creator / editor", aliases: ["designer", "creator", "assignee", "assigned to", "owner", "responsible", "editor", "video/graphic editor", "video/grahpic editor"] },
+  { id: "revisionNotes", label: "Revision feedback", aliases: ["revision notes", "revision comments", "revision feedback", "client comments", "feedback", "comments"] },
+  { id: "assignee", label: "Assigned creator / editor", aliases: ["designer", "creator", "assignee", "assigned to", "owner", "responsible", "editor", "assigned creator / editor", "video/graphic editor", "video/grahpic editor"] },
 ]
 
 export const normalizeImportValue = (value: string) => value.trim().toLocaleLowerCase().replace(/\s+/g, " ")

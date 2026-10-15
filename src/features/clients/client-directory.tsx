@@ -191,9 +191,7 @@ export function ClientDirectory({ clients, recentFiles = [], trashedClients = []
     <main className="mx-auto w-full max-w-6xl px-4 py-5 sm:px-6 lg:px-8 lg:py-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-primary">Workspace</p>
-          <h1 className="mt-1 text-xl font-semibold tracking-tight sm:text-2xl">{initialView === "trash" ? "Client Trash" : initialTab === "campaigns" ? "Campaigns" : initialTab === "files" ? "Client files" : "Clients"}</h1>
-          <p className="mt-1 text-xs text-muted-foreground">{initialTab === "overview" ? "Client accounts and their workspaces." : initialTab === "files" ? "Recent uploads across your clients, with each client’s full file library below." : "Choose a client to open its campaigns workspace."}</p>
+          <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">{initialView === "trash" ? "Client Trash" : initialTab === "campaigns" ? "Campaigns" : initialTab === "files" ? "Client files" : "Clients"}</h1>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {initialTab === "files" && initialView === "active" && <Link href="/tasks/trash" className="inline-flex h-9 items-center gap-1.5 rounded-md border border-primary/18 bg-background/75 px-3 text-xs font-medium text-muted-foreground transition hover:bg-background hover:text-foreground"><Trash2 className="size-3.5" /> Trash</Link>}

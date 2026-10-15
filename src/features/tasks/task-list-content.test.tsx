@@ -48,6 +48,15 @@ describe("My Work calendar content", () => {
     expect(screen.getByText(/Planned · Designer One/)).toBeInTheDocument()
   })
 
+  it("switches to a compact table view", () => {
+    render(<TaskList />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Table" }))
+
+    expect(screen.getByRole("table", { name: "Tasks" })).toBeInTheDocument()
+    expect(screen.getByRole("columnheader", { name: "Owner" })).toBeInTheDocument()
+  })
+
   it("offers quick task and review actions from the calendar-content card menu", async () => {
     render(<TaskList />)
 

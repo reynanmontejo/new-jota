@@ -21,7 +21,7 @@ export default async function StorageSettingsPage({ searchParams }: { searchPara
 
   return <main className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6 lg:px-8">
     <Link href="/clients" className="text-xs font-medium text-muted-foreground hover:text-foreground">← Back to clients</Link>
-    <header className="mt-4"><p className="text-[10px] font-semibold uppercase tracking-[.16em] text-primary">Workspace settings</p><h1 className="mt-1 text-2xl font-semibold tracking-tight">File storage</h1><p className="mt-1 text-sm text-muted-foreground">Connect the private Google Drive account used for client files.</p></header>
+    <header className="mt-4"><h1 className="text-2xl font-semibold tracking-tight">File storage</h1></header>
     <section className="mt-5 rounded-lg border bg-card/80 p-5">
       <h2 className="text-sm font-semibold">Google Drive connection</h2>
       <p className="mt-1 text-xs leading-5 text-muted-foreground">The app creates a private Jota folder and one subfolder per client. Files are downloaded through the signed-in app; no public Drive links are created.</p>

@@ -41,9 +41,7 @@ export default async function AdminSystemPage() {
     <main className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6 lg:px-8">
       <Link href="/" className="text-xs font-medium text-muted-foreground hover:text-foreground">← Back to workspace</Link>
       <header className="mt-4">
-        <p className="text-[10px] font-semibold uppercase tracking-[.16em] text-primary">Administration</p>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight">System</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Read-only service and database checks. No schema or workspace data is changed here.</p>
+        <h1 className="text-2xl font-semibold tracking-tight">System</h1>
       </header>
 
       <section aria-label="Current system checks" className="mt-6 grid gap-4 md:grid-cols-2">

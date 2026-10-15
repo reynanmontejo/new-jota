@@ -22,7 +22,7 @@ export default async function HelpPage() {
     <main className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
       <header className="flex flex-col gap-4 rounded-2xl border border-primary/15 bg-card/75 p-5 sm:flex-row sm:items-center sm:p-6">
         <span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary"><LifeBuoy className="size-6" /></span>
-        <div className="min-w-0 flex-1"><p className="text-[10px] font-semibold uppercase tracking-[.16em] text-primary">Support and learning</p><h1 className="mt-1 text-2xl font-semibold tracking-tight">Help center</h1><p className="mt-1 max-w-2xl text-sm text-muted-foreground">Short, practical guides for the work you do in Jota. Start with the basics, then open the guide for the next step.</p></div>
+        <div className="min-w-0 flex-1"><h1 className="text-2xl font-semibold tracking-tight">Help center</h1></div>
       </header>
 
       <section className="mt-5 rounded-2xl border border-primary/15 bg-secondary/12 p-4 sm:p-5" aria-labelledby="learning-path-heading">

@@ -30,6 +30,7 @@ const contentLinkedTasksMigrationPath = "supabase/migrations/202610210001_conten
 const completedTaskTrashMigrationPath = "supabase/migrations/202610220001_completed_task_trash.sql"
 const profileSecurityMigrationPath = "supabase/migrations/202610230001_profile_photos_and_password_approval.sql"
 const taskArchiveMigrationPath = "supabase/migrations/202610250001_task_archive.sql"
+const contentArchiveMigrationPath = "supabase/migrations/202610260001_content_archive_restore.sql"
 const seedPath = "supabase/seed.sql"
 
 const database = new PGlite()
@@ -140,6 +141,7 @@ await database.exec(await fs.readFile(contentLinkedTasksMigrationPath, "utf8"))
 await database.exec(await fs.readFile(completedTaskTrashMigrationPath, "utf8"))
 await database.exec(await fs.readFile(profileSecurityMigrationPath, "utf8"))
 await database.exec(await fs.readFile(taskArchiveMigrationPath, "utf8"))
+await database.exec(await fs.readFile(contentArchiveMigrationPath, "utf8"))
 const providerSecretAccess = await database.query(`
   select has_table_privilege('authenticated', 'public.google_drive_connections', 'select') as can_read_tokens,
          has_table_privilege('authenticated', 'public.client_drive_folders', 'select') as can_read_folder_map,
@@ -389,6 +391,39 @@ if (revisedContent.rows[0]?.status !== "in_production" || revisedContent.rows[0]
 await asUser(employeeOne, async () => database.query(`select public.archive_content_item_for_current_user('${trackedContentId}')`))
 const archivedContent = await database.query(`select deleted_at from public.content_items where id = '${trackedContentId}'`)
 if (!archivedContent.rows[0]?.deleted_at) throw new Error("Content tracker archive failed")
+const archivedContentVisibleToOwner = await asUser(employeeOne, async () => (await database.query(`
+  select count(*)::int as count from public.content_items
+  where id = '${trackedContentId}' and deleted_at is not null
+`)).rows[0]?.count)
+const archivedContentVisibleToOtherClient = await asUser(employeeTwo, async () => (await database.query(`
+  select count(*)::int as count from public.content_items
+  where id = '${trackedContentId}' and deleted_at is not null
+`)).rows[0]?.count)
+if (archivedContentVisibleToOwner !== 1 || archivedContentVisibleToOtherClient !== 0) {
+  throw new Error(`Archived content access was not properly scoped: owner=${archivedContentVisibleToOwner}, other client=${archivedContentVisibleToOtherClient}`)
+}
+let crossClientRestoreRejected = false
+try {
+  await asUser(employeeTwo, () => database.query(`select public.restore_content_item_for_current_user('${trackedContentId}')`))
+} catch (error) {
+  crossClientRestoreRejected = error?.code === "P0002"
+}
+if (!crossClientRestoreRejected) throw new Error("A user without client access restored another client's content")
+await asUser(employeeOne, () => database.query(`select public.restore_content_item_for_current_user('${trackedContentId}')`))
+const restoredContent = await database.query(`select deleted_at from public.content_items where id = '${trackedContentId}'`)
+if (restoredContent.rows[0]?.deleted_at !== null) throw new Error("Content restore RPC did not restore the archived item")
+const restoreActivity = await database.query(`
+  select count(*)::int as count from public.activity_logs
+  where entity_type = 'content_item' and entity_id = '${trackedContentId}' and action = 'CONTENT_RESTORED'
+`)
+if (restoreActivity.rows[0]?.count !== 1) throw new Error("Content restore did not create an activity log entry")
+const contentRestoreGrants = await database.query(`
+  select has_function_privilege('authenticated', 'public.restore_content_item_for_current_user(uuid)', 'execute') as authenticated_allowed,
+         has_function_privilege('anon', 'public.restore_content_item_for_current_user(uuid)', 'execute') as anon_allowed
+`)
+if (contentRestoreGrants.rows[0]?.authenticated_allowed !== true || contentRestoreGrants.rows[0]?.anon_allowed !== false) {
+  throw new Error("Content restore RPC grants are not restricted to authenticated users")
+}
 const authenticatedContentGrant = await database.query(`
   select has_function_privilege('authenticated', 'public.create_content_item_for_current_user(uuid,uuid,text,text,text,text,public.content_status,timestamptz,text,uuid)', 'execute') as allowed
 `)
@@ -1155,5 +1190,5 @@ if (policyCount !== 37 || postMutationCount !== 3) {
   throw new Error(`Unexpected policy or task mutation coverage: ${policyCount} policies, employee sees ${postMutationCount} tasks`)
 }
 
-console.log(`Schema validated: ${tableCount} tables, task assignment/review/comment/due notifications, password-change notifications, private push subscriptions and service-only delivery queue, notification RLS/RPCs/triggers, content workflow/import/campaign/content-review RLS and RPCs, immutable task/content versions and decisions, private Drive token/folder tables, client platforms, multi-manager ownership, client status and recoverable Trash, employee provisioning and Trash, profile photo storage policies, service-only password-change requests, first-admin bootstrap, profile updates, and ${policyCount} policies.`)
+console.log(`Schema validated: ${tableCount} tables, task assignment/review/comment/due notifications, password-change notifications, private push subscriptions and service-only delivery queue, notification RLS/RPCs/triggers, content workflow/import/campaign/content-review/archive/restore RLS and RPCs, immutable task/content versions and decisions, private Drive token/folder tables, client platforms, multi-manager ownership, client status and recoverable Trash, employee provisioning and Trash, profile photo storage policies, service-only password-change requests, first-admin bootstrap, profile updates, and ${policyCount} policies.`)
 await database.close()

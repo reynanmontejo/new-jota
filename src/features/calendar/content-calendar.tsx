@@ -97,7 +97,7 @@ export function ContentCalendar({ contentPosts, contentError = false, clientId }
   return (
     <div className="mx-auto max-w-[1480px] px-0 py-2 sm:px-0">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div><h1 className="text-xl font-semibold tracking-tight">Calendar</h1><p className="mt-1 text-xs text-muted-foreground">Scheduled content and your task deadlines</p></div>
+        <h1 className="text-xl font-semibold tracking-tight">Calendar</h1>
         <div className="flex flex-wrap items-center gap-2">
           {currentUser.role === "supervisor" && <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">Content owner
             <select aria-label="Filter calendar content by owner" className="h-9 rounded-md border bg-background px-2.5 text-sm text-foreground" value={contentOwnerFilter} onChange={(event) => setContentOwnerFilter(event.target.value)}>

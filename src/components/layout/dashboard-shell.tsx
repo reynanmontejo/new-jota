@@ -68,13 +68,8 @@ export function DashboardShell({ children, compact = false }: DashboardShellProp
     const destination = new URL(anchor.href, window.location.href)
     if (destination.origin !== window.location.origin || destination.pathname.startsWith("/api/")) return
     if (destination.pathname === window.location.pathname && destination.search === window.location.search && destination.hash === window.location.hash) return
-    if (navigationPending) {
-      event.preventDefault()
-      event.stopPropagation()
-      return
-    }
     setNavigationPending(true)
-  }, [navigationPending])
+  }, [])
 
   return (
     <div onClickCapture={handleNavigationClick} aria-busy={navigationPending} className={cn("dashboard-canvas min-h-screen text-foreground", compact && "dashboard-canvas--compact")}>

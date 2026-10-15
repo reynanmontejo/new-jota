@@ -1,6 +1,7 @@
 "use client"
 
 import { useMemo, useState } from "react"
+import { Download } from "lucide-react"
 
 import { importContentItems } from "@/app/content/actions"
 import type { TrackerAssignee, TrackerCampaign, TrackerClient, TrackerItem } from "@/features/content/content-tracker"
@@ -194,6 +195,10 @@ export function ContentImport({ clients, campaigns, assignees, items, currentUse
     <summary className="cursor-pointer list-none text-xs font-semibold text-primary [&::-webkit-details-marker]:hidden">Import from CSV</summary>
     <div className="mt-3 grid gap-3 border-t pt-3">
       <p className="text-[11px] text-muted-foreground">Choose a CSV, check the preview, then import up to 250 content items. Existing duplicates are skipped.</p>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+        <a href="/content-import-template.xlsx" download="jota-content-import-template.xlsx" className="inline-flex h-8 items-center gap-1.5 rounded-md border border-primary/20 bg-background/70 px-2.5 font-medium text-primary transition hover:bg-primary/5"><Download className="size-3.5" />Download Excel template</a>
+        <span className="text-muted-foreground">Includes an AI prompt and a clean import sheet.</span>
+      </div>
       <label className="grid gap-1.5 text-[11px] font-medium">CSV file<input className="text-xs file:mr-2 file:rounded-md file:border-0 file:bg-secondary/40 file:px-2.5 file:py-1.5 file:text-xs file:font-medium" type="file" accept=".csv,text/csv" onChange={(event) => void loadFile(event.target.files?.[0])} />{fileName && <span className="font-normal text-muted-foreground">{fileName}</span>}</label>
       {error && <p role="alert" className="rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive">{error}</p>}
       {!!headers.length && <>

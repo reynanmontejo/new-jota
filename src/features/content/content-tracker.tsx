@@ -1,9 +1,10 @@
 "use client"
 
-import { useMemo, useState } from "react"
-import { Archive, ListPlus, Plus, Search } from "lucide-react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import Link from "next/link"
+import { Archive, ChevronDown, Files, ListPlus, LoaderCircle, Plus, RotateCcw, Search } from "lucide-react"
 
-import { archiveContentItem, saveContentItem } from "@/app/content/actions"
+import { archiveContentItem, restoreContentItem, saveContentItem } from "@/app/content/actions"
 import { ClientFiles } from "@/features/clients/client-files"
 import { ContentImport } from "@/features/content/content-import"
 import { ContentSubmitButton } from "@/features/content/content-submit-button"
@@ -58,6 +59,27 @@ function dateInputValue(value: string | null) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}T${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`
 }
 
+function ContentFilesDisclosure({ clientId, contentItemId, canUpload }: { clientId: string; contentItemId: string; canUpload: boolean }) {
+  const [open, setOpen] = useState(false)
+  const [hasOpened, setHasOpened] = useState(false)
+  const panelId = `content-files-${contentItemId}`
+
+  function toggle() {
+    setOpen((current) => !current)
+    setHasOpened(true)
+  }
+
+  return <section className="mt-3 border-t pt-2">
+    <button type="button" aria-expanded={open} aria-controls={panelId} onClick={toggle} className="flex w-full items-center justify-between py-1 text-left text-xs font-semibold text-primary">
+      <span className="flex items-center gap-1.5"><Files className="size-3.5" />Files and review</span>
+      <ChevronDown aria-hidden="true" className={`size-3.5 transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
+    </button>
+    <div id={panelId} hidden={!open}>
+      {hasOpened && <ClientFiles clientId={clientId} contentItemId={contentItemId} canUpload={canUpload} />}
+    </div>
+  </section>
+}
+
 function ContentForm({ clients, campaigns, assignees, item, canEdit, currentUserId }: { clients: TrackerClient[]; campaigns: TrackerCampaign[]; assignees: Record<string, TrackerAssignee[]>; item?: TrackerItem; canEdit: boolean; currentUserId: string }) {
   const [clientId, setClientId] = useState(item?.client_id ?? clients[0]?.id ?? "")
   const clientCampaigns = campaigns.filter((campaign) => campaign.client_id === clientId)
@@ -107,54 +129,158 @@ function ContentForm({ clients, campaigns, assignees, item, canEdit, currentUser
   </form>
 }
 
-export function ContentTracker({ clients, campaigns, assignees, items, canCreate, canEdit, canCreateTask, currentUserId, canAssignContent, notice, importedCount, skippedCount }: {
-  clients: TrackerClient[]; campaigns: TrackerCampaign[]; assignees: Record<string, TrackerAssignee[]>; items: TrackerItem[]; canCreate: boolean; canEdit: boolean; canCreateTask: boolean; currentUserId: string; canAssignContent: boolean; notice?: string; importedCount?: number; skippedCount?: number
+export function ContentTracker({ clients, campaigns, assignees, items, canCreate, canEdit, canCreateTask, currentUserId, canAssignContent, notice, importedCount, skippedCount, isArchivedView = false }: {
+  clients: TrackerClient[]; campaigns: TrackerCampaign[]; assignees: Record<string, TrackerAssignee[]>; items: TrackerItem[]; canCreate: boolean; canEdit: boolean; canCreateTask: boolean; currentUserId: string; canAssignContent: boolean; notice?: string; importedCount?: number; skippedCount?: number; isArchivedView?: boolean
 }) {
   const { openNewTask } = useTaskDrawer()
   const [query, setQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
   const [clientFilter, setClientFilter] = useState("all")
-  const visibleItems = useMemo(() => items.filter((item) => {
+  const [hiddenItemIds, setHiddenItemIds] = useState<Set<string>>(() => new Set())
+  const [pendingAction, setPendingAction] = useState<string | null>(null)
+  const [undoContentId, setUndoContentId] = useState<string | null>(null)
+  const [undoItem, setUndoItem] = useState<TrackerItem | null>(null)
+  const [feedback, setFeedback] = useState<{ kind: "success" | "error"; message: string } | null>(null)
+  const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const availableItems = useMemo(() => items.filter((item) => !hiddenItemIds.has(item.id)), [items, hiddenItemIds])
+  const visibleItems = useMemo(() => availableItems.filter((item) => {
     const text = `${item.title} ${item.client_name} ${item.campaign_name} ${item.platform} ${item.content_type} ${item.status} ${item.client_approval_status ?? ""} ${item.client_issues ?? ""} ${item.notes ?? ""} ${item.revision_notes ?? ""} ${item.assignee_name ?? ""}`.toLocaleLowerCase()
     return (!query || text.includes(query.trim().toLocaleLowerCase())) && (statusFilter === "all" || item.status === statusFilter) && (clientFilter === "all" || item.client_id === clientFilter)
-  }), [items, query, statusFilter, clientFilter])
+  }), [availableItems, query, statusFilter, clientFilter])
   const notices: Record<string, string> = { created: "Content added to the tracker.", updated: "Content updated.", archived: "Content moved out of the active tracker.", imported: `${importedCount ?? 0} content rows imported; ${skippedCount ?? 0} duplicates skipped.`, import_too_large: "CSV file exceeds the 1 MB limit.", invalid_import: "CSV import failed validation. Review the row preview and required columns.", content_migration_missing: "Apply the local content workflow alignment migration under supabase/migrations, then refresh.", campaign_paused: "The default campaign is paused or closed. Ask a supervisor or admin to reopen it, then try again.", invalid: "Check the required fields and try again.", failed: "The change could not be saved. Refresh and try again.", forbidden: "Your account does not have permission for that change." }
+
+  useEffect(() => () => { if (undoTimer.current) clearTimeout(undoTimer.current) }, [])
+
+  function expireUndo() {
+    if (undoTimer.current) clearTimeout(undoTimer.current)
+    undoTimer.current = setTimeout(() => {
+      setUndoContentId(null)
+      setUndoItem(null)
+      setFeedback(null)
+      undoTimer.current = null
+    }, 6000)
+  }
+
+  async function archiveItem(item: TrackerItem) {
+    if (pendingAction) return
+    setPendingAction(`archive:${item.id}`)
+    if (undoTimer.current) clearTimeout(undoTimer.current)
+    undoTimer.current = null
+    setUndoContentId(null)
+    setUndoItem(null)
+    setFeedback(null)
+    try {
+      const result = await archiveContentItem(item.id)
+      if (!result.ok) {
+        setFeedback({ kind: "error", message: result.error })
+        return
+      }
+      setHiddenItemIds((current) => new Set(current).add(item.id))
+      setUndoContentId(item.id)
+      setUndoItem(item)
+      setFeedback({ kind: "success", message: `“${item.title}” archived.` })
+      expireUndo()
+    } catch {
+      setFeedback({ kind: "error", message: "The content could not be archived. Check your connection and try again." })
+    } finally {
+      setPendingAction(null)
+    }
+  }
+
+  async function undoArchive(item: TrackerItem) {
+    if (pendingAction) return
+    setPendingAction(`undo:${item.id}`)
+    try {
+      const result = await restoreContentItem(item.id)
+      if (!result.ok) {
+        setFeedback({ kind: "error", message: result.error })
+        setUndoContentId(null)
+        return
+      }
+      if (undoTimer.current) clearTimeout(undoTimer.current)
+      undoTimer.current = null
+      setHiddenItemIds((current) => { const next = new Set(current); next.delete(item.id); return next })
+      setUndoContentId(null)
+      setUndoItem(null)
+      setFeedback({ kind: "success", message: `“${item.title}” restored.` })
+    } catch {
+      setFeedback({ kind: "error", message: "The content could not be restored. Open Archived content and try again." })
+      setUndoContentId(null)
+      setUndoItem(null)
+    } finally {
+      setPendingAction(null)
+    }
+  }
+
+  async function restoreItem(item: TrackerItem) {
+    if (pendingAction) return
+    setPendingAction(`restore:${item.id}`)
+    setFeedback(null)
+    try {
+      const result = await restoreContentItem(item.id)
+      if (!result.ok) {
+        setFeedback({ kind: "error", message: result.error })
+        return
+      }
+      setHiddenItemIds((current) => new Set(current).add(item.id))
+      setFeedback({ kind: "success", message: `“${item.title}” restored to active content.` })
+    } catch {
+      setFeedback({ kind: "error", message: "The content could not be restored. Check your connection and try again." })
+    } finally {
+      setPendingAction(null)
+    }
+  }
 
   return <main className="mx-auto w-full max-w-6xl px-4 py-5 sm:px-6 lg:px-8 lg:py-6">
     <div className="flex flex-wrap items-end justify-between gap-3">
-      <div><p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-primary">Marketing operations</p><h1 className="mt-1 text-xl font-semibold tracking-tight sm:text-2xl">Content tracker</h1><p className="mt-1 text-xs text-muted-foreground">Track production, revisions, and publishing dates by client.</p></div>
-      <div className="text-right"><p className="text-lg font-semibold tabular-nums">{items.length}</p><p className="text-[11px] text-muted-foreground">active content items</p></div>
+      <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">{isArchivedView ? "Archived content" : "Content tracker"}</h1>
+      <div className="text-right"><p className="text-lg font-semibold tabular-nums">{availableItems.length}</p><p className="text-[11px] text-muted-foreground">{isArchivedView ? "archived items" : "active content items"}</p></div>
     </div>
     {notice && notices[notice] && <p role="status" className="mt-4 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-xs">{notices[notice]}</p>}
-    {canCreate && <details className="group mt-4 rounded-lg border border-border bg-card/80 p-3">
+    <nav aria-label="Content views" className="mt-4 flex gap-1 border-b border-border/80">
+      <Link href="/content" aria-current={!isArchivedView ? "page" : undefined} className={`border-b-2 px-3 py-2 text-xs font-medium ${!isArchivedView ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}>Active</Link>
+      {canEdit && <Link href="/content?view=archived" aria-current={isArchivedView ? "page" : undefined} className={`border-b-2 px-3 py-2 text-xs font-medium ${isArchivedView ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}>Archived</Link>}
+    </nav>
+    {feedback && <div role={feedback.kind === "error" ? "alert" : "status"} aria-live={feedback.kind === "error" ? "assertive" : "polite"} className={`mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-xs ${feedback.kind === "error" ? "border-destructive/30 bg-destructive/5 text-destructive" : "border-primary/20 bg-primary/5"}`}>
+      <span>{feedback.message}</span>
+      {undoContentId && undoItem && !isArchivedView && <button type="button" disabled={pendingAction === `undo:${undoContentId}`} onClick={() => void undoArchive(undoItem)} className="inline-flex items-center gap-1.5 font-semibold text-primary underline-offset-2 hover:underline disabled:opacity-60">
+        {pendingAction === `undo:${undoContentId}` ? <LoaderCircle className="size-3.5 animate-spin" /> : <RotateCcw className="size-3.5" />}
+        {pendingAction === `undo:${undoContentId}` ? "Restoring…" : "Undo"}
+      </button>}
+    </div>}
+    {!isArchivedView && canCreate && <details className="group mt-4 rounded-lg border border-border bg-card/80 p-3">
       <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-semibold [&::-webkit-details-marker]:hidden"><span className="flex items-center gap-2"><Plus className="size-4 text-primary" />Add content</span><span className="text-[11px] font-normal text-muted-foreground">Create one planned post or creative item</span></summary>
       <div className="mt-3 border-t pt-3">{clients.length ? <ContentForm clients={clients} campaigns={campaigns} assignees={assignees} canEdit={canCreate} currentUserId={currentUserId} /> : <p className="text-xs text-muted-foreground">Add an active client before adding tracked content.</p>}</div>
     </details>}
-    {canCreate && <ContentImport clients={clients} campaigns={campaigns} assignees={assignees} items={items} currentUserId={currentUserId} canAssignContent={canAssignContent} />}
+    {!isArchivedView && canCreate && <ContentImport clients={clients} campaigns={campaigns} assignees={assignees} items={items} currentUserId={currentUserId} canAssignContent={canAssignContent} />}
     <section className="mt-4 rounded-lg border border-border bg-card/75">
       <div className="flex flex-wrap items-center gap-2 border-b p-3">
         <label className="relative min-w-52 flex-1"><Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" /><input className={`${fieldClass} pl-8`} aria-label="Search content" placeholder="Search content, client, platform" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
         <select className={`${fieldClass} w-auto min-w-36`} aria-label="Filter by status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">All statuses</option>{statuses.map((status) => <option key={status} value={status}>{statusLabels[status]}</option>)}</select>
         <select className={`${fieldClass} w-auto min-w-36`} aria-label="Filter by client" value={clientFilter} onChange={(event) => setClientFilter(event.target.value)}><option value="all">All clients</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</select>
       </div>
-      {!visibleItems.length ? <div className="px-4 py-12 text-center"><p className="text-sm font-medium">{items.length ? "No matching content" : "No content tracked yet"}</p><p className="mt-1 text-xs text-muted-foreground">{items.length ? "Try a different search or filter." : "Add the team’s upcoming posts and creative deliverables here."}</p></div> : <div className="divide-y">
+      {!visibleItems.length ? <div className="px-4 py-12 text-center"><p className="text-sm font-medium">{availableItems.length ? "No matching content" : isArchivedView ? "No archived content" : "No content tracked yet"}</p><p className="mt-1 text-xs text-muted-foreground">{availableItems.length ? "Try a different search or filter." : isArchivedView ? "Archived items will appear here and can be restored." : "Add the team’s upcoming posts and creative deliverables here."}</p></div> : <div className="divide-y">
         {visibleItems.map((item) => <article id={`content-item-${item.id}`} key={item.id} className="scroll-mt-24 p-3 sm:p-4">
           <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_160px_150px_auto] lg:items-center">
             <div className="min-w-0"><p className="truncate text-sm font-semibold">{item.title}</p><p className="mt-1 truncate text-[11px] text-muted-foreground">{item.client_name} <span className="px-1">·</span> {item.campaign_name} <span className="px-1">·</span> {item.platform} / {item.content_type}</p>{item.next_action && <p className="mt-1 truncate text-[11px]">Next: <span className="text-muted-foreground">{item.next_action}</span></p>}</div>
             <span className="w-fit rounded-md border border-primary/15 bg-primary/5 px-2 py-1 text-[11px] font-medium">{statusLabels[item.status] ?? item.status}</span>
             <div><p className="text-xs font-medium">Publish: {formatDate(item.publish_at)}</p><p className="text-[10px] text-muted-foreground">Deadline: {formatDate(item.deadline_at)}{item.work_date ? ` · Work: ${formatDate(item.work_date)}` : ""}</p><p className="text-[10px] text-muted-foreground">{item.revision_count} revision{item.revision_count === 1 ? "" : "s"}</p></div>
             <div className="flex items-center gap-2">
-              {canCreateTask && !["published", "cancelled", "rejected"].includes(item.status) && <button type="button" onClick={() => openNewTask({ contentItemId: item.id, contentItemTitle: item.title, title: `Create assets: ${item.title}`, clientId: item.client_id, clientName: item.client_name, campaignName: item.campaign_name, deadlineAt: item.deadline_at })} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-primary/25 bg-background/70 px-2.5 text-xs font-medium text-primary transition hover:bg-primary/5"><ListPlus className="size-3.5" />Add task</button>}
-              {canEdit && <details className="relative"><summary className="cursor-pointer list-none text-xs font-medium text-primary underline-offset-4 hover:underline [&::-webkit-details-marker]:hidden">Edit</summary><div className="overview-panel absolute right-0 z-20 mt-2 w-[min(48rem,calc(100vw-2.5rem))] rounded-lg border bg-card p-3 shadow-xl"><ContentForm clients={clients.filter((client) => client.id === item.client_id)} campaigns={campaigns.filter((campaign) => campaign.client_id === item.client_id)} assignees={assignees} item={item} canEdit={canEdit} currentUserId={currentUserId} /><form action={archiveContentItem} className="mt-3 border-t pt-3"><input type="hidden" name="id" value={item.id} /><button className="flex items-center gap-1.5 text-xs text-destructive" type="submit"><Archive className="size-3.5" />Archive item</button></form></div></details>}
+              {!isArchivedView && canCreateTask && !["published", "cancelled", "rejected"].includes(item.status) && <button type="button" onClick={() => openNewTask({ contentItemId: item.id, contentItemTitle: item.title, title: `Create assets: ${item.title}`, clientId: item.client_id, clientName: item.client_name, campaignName: item.campaign_name, deadlineAt: item.deadline_at })} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-primary/25 bg-background/70 px-2.5 text-xs font-medium text-primary transition hover:bg-primary/5"><ListPlus className="size-3.5" />Add task</button>}
+              {isArchivedView && canEdit && <button type="button" disabled={Boolean(pendingAction)} onClick={() => void restoreItem(item)} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-primary/25 bg-background/70 px-2.5 text-xs font-medium text-primary transition hover:bg-primary/5 disabled:cursor-wait disabled:opacity-60">
+                {pendingAction === `restore:${item.id}` ? <LoaderCircle className="size-3.5 animate-spin" /> : <RotateCcw className="size-3.5" />}
+                {pendingAction === `restore:${item.id}` ? "Restoring…" : "Restore"}
+              </button>}
+              {!isArchivedView && canEdit && <details className="relative"><summary className="cursor-pointer list-none text-xs font-medium text-primary underline-offset-4 hover:underline [&::-webkit-details-marker]:hidden">Edit</summary><div className="overview-panel absolute right-0 z-20 mt-2 w-[min(48rem,calc(100vw-2.5rem))] rounded-lg border bg-card p-3 shadow-xl"><ContentForm clients={clients.filter((client) => client.id === item.client_id)} campaigns={campaigns.filter((campaign) => campaign.client_id === item.client_id)} assignees={assignees} item={item} canEdit={canEdit} currentUserId={currentUserId} /><div className="mt-3 border-t pt-3"><button type="button" disabled={Boolean(pendingAction)} onClick={() => void archiveItem(item)} className="inline-flex min-h-8 items-center gap-1.5 rounded-md px-1 text-xs text-destructive transition hover:underline disabled:cursor-wait disabled:opacity-60">
+                {pendingAction === `archive:${item.id}` ? <LoaderCircle className="size-3.5 animate-spin" /> : <Archive className="size-3.5" />}
+                {pendingAction === `archive:${item.id}` ? "Archiving…" : "Archive item"}
+              </button></div></div></details>}
             </div>
           </div>
           {item.assignee_name && <p className="mt-1 text-[11px] text-muted-foreground">Creator/editor: {item.assignee_name}</p>}
           {(item.client_approval_status || item.client_issues || item.notes) && <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">{item.client_approval_status && <p>Client approval: <span className="font-medium text-foreground">{approvalLabels[item.client_approval_status] ?? item.client_approval_status}</span></p>}{item.client_issues && <p>Client issues: {item.client_issues}</p>}{item.notes && <p>Notes: {item.notes}</p>}</div>}
           {item.revision_notes && <p className="mt-3 border-l-2 border-primary/35 pl-2 text-[11px] text-muted-foreground"><span className="font-medium text-foreground">Latest feedback:</span> {item.revision_notes}</p>}
-          <details className="mt-3 border-t pt-2">
-            <summary className="cursor-pointer text-xs font-semibold text-primary">Files and review</summary>
-            <ClientFiles clientId={item.client_id} contentItemId={item.id} canUpload={canEdit} />
-          </details>
+          <ContentFilesDisclosure clientId={item.client_id} contentItemId={item.id} canUpload={canEdit && !isArchivedView} />
         </article>)}
       </div>}
     </section>

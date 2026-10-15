@@ -38,7 +38,7 @@ export default async function TaskArchivePage({ searchParams }: { searchParams: 
   return <DashboardShell><main className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6 lg:px-8">
     <Link href="/tasks" className="text-xs font-medium text-muted-foreground hover:text-foreground">← Back to tasks</Link>
     <div className="mt-4 flex flex-wrap items-end justify-between gap-3">
-      <div><p className="text-xs font-semibold uppercase tracking-wider text-primary">Task management</p><h1 className="mt-1 text-2xl font-semibold tracking-tight">Task archive</h1><p className="mt-1 text-sm text-muted-foreground">Completed work is hidden from the board but its files and review history stay intact.</p></div>
+      <h1 className="text-2xl font-semibold tracking-tight">Task archive</h1>
       <p className="rounded-full border border-primary/15 bg-background/60 px-3 py-1.5 text-xs text-muted-foreground">{rows.length} {rows.length === 1 ? "task" : "tasks"}</p>
     </div>
     {notice === "restored" && <p role="status" className="mt-4 rounded-lg border border-emerald-700/20 bg-emerald-700/5 px-3 py-2 text-xs text-emerald-800">Task restored to the board.</p>}

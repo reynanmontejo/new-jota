@@ -65,7 +65,7 @@ export function ReviewWorkspace() {
   return (
     <main className="mx-auto max-w-[1480px] px-4 py-5 sm:px-6 lg:px-8 lg:py-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div><p className="text-xs font-semibold uppercase tracking-wider text-primary">Supervisor workspace</p><h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-[28px]">Review queue</h1><p className="mt-1 text-sm text-muted-foreground">Inspect submitted work and record a clear decision.</p>{!demoMode && <p className="mt-2 text-xs text-muted-foreground">Persistent file submissions and review decisions are not connected yet.</p>}</div>
+        <div><h1 className="text-2xl font-semibold tracking-tight sm:text-[28px]">Review queue</h1>{!demoMode && <p className="mt-2 text-xs text-muted-foreground">Persistent file submissions and review decisions are not connected yet.</p>}</div>
         <div className="glass-panel flex items-center gap-3 rounded-xl border px-3 py-2"><Avatar className="size-8"><AvatarFallback className="bg-secondary/40 text-xs">SC</AvatarFallback></Avatar><span><span className="block text-xs font-semibold">Sarah Chen</span><span className="block text-[10px] text-muted-foreground">Supervisor reviewer</span></span></div>
       </div>
 
@@ -203,7 +203,7 @@ function PersistentTaskReviewQueue({ realtimeRevision }: { realtimeRevision: num
   }
 
   return <main className="mx-auto max-w-[1480px] px-4 py-5 sm:px-6 lg:px-8 lg:py-6">
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-xs font-semibold uppercase tracking-wider text-primary">Supervisor workspace</p><h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-[28px]">Task review queue</h1><p className="mt-1 text-sm text-muted-foreground">Review the submitted task files. Approval is separate from marking the task complete.</p></div><Button type="button" variant="outline" size="sm" onClick={() => void loadQueue()} disabled={loading}>Refresh queue</Button></div>
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><h1 className="text-2xl font-semibold tracking-tight sm:text-[28px]">Task review queue</h1><Button type="button" variant="outline" size="sm" onClick={() => void loadQueue()} disabled={loading}>Refresh queue</Button></div>
     {message && !selected && <p role="status" className="mt-4 rounded-md border border-border bg-background/60 px-3 py-2 text-xs">{message}</p>}
     <div className="mt-5 grid gap-5 xl:grid-cols-[320px_minmax(0,1fr)]">
       <aside className="glass-panel rounded-2xl border p-3"><div className="flex items-center justify-between px-2 py-2"><div><h2 className="text-sm font-semibold">Awaiting review</h2><p className="text-[11px] text-muted-foreground">Oldest submissions first</p></div><Badge className="bg-primary text-primary-foreground">{items.length}</Badge></div>
@@ -283,7 +283,7 @@ function PersistentContentReviewQueue() {
 
   return <main className="mx-auto max-w-[1480px] px-4 py-5 sm:px-6 lg:px-8 lg:py-6">
     <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-      <div><p className="text-xs font-semibold uppercase tracking-wider text-primary">Supervisor workspace</p><h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-[28px]">Content review queue</h1><p className="mt-1 text-sm text-muted-foreground">Review the exact files submitted for each content item.</p></div>
+      <h1 className="text-2xl font-semibold tracking-tight sm:text-[28px]">Content review queue</h1>
       <Button type="button" variant="outline" size="sm" onClick={() => void loadQueue()} disabled={loading}>Refresh queue</Button>
     </div>
     {message && !selected && <p role="status" className="mt-4 rounded-md border border-border bg-background/60 px-3 py-2 text-xs">{message}</p>}

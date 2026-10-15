@@ -16,8 +16,7 @@ export default async function InitialSetupPage({ searchParams }: PageProps<"/set
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-2xl items-center px-4 py-10">
       <section className="w-full rounded-lg border border-border bg-card p-5 shadow-sm sm:p-7">
-        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Joyno Task · First-time setup</p>
-        <h1 className="mt-2 text-2xl font-semibold tracking-tight">Set up your administrator profile</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Set up your administrator profile</h1>
         <p className="mt-1.5 text-sm text-muted-foreground">Your signed-in account will become the first administrator for this workspace.</p>
         {query.error === "invalid" && <p className="mt-4 rounded-md border border-destructive/25 bg-destructive/5 p-3 text-sm text-destructive">Check the fields and timezone, then try again.</p>}
         {query.error === "save" && <p className="mt-4 rounded-md border border-destructive/25 bg-destructive/5 p-3 text-sm text-destructive">Setup could not be saved. The setup migration may not be applied yet, or setup has already started.</p>}

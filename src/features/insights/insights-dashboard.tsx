@@ -132,9 +132,7 @@ export function InsightsDashboard() {
     <main className="mx-auto max-w-[1480px] px-4 py-6 sm:px-6 lg:px-8">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[.16em] text-primary">Work overview</p>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight">Insights</h1>
-          <p className="mt-1 text-sm text-muted-foreground">A quick view of workload, deadlines, and review progress.</p>
+          <h1 className="text-2xl font-semibold tracking-tight">Insights</h1>
         </div>
         {isSupervisor && <div className="flex items-center gap-1 rounded-lg border bg-background/70 p-1" aria-label="Insight scope">
           <button type="button" aria-pressed={scope === "team"} onClick={() => setScope("team")} className={`rounded-md px-3 py-1.5 text-xs font-medium ${scope === "team" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>Team</button>

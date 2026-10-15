@@ -172,9 +172,7 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
       <main className="mx-auto max-w-6xl px-4 py-5 sm:px-6 lg:px-8">
         <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-primary">Workspace / Administration</p>
-            <h1 className="mt-1 text-xl font-semibold tracking-tight">Employees</h1>
-            <p className="mt-1 text-xs text-muted-foreground">Manage organization access and employee roles.</p>
+            <h1 className="text-xl font-semibold tracking-tight">Employees</h1>
           </div>
           {view === "roster" && <Badge variant="outline" className="text-xs">{roster.filter((employee) => employee.status === "active").length} active</Badge>}
         </div>

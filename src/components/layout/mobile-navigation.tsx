@@ -14,7 +14,7 @@ export function MobileNavigation({ variant = "account_manager", isAdministrator 
       <SheetTrigger render={<Button variant="outline" size="icon" className="lg:hidden" aria-label="Open navigation" />}>
         <Menu />
       </SheetTrigger>
-      <SheetContent side="left" className="w-72 border-0 bg-transparent p-0 shadow-none" showCloseButton={false}>
+      <SheetContent side="left" className="z-[60] w-72 touch-manipulation border-0 bg-transparent p-0 shadow-none" showCloseButton={false}>
         <SheetTitle className="sr-only">Main navigation</SheetTitle>
         <AppSidebar variant={variant} isAdministrator={isAdministrator} onNavigate={() => setOpen(false)} />
       </SheetContent>
