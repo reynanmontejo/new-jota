@@ -78,13 +78,12 @@ type AppSidebarProps = {
 export function AppSidebar({ className, collapsed = false, onToggle, onNavigate, variant = "account_manager", isAdministrator = false }: AppSidebarProps) {
   const pathname = usePathname() ?? "/"
   const searchParams = useSearchParams()
-  const { tasks, contentWorkItems, currentUser, demoMode, realtimeRevision } = useWorkflow()
+  const { tasks, currentUser, demoMode, realtimeRevision } = useWorkflow()
   const navigationBase = variant === "supervisor"
     ? isAdministrator ? [...supervisorNavigation, employeeManagementItem, storageSettingsItem, systemSettingsItem] : supervisorNavigation
     : accountManagerNavigation
   const isOpenTask = (status: string) => !["approved", "completed", "cancelled"].includes(status)
   const taskCount = tasks.filter((task) => isOpenTask(task.status) && (currentUser.role === "supervisor" || task.primaryOwner.id === currentUser.id)).length
-    + contentWorkItems.length
   const reviewCount = tasks.filter((task) => task.versions.at(-1)?.status === "submitted").length
   const [liveCounts, setLiveCounts] = useState<{ taskCount: number; reviewCount: number } | null>(null)
 

@@ -87,6 +87,7 @@ const sortLabels: Record<SortOption, string> = {
 }
 
 const trashUndoDurationMs = 8_000
+const contentPreviewLimit = 6
 
 function canMoveTaskToTrash(task: WorkflowTask, actor: DemoUser) {
   const canManage = actor.role === "supervisor" || task.primaryOwner.id === actor.id || task.createdById === actor.id
@@ -135,6 +136,7 @@ export function TaskList() {
   const [reviewContent, setReviewContent] = useState<WorkflowContentWorkItem | null>(null)
   const [publishingContentId, setPublishingContentId] = useState<string | null>(null)
   const [contentNotice, setContentNotice] = useState<{ message: string; error?: boolean } | null>(null)
+  const [showAllContent, setShowAllContent] = useState(false)
 
   useEffect(() => {
     if (!trashNotice || trashPending) return
@@ -163,6 +165,7 @@ export function TaskList() {
     const matchesSearch = !filters.query || searchText.includes(filters.query.trim().toLocaleLowerCase())
     return matchesClient && matchesSearch
   }), [myContent, filters.client, filters.query])
+  const previewContent = showAllContent ? visibleContent : visibleContent.slice(0, contentPreviewLimit)
   const activeFilterCount = [filters.client !== "all", filters.status !== "all", filters.priority !== "all", Boolean(filters.query)].filter(Boolean).length
 
   function resetFilters() {
@@ -323,12 +326,19 @@ export function TaskList() {
 
       <section className="glass-panel mt-3 rounded-xl border p-2.5" aria-labelledby="content-work-heading">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 id="content-work-heading" className="text-xs font-semibold">{currentUser.role === "supervisor" ? "Team content" : "My content"}</h2>
+          <div className="flex min-w-0 items-center gap-2">
+            <h2 id="content-work-heading" className="text-xs font-semibold">{currentUser.role === "supervisor" ? "Team content" : "My content"}</h2>
+            <span className="text-[10px] text-muted-foreground">{visibleContent.length} items</span>
+            {visibleContent.length > contentPreviewLimit && <Button type="button" variant="ghost" size="sm" aria-expanded={showAllContent} onClick={() => setShowAllContent((expanded) => !expanded)} className="h-6 px-1.5 text-[10px] text-primary">
+              {showAllContent ? "Show less" : `View all ${visibleContent.length}`}
+              <ChevronDown className={cn("ml-0.5 size-3 transition-transform", showAllContent && "rotate-180")} />
+            </Button>}
+          </div>
           <Link className="text-[10px] font-medium text-primary underline-offset-4 hover:underline" href="/content">Open tracker <ArrowUpRight className="ml-0.5 inline size-3" /></Link>
         </div>
         {contentNotice && <p role={contentNotice.error ? "alert" : "status"} className={cn("mt-1.5 rounded-lg border px-2 py-1 text-[10px]", contentNotice.error ? "border-destructive/25 bg-destructive/5 text-destructive" : "border-primary/20 bg-primary/5 text-foreground")}>{contentNotice.message}</p>}
         {!visibleContent.length ? <p className="mt-1.5 rounded-lg border border-dashed border-primary/18 px-3 py-2.5 text-center text-[10px] text-muted-foreground">{myContent.length ? "No content matches these filters." : "No calendar content yet."}</p> : <div className="mt-1.5 flex flex-wrap gap-1.5">
-          {visibleContent.map((item) => <CalendarContentCard key={item.id} item={item} demoMode={demoMode} publishing={publishingContentId === item.id} onReview={() => setReviewContent(item)} onPublish={() => void markContentPublished(item)} />)}
+          {previewContent.map((item) => <CalendarContentCard key={item.id} item={item} demoMode={demoMode} showAssignee={currentUser.role === "supervisor" || item.assigneeName !== currentUser.name} publishing={publishingContentId === item.id} onReview={() => setReviewContent(item)} onPublish={() => void markContentPublished(item)} />)}
         </div>}
       </section>
 
@@ -357,19 +367,19 @@ export function TaskList() {
   )
 }
 
-function CalendarContentCard({ item, demoMode, publishing, onReview, onPublish }: { item: WorkflowContentWorkItem; demoMode: boolean; publishing: boolean; onReview: () => void; onPublish: () => void }) {
+function CalendarContentCard({ item, demoMode, showAssignee, publishing, onReview, onPublish }: { item: WorkflowContentWorkItem; demoMode: boolean; showAssignee: boolean; publishing: boolean; onReview: () => void; onPublish: () => void }) {
   const { openNewTask } = useTaskDrawer()
   const canAddTask = !["published", "cancelled", "rejected"].includes(item.status)
   const canSubmitForReview = !demoMode && !["for_review", "published", "cancelled", "rejected"].includes(item.status)
 
-  return <article className="group w-full min-w-0 max-w-[320px] rounded-lg border border-primary/15 bg-background/75 px-2.5 py-2 transition hover:border-primary/35 hover:bg-background">
-    <div className="flex items-start justify-between gap-2">
-      <Link href={`/content#content-item-${encodeURIComponent(item.id)}`} className="min-w-0 truncate text-xs font-semibold leading-4 hover:text-primary hover:underline">
+  return <article className="group w-full min-w-0 max-w-[320px] rounded-lg border border-primary/15 bg-background/75 px-2 py-1.5 transition hover:border-primary/35 hover:bg-background">
+    <div className="flex items-center justify-between gap-1.5">
+      <Link href={`/content#content-item-${encodeURIComponent(item.id)}`} className="min-w-0 truncate text-[11px] font-semibold leading-4 hover:text-primary hover:underline">
         {item.title}
       </Link>
       <DropdownMenu>
-        <DropdownMenuTrigger render={<Button type="button" variant="ghost" size="icon-sm" aria-label={`Actions for ${item.title}`} className="-mr-1 -mt-1 size-7 shrink-0 rounded-full text-muted-foreground hover:bg-secondary/50 hover:text-foreground" />}>
-          <MoreHorizontal className="size-4" />
+        <DropdownMenuTrigger render={<Button type="button" variant="ghost" size="icon-sm" aria-label={`Actions for ${item.title}`} className="-mr-1 size-6 shrink-0 rounded-full text-muted-foreground hover:bg-secondary/50 hover:text-foreground" />}>
+          <MoreHorizontal className="size-3.5" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" sideOffset={5} className="min-w-48 rounded-xl border border-primary/16 bg-popover/95 p-1.5 shadow-xl backdrop-blur-xl">
           {canAddTask && <DropdownMenuItem onClick={() => openNewTask({ contentItemId: item.id, contentItemTitle: item.title, title: `Create assets: ${item.title}`, clientId: item.clientId, clientName: item.clientName, campaignName: item.campaignName, deadlineAt: item.deadlineAt })} className="min-h-8 rounded-lg px-2 text-xs"><ListPlus className="size-3.5" />Add as task</DropdownMenuItem>}
@@ -381,9 +391,11 @@ function CalendarContentCard({ item, demoMode, publishing, onReview, onPublish }
         </DropdownMenuContent>
       </DropdownMenu>
     </div>
-    <p className="truncate text-[10px] leading-4 text-muted-foreground">{item.clientName} · {item.platform} · {item.format}</p>
-    <p className="truncate text-[10px] leading-4 text-muted-foreground">{contentStatusLabel(item.status)}{item.assigneeName ? ` · ${item.assigneeName}` : ""}</p>
-    {(item.deadlineAt || item.publishAt) && <p className="truncate text-[10px] leading-4 text-muted-foreground">{item.deadlineAt ? `Due ${formatContentDate(item.deadlineAt)}` : "No deadline"}{item.publishAt ? ` · Post ${formatContentDate(item.publishAt)}` : " · Unscheduled"}</p>}
+    <p className="truncate text-[9px] leading-3.5 text-muted-foreground">{item.clientName} · {item.platform}{item.format ? ` · ${item.format}` : ""}</p>
+    <div className="flex min-w-0 items-center justify-between gap-2 text-[9px] leading-3.5 text-muted-foreground">
+      <span className="min-w-0 truncate">{contentStatusLabel(item.status)}{showAssignee && item.assigneeName ? ` · ${item.assigneeName}` : ""}</span>
+      {(item.deadlineAt || item.publishAt) && <span className="shrink-0">{item.deadlineAt ? `Due ${formatCompactContentDate(item.deadlineAt)}` : ""}{item.deadlineAt && item.publishAt ? " · " : ""}{item.publishAt ? `Post ${formatCompactContentDate(item.publishAt)}` : ""}</span>}
+    </div>
   </article>
 }
 
@@ -396,10 +408,10 @@ function contentStatusLabel(status: string) {
   return labels[status] ?? status.replaceAll("_", " ")
 }
 
-function formatContentDate(value: string) {
+function formatCompactContentDate(value: string) {
   const date = /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T12:00:00`) : new Date(value)
   if (Number.isNaN(date.getTime())) return "Date not set"
-  return new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric" }).format(date)
+  return new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(date)
 }
 
 function FilterMenu({ label, value, active = false, icon: Icon = ChevronDown, children }: { label: string; value: string; active?: boolean; icon?: typeof ChevronDown; children: React.ReactNode }) {
@@ -465,10 +477,10 @@ function KanbanBoard({ tasks, onMove, onOpen, onTrash, onArchive, trashPending, 
                 setDraggingTaskId(null)
                 setDropTarget(null)
               }}
-              className={cn("glass-panel flex max-h-[min(62vh,600px)] min-h-[205px] flex-col rounded-xl border p-2.5 transition-colors", dropTarget === targetStatus && canDrop && "border-primary/50 bg-primary/5")}
+              className={cn("glass-panel flex max-h-[min(62vh,600px)] flex-col rounded-xl border p-2.5 transition-colors", columnTasks.length ? "min-h-[205px]" : "min-h-[112px]", dropTarget === targetStatus && canDrop && "border-primary/50 bg-primary/5")}
             >
               <div className="flex shrink-0 items-center justify-between px-1 pb-2"><div className="flex items-center gap-2"><span className={cn("size-2 rounded-full", column.accent)} /><h2 className="text-[11px] font-bold uppercase tracking-wide">{column.label}</h2></div><Badge variant="outline" className="h-5 bg-background/65 px-1.5 text-[9px]">{columnTasks.length}</Badge></div>
-              <div className="kanban-column-scroll min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain px-0.5 pr-1.5">{columnTasks.map((task, index) => <KanbanCard key={task.id} task={task} onOpen={onOpen} onMove={onMove} onTrash={onTrash} onArchive={onArchive} trashPending={trashPending} archivePending={archivePending} actor={actor} demoMode={demoMode} delayMs={Math.min(index, 5) * 45} dragging={draggingTaskId === task.id} onDragStart={() => setDraggingTaskId(task.id)} onDragEnd={() => { setDraggingTaskId(null); setDropTarget(null) }} />)}{columnTasks.length === 0 && <div className={cn("grid min-h-24 place-items-center rounded-lg border border-dashed border-primary/18 bg-background/28 px-2.5 text-center text-[11px] text-muted-foreground", dropTarget === targetStatus && "border-primary/45 bg-primary/5 text-primary")}>{canDrop ? "Drop an eligible task here" : "No matching tasks"}</div>}</div>
+              <div className="kanban-column-scroll min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain px-0.5 pr-1.5">{columnTasks.map((task, index) => <KanbanCard key={task.id} task={task} onOpen={onOpen} onMove={onMove} onTrash={onTrash} onArchive={onArchive} trashPending={trashPending} archivePending={archivePending} actor={actor} demoMode={demoMode} delayMs={Math.min(index, 5) * 45} dragging={draggingTaskId === task.id} onDragStart={() => setDraggingTaskId(task.id)} onDragEnd={() => { setDraggingTaskId(null); setDropTarget(null) }} />)}{columnTasks.length === 0 && <div className={cn("grid min-h-14 place-items-center rounded-lg border border-dashed border-primary/18 bg-background/28 px-2 text-center text-[10px] text-muted-foreground", dropTarget === targetStatus && "border-primary/45 bg-primary/5 text-primary")}>{canDrop ? "Drop task here" : "No tasks"}</div>}</div>
             </div>
           )
         })}

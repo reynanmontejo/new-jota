@@ -32,6 +32,7 @@ describe("unified content tracker", () => {
     render(<ContentTracker clients={[{ id: "client-1", name: "Northwind" }, { id: "client-2", name: "Contoso" }]} campaigns={[]} assignees={{}} items={items} canCreate={false} canEdit={false} canCreateTask={false} currentUserId="user-1" canAssignContent={false} />)
 
     expect(screen.getByRole("heading", { name: "Content tracker" })).toBeInTheDocument()
+    expect(screen.getAllByRole("article")).toHaveLength(2)
     expect(screen.getByText("Finish first cut")).toBeInTheDocument()
     expect(screen.getByText("Creator/editor: Editor")).toBeInTheDocument()
 

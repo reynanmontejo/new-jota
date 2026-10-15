@@ -69,10 +69,10 @@ function ContentFilesDisclosure({ clientId, contentItemId, canUpload }: { client
     setHasOpened(true)
   }
 
-  return <section className="mt-3 border-t pt-2">
-    <button type="button" aria-expanded={open} aria-controls={panelId} onClick={toggle} className="flex w-full items-center justify-between py-1 text-left text-xs font-semibold text-primary">
-      <span className="flex items-center gap-1.5"><Files className="size-3.5" />Files and review</span>
-      <ChevronDown aria-hidden="true" className={`size-3.5 transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
+  return <section className="mt-1.5 border-t border-border/60 pt-1">
+    <button type="button" aria-expanded={open} aria-controls={panelId} onClick={toggle} className="flex w-full items-center justify-between py-1 text-left text-[10px] font-semibold text-primary">
+      <span className="flex items-center gap-1.5"><Files className="size-3" />Files and review</span>
+      <ChevronDown aria-hidden="true" className={`size-3 transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
     </button>
     <div id={panelId} hidden={!open}>
       {hasOpened && <ClientFiles clientId={clientId} contentItemId={contentItemId} canUpload={canUpload} />}
@@ -253,33 +253,48 @@ export function ContentTracker({ clients, campaigns, assignees, items, canCreate
       <div className="mt-3 border-t pt-3">{clients.length ? <ContentForm clients={clients} campaigns={campaigns} assignees={assignees} canEdit={canCreate} currentUserId={currentUserId} /> : <p className="text-xs text-muted-foreground">Add an active client before adding tracked content.</p>}</div>
     </details>}
     {!isArchivedView && canCreate && <ContentImport clients={clients} campaigns={campaigns} assignees={assignees} items={items} currentUserId={currentUserId} canAssignContent={canAssignContent} />}
-    <section className="mt-4 rounded-lg border border-border bg-card/75">
+    <section className="mt-4 overflow-hidden rounded-lg border border-border bg-card/75" aria-label="Tracked content">
       <div className="flex flex-wrap items-center gap-2 border-b p-3">
         <label className="relative min-w-52 flex-1"><Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" /><input className={`${fieldClass} pl-8`} aria-label="Search content" placeholder="Search content, client, platform" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
         <select className={`${fieldClass} w-auto min-w-36`} aria-label="Filter by status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">All statuses</option>{statuses.map((status) => <option key={status} value={status}>{statusLabels[status]}</option>)}</select>
         <select className={`${fieldClass} w-auto min-w-36`} aria-label="Filter by client" value={clientFilter} onChange={(event) => setClientFilter(event.target.value)}><option value="all">All clients</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</select>
       </div>
-      {!visibleItems.length ? <div className="px-4 py-12 text-center"><p className="text-sm font-medium">{availableItems.length ? "No matching content" : isArchivedView ? "No archived content" : "No content tracked yet"}</p><p className="mt-1 text-xs text-muted-foreground">{availableItems.length ? "Try a different search or filter." : isArchivedView ? "Archived items will appear here and can be restored." : "Add the team’s upcoming posts and creative deliverables here."}</p></div> : <div className="divide-y">
-        {visibleItems.map((item) => <article id={`content-item-${item.id}`} key={item.id} className="scroll-mt-24 p-3 sm:p-4">
-          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_160px_150px_auto] lg:items-center">
-            <div className="min-w-0"><p className="truncate text-sm font-semibold">{item.title}</p><p className="mt-1 truncate text-[11px] text-muted-foreground">{item.client_name} <span className="px-1">·</span> {item.campaign_name} <span className="px-1">·</span> {item.platform} / {item.content_type}</p>{item.next_action && <p className="mt-1 truncate text-[11px]">Next: <span className="text-muted-foreground">{item.next_action}</span></p>}</div>
-            <span className="w-fit rounded-md border border-primary/15 bg-primary/5 px-2 py-1 text-[11px] font-medium">{statusLabels[item.status] ?? item.status}</span>
-            <div><p className="text-xs font-medium">Publish: {formatDate(item.publish_at)}</p><p className="text-[10px] text-muted-foreground">Deadline: {formatDate(item.deadline_at)}{item.work_date ? ` · Work: ${formatDate(item.work_date)}` : ""}</p><p className="text-[10px] text-muted-foreground">{item.revision_count} revision{item.revision_count === 1 ? "" : "s"}</p></div>
-            <div className="flex items-center gap-2">
-              {!isArchivedView && canCreateTask && !["published", "cancelled", "rejected"].includes(item.status) && <button type="button" onClick={() => openNewTask({ contentItemId: item.id, contentItemTitle: item.title, title: `Create assets: ${item.title}`, clientId: item.client_id, clientName: item.client_name, campaignName: item.campaign_name, deadlineAt: item.deadline_at })} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-primary/25 bg-background/70 px-2.5 text-xs font-medium text-primary transition hover:bg-primary/5"><ListPlus className="size-3.5" />Add task</button>}
-              {isArchivedView && canEdit && <button type="button" disabled={Boolean(pendingAction)} onClick={() => void restoreItem(item)} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-primary/25 bg-background/70 px-2.5 text-xs font-medium text-primary transition hover:bg-primary/5 disabled:cursor-wait disabled:opacity-60">
-                {pendingAction === `restore:${item.id}` ? <LoaderCircle className="size-3.5 animate-spin" /> : <RotateCcw className="size-3.5" />}
+      {!visibleItems.length ? <div className="px-4 py-12 text-center"><p className="text-sm font-medium">{availableItems.length ? "No matching content" : isArchivedView ? "No archived content" : "No content tracked yet"}</p><p className="mt-1 text-xs text-muted-foreground">{availableItems.length ? "Try a different search or filter." : isArchivedView ? "Archived items will appear here and can be restored." : "Add the team’s upcoming posts and creative deliverables here."}</p></div> : <div className="grid gap-2.5 p-2.5 sm:grid-cols-2 2xl:grid-cols-3">
+        {visibleItems.map((item) => <article id={`content-item-${item.id}`} key={item.id} className="scroll-mt-24 min-w-0 rounded-lg border border-border/80 bg-background/70 p-3 transition hover:border-primary/25 hover:bg-background/90">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0"><h2 className="truncate text-xs font-semibold">{item.title}</h2><p className="mt-1 truncate text-[10px] text-muted-foreground">{item.client_name} · {item.campaign_name} · {item.platform} / {item.content_type}</p></div>
+            <span className="shrink-0 rounded-md border border-primary/15 bg-primary/5 px-1.5 py-0.5 text-[9px] font-medium">{statusLabels[item.status] ?? item.status}</span>
+          </div>
+          {item.next_action && <p className="mt-2 truncate text-[10px]"><span className="font-medium">Next:</span> <span className="text-muted-foreground">{item.next_action}</span></p>}
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border/60 pt-2 text-[10px]">
+            <p className="font-medium">Publish: {formatDate(item.publish_at)}</p>
+            <p className="text-muted-foreground">Deadline: {formatDate(item.deadline_at)}</p>
+            {item.revision_count > 0 && <p className="text-muted-foreground">{item.revision_count} revision{item.revision_count === 1 ? "" : "s"}</p>}
+          </div>
+          {item.assignee_name && <p className="mt-1 truncate text-[10px] text-muted-foreground">Creator/editor: {item.assignee_name}</p>}
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
+              {!isArchivedView && canCreateTask && !["published", "cancelled", "rejected"].includes(item.status) && <button type="button" onClick={() => openNewTask({ contentItemId: item.id, contentItemTitle: item.title, title: `Create assets: ${item.title}`, clientId: item.client_id, clientName: item.client_name, campaignName: item.campaign_name, deadlineAt: item.deadline_at })} className="inline-flex h-7 items-center gap-1 rounded-md border border-primary/25 bg-background/70 px-2 text-[10px] font-medium text-primary transition hover:bg-primary/5"><ListPlus className="size-3" />Add task</button>}
+              {isArchivedView && canEdit && <button type="button" disabled={Boolean(pendingAction)} onClick={() => void restoreItem(item)} className="inline-flex h-7 items-center gap-1 rounded-md border border-primary/25 bg-background/70 px-2 text-[10px] font-medium text-primary transition hover:bg-primary/5 disabled:cursor-wait disabled:opacity-60">
+                {pendingAction === `restore:${item.id}` ? <LoaderCircle className="size-3 animate-spin" /> : <RotateCcw className="size-3" />}
                 {pendingAction === `restore:${item.id}` ? "Restoring…" : "Restore"}
               </button>}
-              {!isArchivedView && canEdit && <details className="relative"><summary className="cursor-pointer list-none text-xs font-medium text-primary underline-offset-4 hover:underline [&::-webkit-details-marker]:hidden">Edit</summary><div className="overview-panel absolute right-0 z-20 mt-2 w-[min(48rem,calc(100vw-2.5rem))] rounded-lg border bg-card p-3 shadow-xl"><ContentForm clients={clients.filter((client) => client.id === item.client_id)} campaigns={campaigns.filter((campaign) => campaign.client_id === item.client_id)} assignees={assignees} item={item} canEdit={canEdit} currentUserId={currentUserId} /><div className="mt-3 border-t pt-3"><button type="button" disabled={Boolean(pendingAction)} onClick={() => void archiveItem(item)} className="inline-flex min-h-8 items-center gap-1.5 rounded-md px-1 text-xs text-destructive transition hover:underline disabled:cursor-wait disabled:opacity-60">
+              {!isArchivedView && canEdit && <details className="relative"><summary className="inline-flex h-7 cursor-pointer list-none items-center rounded-md border border-border/80 bg-background/70 px-2 text-[10px] font-medium text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">Edit</summary><div className="overview-panel absolute right-0 z-30 mt-1.5 max-h-[min(78vh,720px)] w-[min(48rem,calc(100vw-2.5rem))] overflow-y-auto rounded-lg border bg-card p-3 shadow-xl"><ContentForm clients={clients.filter((client) => client.id === item.client_id)} campaigns={campaigns.filter((campaign) => campaign.client_id === item.client_id)} assignees={assignees} item={item} canEdit={canEdit} currentUserId={currentUserId} /><div className="mt-3 border-t pt-3"><button type="button" disabled={Boolean(pendingAction)} onClick={() => void archiveItem(item)} className="inline-flex min-h-8 items-center gap-1.5 rounded-md px-1 text-xs text-destructive transition hover:underline disabled:cursor-wait disabled:opacity-60">
                 {pendingAction === `archive:${item.id}` ? <LoaderCircle className="size-3.5 animate-spin" /> : <Archive className="size-3.5" />}
                 {pendingAction === `archive:${item.id}` ? "Archiving…" : "Archive item"}
               </button></div></div></details>}
             </div>
+            {item.work_date && <span className="text-[9px] text-muted-foreground">Work {formatDate(item.work_date)}</span>}
           </div>
-          {item.assignee_name && <p className="mt-1 text-[11px] text-muted-foreground">Creator/editor: {item.assignee_name}</p>}
-          {(item.client_approval_status || item.client_issues || item.notes) && <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">{item.client_approval_status && <p>Client approval: <span className="font-medium text-foreground">{approvalLabels[item.client_approval_status] ?? item.client_approval_status}</span></p>}{item.client_issues && <p>Client issues: {item.client_issues}</p>}{item.notes && <p>Notes: {item.notes}</p>}</div>}
-          {item.revision_notes && <p className="mt-3 border-l-2 border-primary/35 pl-2 text-[11px] text-muted-foreground"><span className="font-medium text-foreground">Latest feedback:</span> {item.revision_notes}</p>}
+          {(item.client_approval_status || item.client_issues || item.notes || item.revision_notes) && <details className="mt-2 border-t border-border/60 pt-1.5">
+            <summary className="cursor-pointer list-none text-[10px] font-medium text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">More details</summary>
+            <div className="mt-1.5 grid gap-1 text-[10px] text-muted-foreground">
+              {item.client_approval_status && <p>Client approval: <span className="font-medium text-foreground">{approvalLabels[item.client_approval_status] ?? item.client_approval_status}</span></p>}
+              {item.client_issues && <p>Client issues: {item.client_issues}</p>}
+              {item.notes && <p>Notes: {item.notes}</p>}
+              {item.revision_notes && <p><span className="font-medium text-foreground">Latest feedback:</span> {item.revision_notes}</p>}
+            </div>
+          </details>}
           <ContentFilesDisclosure clientId={item.client_id} contentItemId={item.id} canUpload={canEdit && !isArchivedView} />
         </article>)}
       </div>}

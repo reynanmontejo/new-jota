@@ -37,6 +37,20 @@ import { archiveCompletedTaskAction, trashTaskAction, undoTaskArchiveAction, und
 afterEach(() => {
   cleanup()
   mocks.workflow.tasks = []
+  mocks.workflow.contentWorkItems = [{
+    id: "content-1",
+    title: "October launch graphic",
+    clientId: "client-1",
+    clientName: "Northwind",
+    campaignName: "General / Ongoing",
+    platform: "Instagram",
+    format: "Graphic",
+    status: "planned",
+    publishAt: "2026-10-20T09:00:00.000Z",
+    deadlineAt: null,
+    assigneeId: "designer-1",
+    assigneeName: "Designer One",
+  }]
   vi.clearAllMocks()
 })
 
@@ -46,6 +60,27 @@ describe("My Work calendar content", () => {
 
     expect(screen.getByText("October launch graphic")).toBeInTheDocument()
     expect(screen.getByText(/Planned · Designer One/)).toBeInTheDocument()
+  })
+
+  it("previews six content cards and expands the remaining items on request", () => {
+    const firstItem = mocks.workflow.contentWorkItems[0]
+    mocks.workflow.contentWorkItems = Array.from({ length: 8 }, (_, index) => ({
+      ...firstItem,
+      id: `content-${index + 1}`,
+      title: `Content item ${index + 1}`,
+    }))
+
+    render(<TaskList />)
+
+    expect(screen.getByText("Content item 1")).toBeInTheDocument()
+    expect(screen.getByText("Content item 6")).toBeInTheDocument()
+    expect(screen.queryByText("Content item 7")).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "View all 8" }))
+    expect(screen.getByText("Content item 8")).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "Show less" }))
+    expect(screen.queryByText("Content item 7")).not.toBeInTheDocument()
   })
 
   it("switches to a compact table view", () => {
