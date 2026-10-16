@@ -31,6 +31,9 @@ const completedTaskTrashMigrationPath = "supabase/migrations/202610220001_comple
 const profileSecurityMigrationPath = "supabase/migrations/202610230001_profile_photos_and_password_approval.sql"
 const taskArchiveMigrationPath = "supabase/migrations/202610250001_task_archive.sql"
 const contentArchiveMigrationPath = "supabase/migrations/202610260001_content_archive_restore.sql"
+const supervisorSelfAssignedTaskMigrationPath = "supabase/migrations/202610270001_allow_supervisor_self_assigned_tasks.sql"
+const supervisorTaskReviewBypassMigrationPath = "supabase/migrations/202610280001_supervisor_own_tasks_bypass_review.sql"
+const notificationPushDispatchMigrationPath = "supabase/migrations/202610290001_notification_push_dispatch.sql"
 const seedPath = "supabase/seed.sql"
 
 const database = new PGlite()
@@ -76,6 +79,21 @@ await database.exec(`
   create function cron.schedule(p_jobname text, p_schedule text, p_command text) returns bigint language plpgsql as $$
   declare new_job_id bigint;
   begin insert into cron.job(jobname) values (p_jobname) returning jobid into new_job_id; return new_job_id; end $$;
+  create schema net;
+  create table net.test_http_calls (id bigint generated always as identity primary key, url text, headers jsonb);
+  create function net.http_post(url text, body jsonb default '{}'::jsonb, params jsonb default '{}'::jsonb,
+    headers jsonb default '{"Content-Type":"application/json"}'::jsonb, timeout_milliseconds integer default 2000)
+    returns bigint language plpgsql as $$
+    declare request_id bigint;
+    begin
+      insert into net.test_http_calls (url, headers) values ($1, $4) returning id into request_id;
+      return request_id;
+    end $$;
+  create schema vault;
+  create table vault.decrypted_secrets (name text primary key, decrypted_secret text not null);
+  insert into vault.decrypted_secrets (name, decrypted_secret) values
+    ('jota_notification_dispatch_url', 'https://jota-test.vercel.app/api/notifications/dispatch'),
+    ('jota_notification_dispatch_secret', 'test-notification-dispatch-secret-123456');
 `)
 
 const firstAdministrator = "80000000-0000-0000-0000-000000000010"
@@ -142,6 +160,11 @@ await database.exec(await fs.readFile(completedTaskTrashMigrationPath, "utf8"))
 await database.exec(await fs.readFile(profileSecurityMigrationPath, "utf8"))
 await database.exec(await fs.readFile(taskArchiveMigrationPath, "utf8"))
 await database.exec(await fs.readFile(contentArchiveMigrationPath, "utf8"))
+await database.exec(await fs.readFile(supervisorSelfAssignedTaskMigrationPath, "utf8"))
+await database.exec(await fs.readFile(supervisorTaskReviewBypassMigrationPath, "utf8"))
+let notificationPushDispatchMigration = await fs.readFile(notificationPushDispatchMigrationPath, "utf8")
+notificationPushDispatchMigration = notificationPushDispatchMigration.replace(/create extension if not exists pg_net with schema net;\s*/i, "")
+await database.exec(notificationPushDispatchMigration)
 const providerSecretAccess = await database.query(`
   select has_table_privilege('authenticated', 'public.google_drive_connections', 'select') as can_read_tokens,
          has_table_privilege('authenticated', 'public.client_drive_folders', 'select') as can_read_folder_map,
@@ -830,6 +853,40 @@ const assignmentNotificationCount = await asUser(employeeTwo, async () => (await
 `)).rows[0]?.count)
 if (assignmentNotificationCount !== 1) throw new Error("Assigned Account Manager did not receive a task assignment notification")
 
+const supervisorOwnTaskId = await asUser(supervisor, async () => (await database.query(`select public.workflow_create_task(
+  'Supervisor self-owned task', '30000000-0000-0000-0000-000000000002', null, 'medium', now() + interval '4 days', '${supervisor}'
+) as id`)).rows[0]?.id)
+const supervisorOwnTaskFileId = "90000000-0000-0000-0000-000000000006"
+await database.query(`insert into public.attachments (
+  id, organization_id, client_id, task_id, provider_file_id, file_name,
+  mime_type, size_bytes, uploaded_by
+) values (
+  '${supervisorOwnTaskFileId}', '10000000-0000-0000-0000-000000000001',
+  '30000000-0000-0000-0000-000000000002', '${supervisorOwnTaskId}',
+  'drive-supervisor-own-task', 'supervisor-work.png', 'image/png', 800, '${supervisor}'
+)`)
+let supervisorOwnTaskReviewRejected = false
+try {
+  await asUser(supervisor, () => database.query(`select public.submit_task_for_review(
+    '${supervisorOwnTaskId}', array['${supervisorOwnTaskFileId}'::uuid], 'Ready for review'
+  )`))
+} catch (error) {
+  supervisorOwnTaskReviewRejected = error?.code === "42501"
+}
+if (!supervisorOwnTaskReviewRejected) throw new Error("Supervisor was allowed to submit their own task for approval")
+await asUser(supervisor, () => database.query(`select public.workflow_update_task_status('${supervisorOwnTaskId}', 'completed')`))
+const completedOwnTask = await database.query(`select status::text as status, completed_at from public.tasks where id = '${supervisorOwnTaskId}'`)
+if (completedOwnTask.rows[0]?.status !== "completed" || !completedOwnTask.rows[0]?.completed_at) {
+  throw new Error("Supervisor could not complete their own task without approval")
+}
+let supervisorCannotSkipReviewForEmployeeRejected = false
+try {
+  await asUser(supervisor, () => database.query(`select public.workflow_update_task_status('${supervisorTaskId}', 'completed')`))
+} catch (error) {
+  supervisorCannotSkipReviewForEmployeeRejected = error?.code === "42501"
+}
+if (!supervisorCannotSkipReviewForEmployeeRejected) throw new Error("Supervisor bypassed review for an employee-owned task")
+
 await asUser(employeeTwo, async () => database.query(`select public.workflow_trash_task_for_current_user('${supervisorTaskId}')`))
 const visibleTaskTrash = await asUser(employeeTwo, async () => (await database.query(
   `select task_id, title from public.workflow_list_task_trash() where task_id = '${supervisorTaskId}'`,
@@ -1155,6 +1212,55 @@ if (tombstone.rows[0]?.display_name !== "Deleted employee" || tombstone.rows[0]?
   throw new Error(`Expired account purge did not preserve history: ${JSON.stringify({ tombstone: tombstone.rows[0], retained: retainedTaskAssignment.rows[0] })}`)
 }
 
+const dispatchNotificationId = "92000000-0000-0000-0000-000000000001"
+const dispatchQueueId = "92000000-0000-0000-0000-000000000002"
+await database.query(`insert into public.notifications (
+  id, organization_id, recipient_id, type, title, body, entity_type, entity_id, href, dedupe_key
+) values (
+  '${dispatchNotificationId}', '10000000-0000-0000-0000-000000000001', '${employeeTwo}',
+  'task_assigned', 'Push dispatch test', 'Check the queue trigger.', 'task', '${supervisorTaskId}',
+  '/tasks', 'push-dispatch-schema-test'
+)`)
+await database.query(`insert into public.notification_push_queue (
+  id, organization_id, recipient_id, notification_id
+) values (
+  '${dispatchQueueId}', '10000000-0000-0000-0000-000000000001', '${employeeTwo}', '${dispatchNotificationId}'
+)`)
+const dispatchRequest = await database.query(`select url, headers->>'Authorization' as authorization from net.test_http_calls order by id desc limit 1`)
+const dispatchCronJob = await database.query(`select count(*)::int as count from cron.job where jobname = 'dispatch-pending-notification-pushes'`)
+const dispatchFunctionAccess = await database.query(`
+  select has_function_privilege('authenticated', 'private.request_notification_push_dispatch()', 'execute') as authenticated_can_dispatch,
+         has_function_privilege('authenticated', 'private.dispatch_pending_notification_pushes()', 'execute') as authenticated_can_run_recovery
+`)
+if (dispatchRequest.rows[0]?.url !== "https://jota-test.vercel.app/api/notifications/dispatch"
+  || dispatchRequest.rows[0]?.authorization !== "Bearer test-notification-dispatch-secret-123456"
+  || dispatchCronJob.rows[0]?.count !== 1
+  || dispatchFunctionAccess.rows[0]?.authenticated_can_dispatch !== false
+  || dispatchFunctionAccess.rows[0]?.authenticated_can_run_recovery !== false) {
+  throw new Error(`Push dispatch configuration or access controls failed: ${JSON.stringify({ request: dispatchRequest.rows[0], cron: dispatchCronJob.rows[0], access: dispatchFunctionAccess.rows[0] })}`)
+}
+
+const dispatchCallCountBeforeUnconfiguredTest = await database.query("select count(*)::int as count from net.test_http_calls")
+await database.query("delete from vault.decrypted_secrets where name = 'jota_notification_dispatch_secret'")
+const notificationWithoutDispatchSecretId = "92000000-0000-0000-0000-000000000003"
+await database.query(`insert into public.notifications (
+  id, organization_id, recipient_id, type, title, body, entity_type, entity_id, href, dedupe_key
+) values (
+  '${notificationWithoutDispatchSecretId}', '10000000-0000-0000-0000-000000000001', '${employeeTwo}',
+  'task_assigned', 'Push dispatch unconfigured test', 'In-app notifications must still work.', 'task', '${supervisorTaskId}',
+  '/tasks', 'push-dispatch-unconfigured-schema-test'
+)`)
+await database.query(`insert into public.notification_push_queue (
+  organization_id, recipient_id, notification_id
+) values (
+  '10000000-0000-0000-0000-000000000001', '${employeeTwo}', '${notificationWithoutDispatchSecretId}'
+)`)
+const unconfiguredDispatchCallCount = await database.query("select count(*)::int as count from net.test_http_calls")
+const unconfiguredQueueEntry = await database.query(`select count(*)::int as count from public.notification_push_queue where notification_id = '${notificationWithoutDispatchSecretId}'`)
+if (unconfiguredDispatchCallCount.rows[0]?.count !== dispatchCallCountBeforeUnconfiguredTest.rows[0]?.count || unconfiguredQueueEntry.rows[0]?.count !== 1) {
+  throw new Error(`Missing Vault configuration should skip background push without blocking in-app notifications: ${JSON.stringify({ calls: unconfiguredDispatchCallCount.rows[0], queue: unconfiguredQueueEntry.rows[0] })}`)
+}
+
 const tableResult = await database.query(
   "select count(*)::int as count from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE'",
 )
@@ -1178,8 +1284,8 @@ if (tableCount !== 39) {
   throw new Error(`Expected 39 public tables, found ${tableCount}`)
 }
 
-if (taskCount !== 6) {
-  throw new Error(`Seed should be idempotent before the remaining RPC-created task case; found ${taskCount} tasks`)
+if (taskCount !== 7) {
+  throw new Error(`Seed plus the supervisor self-owned task case should produce seven tasks; found ${taskCount}`)
 }
 
 if (tablesWithoutRls !== 0) {
@@ -1190,5 +1296,5 @@ if (policyCount !== 37 || postMutationCount !== 3) {
   throw new Error(`Unexpected policy or task mutation coverage: ${policyCount} policies, employee sees ${postMutationCount} tasks`)
 }
 
-console.log(`Schema validated: ${tableCount} tables, task assignment/review/comment/due notifications, password-change notifications, private push subscriptions and service-only delivery queue, notification RLS/RPCs/triggers, content workflow/import/campaign/content-review/archive/restore RLS and RPCs, immutable task/content versions and decisions, private Drive token/folder tables, client platforms, multi-manager ownership, client status and recoverable Trash, employee provisioning and Trash, profile photo storage policies, service-only password-change requests, first-admin bootstrap, profile updates, and ${policyCount} policies.`)
+console.log(`Schema validated: ${tableCount} tables, task assignment/review/comment/due notifications, password-change notifications, private push subscriptions and service-only delivery queue, authenticated push-dispatch access denied, queue-triggered dispatch and five-minute recovery cron, missing dispatch configuration does not block in-app notifications, notification RLS/RPCs/triggers, content workflow/import/campaign/content-review/archive/restore RLS and RPCs, immutable task/content versions and decisions, private Drive token/folder tables, client platforms, multi-manager ownership, client status and recoverable Trash, employee provisioning and Trash, profile photo storage policies, service-only password-change requests, first-admin bootstrap, profile updates, and ${policyCount} policies.`)
 await database.close()

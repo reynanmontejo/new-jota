@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { ContentCalendar, filterContentByOwner } from "@/features/calendar/content-calendar"
+import { ContentCalendar, filterContentByOwner, getDeadlineUrgency } from "@/features/calendar/content-calendar"
 
 vi.mock("@/features/tasks/task-drawer", () => ({ useTaskDrawer: () => ({ openTask: vi.fn() }) }))
 vi.mock("@/features/workflow/workflow-provider", () => ({
@@ -21,6 +21,14 @@ describe("calendar content owner filter", () => {
     expect(filterContentByOwner(posts, "all", "supervisor")).toHaveLength(3)
     expect(filterContentByOwner(posts, "mine", "supervisor").map((post) => post.id)).toEqual(["mine"])
     expect(filterContentByOwner(posts, "employee-1", "supervisor").map((post) => post.id)).toEqual(["employee"])
+  })
+})
+
+describe("calendar deadline urgency", () => {
+  it("classifies past, near, and later deadlines", () => {
+    expect(getDeadlineUrgency("2026-10-14", "2026-10-15")).toBe("overdue")
+    expect(getDeadlineUrgency("2026-10-18", "2026-10-15")).toBe("soon")
+    expect(getDeadlineUrgency("2026-10-19", "2026-10-15")).toBe("upcoming")
   })
 })
 

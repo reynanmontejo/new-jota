@@ -28,6 +28,14 @@ export type ContentCalendarPost = {
   ownerName?: string | null
 }
 
+type DeadlineUrgency = "overdue" | "soon" | "upcoming"
+
+const deadlineStyles: Record<DeadlineUrgency, { label: string; legendLabel: string; className: string; dateClassName: string }> = {
+  overdue: { label: "Past due", legendLabel: "Past due", className: "border-rose-500/25 bg-rose-500/12 text-rose-900 dark:text-rose-200", dateClassName: "bg-rose-500/15 text-rose-900 dark:text-rose-200" },
+  soon: { label: "Due soon", legendLabel: "Due within 3 days", className: "border-amber-500/25 bg-amber-500/14 text-amber-900 dark:text-amber-200", dateClassName: "bg-amber-500/15 text-amber-900 dark:text-amber-200" },
+  upcoming: { label: "Upcoming", legendLabel: "Later deadline", className: "border-emerald-600/20 bg-emerald-600/10 text-emerald-900 dark:text-emerald-200", dateClassName: "bg-emerald-600/12 text-emerald-900 dark:text-emerald-200" },
+}
+
 const demoScheduledContent: ContentCalendarPost[] = [
   { id: "demo-founder-reel", date: "2026-09-28", title: "Founder story reel", clientId: "harbor-and-pine", client: "Harbor & Pine", channel: "Instagram", contentType: "Reel", status: "scheduled" },
   { id: "demo-coffee-carousel", date: "2026-09-30", title: "Cold brew carousel", clientId: "northwind-coffee", client: "Northwind Coffee", channel: "LinkedIn", contentType: "Carousel", status: "scheduled" },
@@ -42,6 +50,15 @@ function scheduledDateKey(value: string) {
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value
   const parsed = new Date(value)
   return Number.isNaN(parsed.getTime()) ? value.slice(0, 10) : dateKey(parsed)
+}
+
+export function getDeadlineUrgency(date: string, today = dateKey(new Date())): DeadlineUrgency {
+  const dueTime = Date.parse(`${date}T00:00:00Z`)
+  const todayTime = Date.parse(`${today}T00:00:00Z`)
+  if (Number.isNaN(dueTime) || Number.isNaN(todayTime)) return "upcoming"
+  const daysUntilDue = Math.floor((dueTime - todayTime) / 86_400_000)
+  if (daysUntilDue < 0) return "overdue"
+  return daysUntilDue <= 3 ? "soon" : "upcoming"
 }
 
 export function filterContentByOwner(posts: ContentCalendarPost[], ownerFilter: string, currentUserId: string) {
@@ -85,8 +102,8 @@ export function ContentCalendar({ contentPosts, contentError = false, clientId }
     : ""
   const monthPrefix = `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, "0")}`
   const agenda = [
-    ...scheduledEvents.filter((item) => item.date.startsWith(monthPrefix)).map((item) => ({ key: item.id, date: item.date, title: item.title, detail: `${item.eventType === "deadline" ? "Deadline" : "Publish"} · ${item.client} · ${item.channel}`, taskId: null as string | null })),
-    ...deadlines.filter((item) => item.date.startsWith(monthPrefix)).map(({ date, task }) => ({ key: task.id, date, title: task.title, detail: `${task.clientName} · ${task.primaryOwner.name}`, taskId: task.id })),
+    ...scheduledEvents.filter((item) => item.date.startsWith(monthPrefix)).map((item) => ({ key: item.id, date: item.date, title: item.title, detail: `${item.eventType === "deadline" ? `${deadlineStyles[getDeadlineUrgency(item.date)].label} content deadline` : "Publish"} · ${item.client} · ${item.channel}`, urgency: item.eventType === "deadline" ? getDeadlineUrgency(item.date) : null, taskId: null as string | null })),
+    ...deadlines.filter((item) => item.date.startsWith(monthPrefix)).map(({ date, task }) => ({ key: task.id, date, title: task.title, detail: `${deadlineStyles[getDeadlineUrgency(date)].label} task deadline · ${task.clientName} · ${task.primaryOwner.name}`, urgency: getDeadlineUrgency(date), taskId: task.id })),
   ].sort((a, b) => a.date.localeCompare(b.date))
 
   function changeMonth(offset: number) {
@@ -110,6 +127,10 @@ export function ContentCalendar({ contentPosts, contentError = false, clientId }
         </div>
       </div>
       {contentError && <p role="status" className="mt-3 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-muted-foreground">Scheduled content couldn’t be loaded. Task deadlines are still available.</p>}
+      <div aria-label="Calendar legend" className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[10px] text-muted-foreground">
+        <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-sm bg-primary/55" />Scheduled content</span>
+        {(Object.entries(deadlineStyles) as [DeadlineUrgency, typeof deadlineStyles[DeadlineUrgency]][]).map(([urgency, style]) => <span key={urgency} className="inline-flex items-center gap-1.5"><span className={`size-2 rounded-sm ${style.dateClassName}`} />{style.legendLabel}</span>)}
+      </div>
       <section aria-label={`${monthLabel} calendar`} className="overview-panel mt-4 hidden overflow-hidden rounded-lg border md:block">
         <div className="grid grid-cols-7 border-b bg-secondary/15 text-center text-[11px] font-semibold text-muted-foreground">{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <div key={day} className="py-2">{day}</div>)}</div>
         <div className="grid grid-cols-7">
@@ -123,15 +144,23 @@ export function ContentCalendar({ contentPosts, contentError = false, clientId }
               <button type="button" onClick={() => setSelectedDate(date)} aria-label={`View details for ${monthLabel} ${day}`} aria-pressed={selectedDate === date} className="absolute inset-0 z-0 rounded-sm text-left transition-colors hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
                 <span className="absolute left-1.5 top-1.5 grid min-h-6 min-w-6 place-items-center rounded px-1 text-[11px] font-semibold group-hover:bg-primary/10 sm:left-2 sm:top-2">{day}</span>
               </button>
-              <div className="pointer-events-none relative z-10 mt-7 space-y-1">{posts.map((post) => <button key={post.id} type="button" onClick={() => setSelectedDate(date)} title={`${post.eventType === "deadline" ? "Deadline" : "Publish"}: ${post.title} · ${post.client} · ${post.channel}`} className={`pointer-events-auto block w-full truncate rounded px-1.5 py-1 text-left text-[10px] font-medium hover:bg-primary/20 ${post.eventType === "deadline" ? "bg-amber-500/12 text-amber-800 dark:text-amber-200" : "bg-primary/12 text-primary"}`}>{post.eventType === "deadline" ? "Due: " : ""}{post.title}</button>)}{due.map(({ task }) => <button key={task.id} type="button" onClick={() => openTask(task.id)} title={`Due: ${task.title}`} className="pointer-events-auto block w-full truncate rounded bg-secondary/30 px-1.5 py-1 text-left text-[10px] hover:bg-secondary/50">Due: {task.title}</button>)}</div>
+              <div className="pointer-events-none relative z-10 mt-7 space-y-1">{posts.map((post) => {
+                const urgency = post.eventType === "deadline" ? getDeadlineUrgency(date) : null
+                const style = urgency ? deadlineStyles[urgency] : null
+                return <button key={post.id} type="button" onClick={() => setSelectedDate(date)} title={`${urgency ? `${style!.label} content deadline` : "Publish"}: ${post.title} · ${post.client} · ${post.channel}`} className={`pointer-events-auto block w-full truncate rounded border px-1.5 py-1 text-left text-[10px] font-medium ${style ? style.className : "border-primary/15 bg-primary/12 text-primary"}`}>{urgency ? `${style!.label}: ` : ""}{post.title}</button>
+              })}{due.map(({ task }) => {
+                const urgency = getDeadlineUrgency(date)
+                const style = deadlineStyles[urgency]
+                return <button key={task.id} type="button" onClick={() => openTask(task.id)} title={`${style.label} task deadline: ${task.title}`} className={`pointer-events-auto block w-full truncate rounded border px-1.5 py-1 text-left text-[10px] font-medium ${style.className}`}>{style.label}: {task.title}</button>
+              })}</div>
             </div>
           })}
         </div>
       </section>
       <section aria-label={`${monthLabel} agenda`} className="mt-4 space-y-2 md:hidden">
         {agenda.length === 0 ? <div className="overview-panel rounded-lg border px-4 py-6 text-center text-sm text-muted-foreground">No scheduled content or task deadlines this month.</div> : agenda.map((event) => (
-          <button type="button" key={`${event.date}-${event.key}`} onClick={() => event.taskId ? openTask(event.taskId) : setSelectedDate(event.date)} className="overview-panel flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left hover:border-primary/40">
-            <span className="grid size-10 shrink-0 place-items-center rounded-md bg-secondary/35 text-xs font-semibold">{Number(event.date.slice(-2))}</span>
+          <button type="button" key={`${event.date}-${event.key}`} onClick={() => event.taskId ? openTask(event.taskId) : setSelectedDate(event.date)} className={`overview-panel flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left ${event.urgency ? deadlineStyles[event.urgency].className : "hover:border-primary/40"}`}>
+            <span className={`grid size-10 shrink-0 place-items-center rounded-md text-xs font-semibold ${event.urgency ? deadlineStyles[event.urgency].dateClassName : "bg-secondary/35"}`}>{Number(event.date.slice(-2))}</span>
             <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{event.title}</p><p className="truncate text-xs text-muted-foreground">{event.detail}</p></div>
             <span className="shrink-0 text-xs font-medium text-primary">Details</span>
           </button>
@@ -143,8 +172,10 @@ export function ContentCalendar({ contentPosts, contentError = false, clientId }
           <Button variant="ghost" size="sm" onClick={() => setSelectedDate(null)}>Close</Button>
         </div>
         {(selectedPosts.length > 0 || selectedDeadlines.length > 0) && <div className="mt-3 divide-y rounded-md border">
-          {selectedPosts.map((post) => <article key={post.id} className="space-y-1.5 p-3">
-            <div className="flex flex-wrap items-center gap-2"><h3 className="text-sm font-medium">{post.title}</h3><span className="rounded-full bg-secondary/45 px-2 py-0.5 text-[10px]">{post.eventType === "deadline" ? "Deadline" : "Publish"}</span>{post.status && <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] capitalize text-primary">{post.status.replaceAll("_", " ")}</span>}</div>
+          {selectedPosts.map((post) => {
+            const urgency = post.eventType === "deadline" ? getDeadlineUrgency(post.date) : null
+            return <article key={post.id} className={`space-y-1.5 border-l-2 p-3 ${urgency ? deadlineStyles[urgency].className : ""}`}>
+            <div className="flex flex-wrap items-center gap-2"><h3 className="text-sm font-medium">{post.title}</h3><span className={`rounded-full px-2 py-0.5 text-[10px] ${urgency ? deadlineStyles[urgency].className : "bg-secondary/45"}`}>{urgency ? deadlineStyles[urgency].label : "Publish"}</span>{post.status && <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] capitalize text-primary">{post.status.replaceAll("_", " ")}</span>}</div>
             <p className="text-xs text-muted-foreground">{post.client} · {post.channel}{post.contentType ? ` · ${post.contentType}` : ""}</p>
             {post.description && <p className="whitespace-pre-wrap text-xs leading-relaxed">{post.description}</p>}
             {post.nextAction && <p className="text-xs"><span className="font-medium">Next action:</span> {post.nextAction}</p>}
@@ -152,11 +183,15 @@ export function ContentCalendar({ contentPosts, contentError = false, clientId }
             {post.clientApprovalStatus && <p className="text-xs"><span className="font-medium">Client approval:</span> {post.clientApprovalStatus.replaceAll("_", " ")}</p>}
             {post.clientIssues && <p className="whitespace-pre-wrap text-xs"><span className="font-medium">Client issues:</span> {post.clientIssues}</p>}
             {post.notes && <p className="whitespace-pre-wrap text-xs"><span className="font-medium">Notes:</span> {post.notes}</p>}
-          </article>)}
-          {selectedDeadlines.map(({ task }) => <button key={task.id} type="button" onClick={() => openTask(task.id)} className="flex w-full items-center gap-2.5 p-3 text-left hover:bg-muted/40"><CircleCheck className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" /><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{task.title}</span><span className="block text-xs text-muted-foreground">{task.clientName} · {task.primaryOwner.name}</span></span><span className="text-xs text-primary">Open task</span></button>)}
+          </article>
+          })}
+          {selectedDeadlines.map(({ date, task }) => {
+            const urgency = getDeadlineUrgency(date)
+            const style = deadlineStyles[urgency]
+            return <button key={task.id} type="button" onClick={() => openTask(task.id)} className={`flex w-full items-center gap-2.5 border-l-2 p-3 text-left ${style.className}`}><CircleCheck className="size-4 shrink-0" aria-hidden="true" /><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{task.title}</span><span className="block text-xs">{style.label} task deadline · {task.clientName} · {task.primaryOwner.name}</span></span><span className="shrink-0 text-xs font-medium">Open task</span></button>
+          })}
         </div>}
       </section>}
-      <div className="mt-3 flex flex-wrap gap-4 text-[11px] text-muted-foreground"><span><span className="mr-1 inline-block size-2 rounded-sm bg-primary/50" />Scheduled content</span><span><span className="mr-1 inline-block size-2 rounded-sm bg-secondary" />{currentUser.role === "supervisor" ? "Team deadline" : "My deadline"}</span></div>
     </div>
   )
 }

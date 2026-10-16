@@ -53,6 +53,7 @@ type SortOption = "due" | "priority" | "client" | "title"
 export type TaskFilters = {
   query: string
   client: string
+  owner: string
   status: "all" | TaskStatus
   priority: "all" | WorkflowTask["priority"]
   sort: SortOption
@@ -87,7 +88,8 @@ const sortLabels: Record<SortOption, string> = {
 }
 
 const trashUndoDurationMs = 8_000
-const contentPreviewLimit = 6
+const myContentPreviewLimit = 3
+const teamContentPreviewLimit = 3
 
 function canMoveTaskToTrash(task: WorkflowTask, actor: DemoUser) {
   const canManage = actor.role === "supervisor" || task.primaryOwner.id === actor.id || task.createdById === actor.id
@@ -108,6 +110,7 @@ export function filterAndSortTasks(tasks: WorkflowTask[], filters: TaskFilters) 
   return tasks
     .filter((task) => !query || [task.title, task.clientName, task.campaign, task.contentItem].some((value) => value.toLowerCase().includes(query)))
     .filter((task) => filters.client === "all" || task.clientId === filters.client)
+    .filter((task) => filters.owner === "all" || task.primaryOwner.id === filters.owner)
     .filter((task) => filters.status === "all" || task.status === filters.status)
     .filter((task) => filters.priority === "all" || task.priority === filters.priority)
     .toSorted((a, b) => {
@@ -124,11 +127,12 @@ function parseDueDate(value: string) {
 }
 
 export function TaskList() {
-  const { tasks, contentWorkItems, updateStatus, currentUser, demoMode } = useWorkflow()
+  const { tasks, contentWorkItems, clients: workflowClients, updateStatus, currentUser, demoMode } = useWorkflow()
+  const contentPreviewLimit = currentUser.role === "supervisor" ? teamContentPreviewLimit : myContentPreviewLimit
   const { openTask } = useTaskDrawer()
   const router = useRouter()
   const [view, setView] = useState<TaskView>("kanban")
-  const [filters, setFilters] = useState<TaskFilters>({ query: "", client: "all", status: "all", priority: "all", sort: "due" })
+  const [filters, setFilters] = useState<TaskFilters>({ query: "", client: "all", owner: "all", status: "all", priority: "all", sort: "due" })
   const [trashNotice, setTrashNotice] = useState<TaskTrashNotice | null>(null)
   const [trashPending, setTrashPending] = useState(false)
   const [archiveNotice, setArchiveNotice] = useState<TaskArchiveNotice | null>(null)
@@ -158,18 +162,24 @@ export function TaskList() {
     ...myTasks.map((task) => [task.clientId, task.clientName] as const),
     ...myContent.map((item) => [item.clientId, item.clientName] as const),
   ]).entries()).map(([id, name]) => ({ id, name })), [myTasks, myContent])
+  const users = useMemo(() => Array.from(new Map([
+    ...workflowClients.flatMap((client) => (client.members ?? []).map((member) => [member.id, member.name] as const)),
+    ...myTasks.map((task) => [task.primaryOwner.id, task.primaryOwner.name] as const),
+    ...myContent.flatMap((item) => item.assigneeId && item.assigneeName ? [[item.assigneeId, item.assigneeName] as const] : []),
+  ]).entries()).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)), [workflowClients, myTasks, myContent])
   const visibleTasks = useMemo(() => filterAndSortTasks(myTasks, filters), [myTasks, filters])
   const visibleContent = useMemo(() => myContent.filter((item) => {
     const matchesClient = filters.client === "all" || item.clientId === filters.client
     const searchText = `${item.title} ${item.clientName} ${item.campaignName} ${item.platform} ${item.format} ${item.assigneeName ?? ""}`.toLocaleLowerCase()
     const matchesSearch = !filters.query || searchText.includes(filters.query.trim().toLocaleLowerCase())
-    return matchesClient && matchesSearch
-  }), [myContent, filters.client, filters.query])
+    const matchesOwner = filters.owner === "all" || item.assigneeId === filters.owner
+    return matchesClient && matchesSearch && matchesOwner
+  }), [myContent, filters.client, filters.owner, filters.query])
   const previewContent = showAllContent ? visibleContent : visibleContent.slice(0, contentPreviewLimit)
-  const activeFilterCount = [filters.client !== "all", filters.status !== "all", filters.priority !== "all", Boolean(filters.query)].filter(Boolean).length
+  const activeFilterCount = [filters.client !== "all", filters.owner !== "all", filters.status !== "all", filters.priority !== "all", Boolean(filters.query)].filter(Boolean).length
 
   function resetFilters() {
-    setFilters({ query: "", client: "all", status: "all", priority: "all", sort: "due" })
+    setFilters({ query: "", client: "all", owner: "all", status: "all", priority: "all", sort: "due" })
   }
 
   function moveTask(taskId: string, status: TaskStatus) {
@@ -291,7 +301,29 @@ export function TaskList() {
         </div>
       </div>
 
-      <section className="glass-panel mt-3 rounded-xl border p-2.5 sm:p-3" aria-label="Task filters">
+      <section className="glass-panel mt-3 rounded-xl border p-2.5" aria-labelledby="content-work-heading">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <h2 id="content-work-heading" className="text-xs font-semibold">{currentUser.role === "supervisor" ? "Team content" : "My content"}</h2>
+            <span className="text-[10px] text-muted-foreground">{visibleContent.length} items</span>
+            {visibleContent.length > contentPreviewLimit && <Button type="button" variant="ghost" size="sm" aria-expanded={showAllContent} onClick={() => setShowAllContent((expanded) => !expanded)} className="h-6 px-1.5 text-[10px] text-primary">
+              {showAllContent ? "Show less" : `View all ${visibleContent.length}`}
+              <ChevronDown className={cn("ml-0.5 size-3 transition-transform", showAllContent && "rotate-180")} />
+            </Button>}
+          </div>
+          <Link className="text-[10px] font-medium text-primary underline-offset-4 hover:underline" href="/content">Open tracker <ArrowUpRight className="ml-0.5 inline size-3" /></Link>
+        </div>
+        {contentNotice && <p role={contentNotice.error ? "alert" : "status"} className={cn("mt-1.5 rounded-lg border px-2 py-1 text-[10px]", contentNotice.error ? "border-destructive/25 bg-destructive/5 text-destructive" : "border-primary/20 bg-primary/5 text-foreground")}>{contentNotice.message}</p>}
+        {!visibleContent.length ? <p className="mt-1.5 rounded-lg border border-dashed border-primary/18 px-3 py-2.5 text-center text-[10px] text-muted-foreground">{myContent.length ? "No content matches these filters." : "No calendar content yet."}</p> : <div className="mt-1.5 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
+          {previewContent.map((item) => <CalendarContentCard key={item.id} item={item} demoMode={demoMode} showAssignee={currentUser.role === "supervisor" || item.assigneeName !== currentUser.name} publishing={publishingContentId === item.id} onReview={() => setReviewContent(item)} onPublish={() => void markContentPublished(item)} />)}
+        </div>}
+      </section>
+
+      <div className="mt-4 flex items-center gap-2">
+        <h2 className="text-sm font-semibold">Tasks</h2>
+        <span className="text-[10px] text-muted-foreground">{visibleTasks.length} {visibleTasks.length === 1 ? "task" : "tasks"}</span>
+      </div>
+      <section className="glass-panel mt-2 rounded-xl border p-2.5 sm:p-3" aria-label="Task filters">
         <div className="flex flex-col gap-2.5 xl:flex-row xl:items-center">
           <label className="relative min-w-0 flex-1 xl:max-w-sm">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-primary" />
@@ -303,6 +335,11 @@ export function TaskList() {
               <FilterItem selected={filters.client === "all"} onSelect={() => setFilters((current) => ({ ...current, client: "all" }))}>All clients</FilterItem>
               {clients.map((client) => <FilterItem key={client.id} selected={filters.client === client.id} onSelect={() => setFilters((current) => ({ ...current, client: client.id }))}>{client.name}</FilterItem>)}
             </FilterMenu>
+
+            {currentUser.role === "supervisor" && <FilterMenu label="User" value={filters.owner === "all" ? "All users" : users.find((user) => user.id === filters.owner)?.name ?? "All users"} active={filters.owner !== "all"}>
+              <FilterItem selected={filters.owner === "all"} onSelect={() => setFilters((current) => ({ ...current, owner: "all" }))}>All users</FilterItem>
+              {users.map((user) => <FilterItem key={user.id} selected={filters.owner === user.id} onSelect={() => setFilters((current) => ({ ...current, owner: user.id }))}>{user.name}</FilterItem>)}
+            </FilterMenu>}
 
             <FilterMenu label="Status" value={filters.status === "all" ? "All statuses" : getStatusLabel(filters.status)} active={filters.status !== "all"}>
               <FilterItem selected={filters.status === "all"} onSelect={() => setFilters((current) => ({ ...current, status: "all" }))}>All statuses</FilterItem>
@@ -322,24 +359,6 @@ export function TaskList() {
           </div>
         </div>
         <div className="mt-2 flex items-center justify-between border-t border-primary/10 pt-2 text-[11px] text-muted-foreground"><span>{visibleTasks.length} of {myTasks.length} tasks</span>{activeFilterCount > 0 && <span>{activeFilterCount} filter{activeFilterCount === 1 ? "" : "s"} active</span>}</div>
-      </section>
-
-      <section className="glass-panel mt-3 rounded-xl border p-2.5" aria-labelledby="content-work-heading">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-2">
-            <h2 id="content-work-heading" className="text-xs font-semibold">{currentUser.role === "supervisor" ? "Team content" : "My content"}</h2>
-            <span className="text-[10px] text-muted-foreground">{visibleContent.length} items</span>
-            {visibleContent.length > contentPreviewLimit && <Button type="button" variant="ghost" size="sm" aria-expanded={showAllContent} onClick={() => setShowAllContent((expanded) => !expanded)} className="h-6 px-1.5 text-[10px] text-primary">
-              {showAllContent ? "Show less" : `View all ${visibleContent.length}`}
-              <ChevronDown className={cn("ml-0.5 size-3 transition-transform", showAllContent && "rotate-180")} />
-            </Button>}
-          </div>
-          <Link className="text-[10px] font-medium text-primary underline-offset-4 hover:underline" href="/content">Open tracker <ArrowUpRight className="ml-0.5 inline size-3" /></Link>
-        </div>
-        {contentNotice && <p role={contentNotice.error ? "alert" : "status"} className={cn("mt-1.5 rounded-lg border px-2 py-1 text-[10px]", contentNotice.error ? "border-destructive/25 bg-destructive/5 text-destructive" : "border-primary/20 bg-primary/5 text-foreground")}>{contentNotice.message}</p>}
-        {!visibleContent.length ? <p className="mt-1.5 rounded-lg border border-dashed border-primary/18 px-3 py-2.5 text-center text-[10px] text-muted-foreground">{myContent.length ? "No content matches these filters." : "No calendar content yet."}</p> : <div className="mt-1.5 flex flex-wrap gap-1.5">
-          {previewContent.map((item) => <CalendarContentCard key={item.id} item={item} demoMode={demoMode} showAssignee={currentUser.role === "supervisor" || item.assigneeName !== currentUser.name} publishing={publishingContentId === item.id} onReview={() => setReviewContent(item)} onPublish={() => void markContentPublished(item)} />)}
-        </div>}
       </section>
 
       <Sheet open={Boolean(reviewContent)} onOpenChange={(open) => { if (!open) setReviewContent(null) }}>
@@ -372,7 +391,7 @@ function CalendarContentCard({ item, demoMode, showAssignee, publishing, onRevie
   const canAddTask = !["published", "cancelled", "rejected"].includes(item.status)
   const canSubmitForReview = !demoMode && !["for_review", "published", "cancelled", "rejected"].includes(item.status)
 
-  return <article className="group w-full min-w-0 max-w-[320px] rounded-lg border border-primary/15 bg-background/75 px-2 py-1.5 transition hover:border-primary/35 hover:bg-background">
+  return <article className="group w-full min-w-0 rounded-lg border border-primary/15 bg-background/75 px-2 py-1.5 transition hover:border-primary/35 hover:bg-background">
     <div className="flex items-center justify-between gap-1.5">
       <Link href={`/content#content-item-${encodeURIComponent(item.id)}`} className="min-w-0 truncate text-[11px] font-semibold leading-4 hover:text-primary hover:underline">
         {item.title}
@@ -417,7 +436,7 @@ function formatCompactContentDate(value: string) {
 function FilterMenu({ label, value, active = false, icon: Icon = ChevronDown, children }: { label: string; value: string; active?: boolean; icon?: typeof ChevronDown; children: React.ReactNode }) {
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger render={<Button variant="outline" size="sm" className={cn("h-7 justify-between gap-1.5 border-primary/18 bg-background/70 px-2", active && "border-primary/45 bg-secondary/22 text-foreground")} />}>
+      <DropdownMenuTrigger render={<Button variant="outline" size="sm" aria-label={`Filter ${label}: ${value}`} className={cn("h-7 justify-between gap-1.5 border-primary/18 bg-background/70 px-2", active && "border-primary/45 bg-secondary/22 text-foreground")} />}>
         <span className="text-[9px] font-bold uppercase tracking-wide text-muted-foreground">{label}</span>
         <span className="max-w-24 truncate text-[11px]">{value}</span>
         <Icon className="size-3 text-primary transition-transform group-aria-expanded/button:rotate-180" />
@@ -477,10 +496,10 @@ function KanbanBoard({ tasks, onMove, onOpen, onTrash, onArchive, trashPending, 
                 setDraggingTaskId(null)
                 setDropTarget(null)
               }}
-              className={cn("glass-panel flex max-h-[min(62vh,600px)] flex-col rounded-xl border p-2.5 transition-colors", columnTasks.length ? "min-h-[205px]" : "min-h-[112px]", dropTarget === targetStatus && canDrop && "border-primary/50 bg-primary/5")}
+              className={cn("glass-panel flex max-h-[min(62vh,600px)] min-h-[max(260px,min(55vh,480px))] flex-col rounded-xl border p-2.5 transition-colors", dropTarget === targetStatus && canDrop && "border-primary/50 bg-primary/5")}
             >
               <div className="flex shrink-0 items-center justify-between px-1 pb-2"><div className="flex items-center gap-2"><span className={cn("size-2 rounded-full", column.accent)} /><h2 className="text-[11px] font-bold uppercase tracking-wide">{column.label}</h2></div><Badge variant="outline" className="h-5 bg-background/65 px-1.5 text-[9px]">{columnTasks.length}</Badge></div>
-              <div className="kanban-column-scroll min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain px-0.5 pr-1.5">{columnTasks.map((task, index) => <KanbanCard key={task.id} task={task} onOpen={onOpen} onMove={onMove} onTrash={onTrash} onArchive={onArchive} trashPending={trashPending} archivePending={archivePending} actor={actor} demoMode={demoMode} delayMs={Math.min(index, 5) * 45} dragging={draggingTaskId === task.id} onDragStart={() => setDraggingTaskId(task.id)} onDragEnd={() => { setDraggingTaskId(null); setDropTarget(null) }} />)}{columnTasks.length === 0 && <div className={cn("grid min-h-14 place-items-center rounded-lg border border-dashed border-primary/18 bg-background/28 px-2 text-center text-[10px] text-muted-foreground", dropTarget === targetStatus && "border-primary/45 bg-primary/5 text-primary")}>{canDrop ? "Drop task here" : "No tasks"}</div>}</div>
+              <div className="kanban-column-scroll min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain px-0.5 pr-1.5">{columnTasks.map((task, index) => <KanbanCard key={task.id} task={task} onOpen={onOpen} onMove={onMove} onTrash={onTrash} onArchive={onArchive} trashPending={trashPending} archivePending={archivePending} actor={actor} demoMode={demoMode} delayMs={Math.min(index, 5) * 45} dragging={draggingTaskId === task.id} onDragStart={() => setDraggingTaskId(task.id)} onDragEnd={() => { setDraggingTaskId(null); setDropTarget(null) }} />)}{columnTasks.length === 0 && <div className={cn("grid min-h-56 place-items-center rounded-lg border border-dashed border-primary/18 bg-background/28 px-2.5 text-center text-[11px] text-muted-foreground", dropTarget === targetStatus && "border-primary/45 bg-primary/5 text-primary")}>{canDrop ? "Drop an eligible task here" : "No matching tasks"}</div>}</div>
             </div>
           )
         })}

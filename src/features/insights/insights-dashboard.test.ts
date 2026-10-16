@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
-import { filterCompletedTasks, getCompletionTrend } from "@/features/insights/insights-dashboard"
-import type { WorkflowTask } from "@/features/workflow/types"
+import { filterCompletedTasks, filterInsightsByUser, getCompletionTrend } from "@/features/insights/insights-dashboard"
+import type { WorkflowContentWorkItem, WorkflowTask } from "@/features/workflow/types"
 
 function task(id: string, status: WorkflowTask["status"], completedAt: string | null): WorkflowTask {
   return { id, status, completedAt } as WorkflowTask
@@ -48,5 +48,19 @@ describe("insights completion metrics", () => {
     expect(daily.reduce((total, period) => total + period.count, 0)).toBe(1)
     expect(monthly).toHaveLength(6)
     expect(monthly.slice(-2).map((period) => period.count)).toEqual([1, 1])
+  })
+
+  it("filters task and content insight data to the selected user", () => {
+    const tasks = [
+      { ...task("one", "todo", null), primaryOwner: { id: "user-1" } },
+      { ...task("two", "todo", null), primaryOwner: { id: "user-2" } },
+    ] as WorkflowTask[]
+    const content = [
+      { id: "content-1", assigneeId: "user-1" },
+      { id: "content-2", assigneeId: "user-2" },
+    ] as WorkflowContentWorkItem[]
+
+    expect(filterInsightsByUser(tasks, content, "user-2")).toEqual({ tasks: [tasks[1]], content: [content[1]] })
+    expect(filterInsightsByUser(tasks, content, "all")).toEqual({ tasks, content })
   })
 })

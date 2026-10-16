@@ -28,7 +28,7 @@ import { Button } from "@/components/ui/button"
 import { StatusBadge, getStatusLabel } from "@/features/workflow/status-badge"
 import { ClientFiles } from "@/features/clients/client-files"
 import { TaskTrashButton } from "@/features/tasks/task-trash-button"
-import { canEditTask, canViewTask, taskStatusOptions } from "@/features/workflow/task-permissions"
+import { canEditTask, canViewTask, isSupervisorOwnedTask, taskStatusOptions } from "@/features/workflow/task-permissions"
 import type { TaskStatus, WorkflowFile } from "@/features/workflow/types"
 import { useWorkflow } from "@/features/workflow/workflow-provider"
 import { cn } from "@/lib/utils"
@@ -48,6 +48,7 @@ export function TaskDetail({ taskId, embedded = false }: { taskId: string; embed
   const completedChecklist = task.checklist.filter((item) => item.completed).length
   const checklistProgress = task.checklist.length === 0 ? 0 : Math.round((completedChecklist / task.checklist.length) * 100)
   const canEdit = canEditTask(task, currentUser.id)
+  const supervisorOwnedTask = isSupervisorOwnedTask(task, currentUser)
   const statusOptions = taskStatusOptions(task, currentUser)
   const canManageTrash = currentUser.role === "supervisor" || task.primaryOwner.id === currentUser.id
   const trashStatusEligible = ["todo", "in_progress", "cancelled", "completed"].includes(task.status)
@@ -121,7 +122,7 @@ export function TaskDetail({ taskId, embedded = false }: { taskId: string; embed
           </section>
 
           {!demoMode && latestVersion?.status === "revision_requested" && latestVersion.reviewComment && <div className="rounded-xl border border-[#9a6242]/25 bg-[#9a6242]/10 px-3 py-2.5"><p className="text-xs font-semibold text-[#7f5136] dark:text-secondary">Changes requested{latestVersion.reviewedBy ? ` · ${latestVersion.reviewedBy}` : ""}</p><p className="mt-1 text-xs leading-5 text-muted-foreground">{latestVersion.reviewComment}</p></div>}
-          {!demoMode && <ClientFiles key={task.id} clientId={task.clientId} taskId={task.id} canUpload={canEdit} compact={embedded} />}
+          {!demoMode && <ClientFiles key={task.id} clientId={task.clientId} taskId={task.id} canUpload={canEdit} canSubmitForReview={!supervisorOwnedTask} compact={embedded} />}
           {demoMode && <section className={cn("glass-panel rounded-2xl border", embedded ? "p-3" : "p-4")}>
             <div className="flex items-center justify-between"><h2 className="text-sm font-semibold">Work submission</h2><UploadCloud className="size-4 text-primary" /></div>
             {canEdit && <><textarea value={versionNotes} onChange={(event) => setVersionNotes(event.target.value)} placeholder="Add notes (optional)" className="mt-3 min-h-16 w-full resize-none rounded-xl border border-primary/20 bg-background/70 p-2.5 text-sm outline-none focus:border-primary focus:ring-3 focus:ring-primary/10" />

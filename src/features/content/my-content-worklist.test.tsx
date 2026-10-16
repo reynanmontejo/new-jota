@@ -32,8 +32,12 @@ describe("unified content tracker", () => {
     render(<ContentTracker clients={[{ id: "client-1", name: "Northwind" }, { id: "client-2", name: "Contoso" }]} campaigns={[]} assignees={{}} items={items} canCreate={false} canEdit={false} canCreateTask={false} currentUserId="user-1" canAssignContent={false} />)
 
     expect(screen.getByRole("heading", { name: "Content tracker" })).toBeInTheDocument()
+    expect(screen.getByText("All content")).toBeInTheDocument()
+    expect(screen.getByText("Upcoming")).toBeInTheDocument()
+    expect(screen.getByText("Needs attention")).toBeInTheDocument()
     expect(screen.getAllByRole("article")).toHaveLength(2)
-    expect(screen.getByText("Finish first cut")).toBeInTheDocument()
+    fireEvent.click(screen.getAllByText("More details")[0])
+    expect(screen.getByText("Next: Finish first cut")).toBeInTheDocument()
     expect(screen.getByText("Creator/editor: Editor")).toBeInTheDocument()
 
     fireEvent.change(screen.getByRole("textbox", { name: "Search content" }), { target: { value: "contoso" } })
@@ -87,5 +91,26 @@ describe("unified content tracker", () => {
     fireEvent.click(screen.getByRole("button", { name: "Restore" }))
     expect(await screen.findByText("“October product reel” restored to active content.")).toBeInTheDocument()
     expect(actionMocks.restoreContentItem).toHaveBeenCalledWith("item-1")
+  })
+
+  it("paginates content in groups of ten and supports the compact list view", () => {
+    const manyItems = Array.from({ length: 12 }, (_, index) => ({ ...items[0], id: `item-${index + 1}`, title: `Content ${index + 1}` }))
+    render(<ContentTracker clients={[]} campaigns={[]} assignees={{}} items={manyItems} canCreate={false} canEdit={false} canCreateTask={false} currentUserId="user-1" canAssignContent={false} />)
+
+    expect(screen.getAllByRole("article")).toHaveLength(10)
+    expect(screen.getByText("Content 1")).toBeInTheDocument()
+    expect(screen.queryByText("Content 11")).not.toBeInTheDocument()
+    expect(screen.getByText("Showing 1–10 of 12")).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }))
+    expect(screen.getAllByRole("article")).toHaveLength(2)
+    expect(screen.getByText("Content 11")).toBeInTheDocument()
+    expect(screen.getByText("Showing 11–12 of 12")).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "List" }))
+    expect(screen.getByRole("button", { name: "List" })).toHaveAttribute("aria-pressed", "true")
+    expect(screen.getAllByRole("article")).toHaveLength(2)
+    fireEvent.click(screen.getByRole("button", { name: "Previous page" }))
+    expect(screen.getAllByRole("article")).toHaveLength(10)
   })
 })

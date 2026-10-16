@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 const mocks = vi.hoisted(() => ({
   workflow: {
     tasks: [] as unknown[],
+    clients: [] as unknown[],
     contentWorkItems: [{
       id: "content-1",
       title: "October launch graphic",
@@ -51,6 +52,7 @@ afterEach(() => {
     assigneeId: "designer-1",
     assigneeName: "Designer One",
   }]
+  mocks.workflow.currentUser = { id: "account-manager-1", name: "Account Manager", role: "employee" }
   vi.clearAllMocks()
 })
 
@@ -62,7 +64,7 @@ describe("My Work calendar content", () => {
     expect(screen.getByText(/Planned · Designer One/)).toBeInTheDocument()
   })
 
-  it("previews six content cards and expands the remaining items on request", () => {
+  it("previews three content cards and expands the remaining items on request", () => {
     const firstItem = mocks.workflow.contentWorkItems[0]
     mocks.workflow.contentWorkItems = Array.from({ length: 8 }, (_, index) => ({
       ...firstItem,
@@ -73,14 +75,57 @@ describe("My Work calendar content", () => {
     render(<TaskList />)
 
     expect(screen.getByText("Content item 1")).toBeInTheDocument()
-    expect(screen.getByText("Content item 6")).toBeInTheDocument()
-    expect(screen.queryByText("Content item 7")).not.toBeInTheDocument()
+    expect(screen.getByText("Content item 3")).toBeInTheDocument()
+    expect(screen.queryByText("Content item 4")).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole("button", { name: "View all 8" }))
     expect(screen.getByText("Content item 8")).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole("button", { name: "Show less" }))
     expect(screen.queryByText("Content item 7")).not.toBeInTheDocument()
+  })
+
+  it("previews three team content cards for supervisors", () => {
+    const firstItem = mocks.workflow.contentWorkItems[0]
+    mocks.workflow.currentUser = { id: "supervisor-1", name: "Supervisor", role: "supervisor" }
+    mocks.workflow.contentWorkItems = Array.from({ length: 5 }, (_, index) => ({
+      ...firstItem,
+      id: `team-content-${index + 1}`,
+      title: `Team content ${index + 1}`,
+    }))
+
+    render(<TaskList />)
+
+    expect(screen.getByRole("heading", { name: "Team content" })).toBeInTheDocument()
+    expect(screen.getByText("Team content 3")).toBeInTheDocument()
+    expect(screen.queryByText("Team content 4")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "View all 5" })).toBeInTheDocument()
+    const headings = screen.getAllByRole("heading").map((heading) => heading.textContent)
+    expect(headings.indexOf("Team content")).toBeLessThan(headings.indexOf("Tasks"))
+  })
+
+  it("filters team tasks and content by the selected user", () => {
+    const firstItem = mocks.workflow.contentWorkItems[0]
+    mocks.workflow.currentUser = { id: "supervisor-1", name: "Supervisor", role: "supervisor" }
+    mocks.workflow.clients = [{ id: "client-1", name: "Northwind", members: [
+      { id: "employee-1", name: "Employee One", role: "Employee" },
+      { id: "employee-2", name: "Employee Two", role: "Employee" },
+    ] }]
+    mocks.workflow.tasks = [
+      { id: "task-1", title: "One", clientId: "client-1", clientName: "Northwind", campaign: "", contentItem: "", status: "todo", priority: "medium", dueDate: "", primaryOwner: { id: "employee-1", name: "Employee One" } },
+      { id: "task-2", title: "Two", clientId: "client-1", clientName: "Northwind", campaign: "", contentItem: "", status: "todo", priority: "medium", dueDate: "", primaryOwner: { id: "employee-2", name: "Employee Two" } },
+    ]
+    mocks.workflow.contentWorkItems = [{ ...firstItem, assigneeId: "employee-1", assigneeName: "Employee One" }]
+
+    render(<TaskList />)
+
+    expect(screen.getByRole("button", { name: "Filter User: All users" })).toBeInTheDocument()
+    expect(screen.getByText("Two")).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Filter User: All users" }))
+    fireEvent.click(screen.getByRole("menuitem", { name: "Employee One" }))
+    expect(screen.getByText("One")).toBeInTheDocument()
+    expect(screen.queryByText("Two")).not.toBeInTheDocument()
+    expect(screen.getByText("October launch graphic")).toBeInTheDocument()
   })
 
   it("switches to a compact table view", () => {

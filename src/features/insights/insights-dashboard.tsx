@@ -43,6 +43,14 @@ export function filterCompletedTasks(tasks: WorkflowTask[], range: CompletionRan
   }).sort((a, b) => (asDate(b.completedAt)?.getTime() ?? 0) - (asDate(a.completedAt)?.getTime() ?? 0))
 }
 
+export function filterInsightsByUser(tasks: WorkflowTask[], content: WorkflowContentWorkItem[], userId: string) {
+  if (userId === "all") return { tasks, content }
+  return {
+    tasks: tasks.filter((task) => task.primaryOwner.id === userId),
+    content: content.filter((item) => item.assigneeId === userId),
+  }
+}
+
 export function getCompletionTrend(tasks: WorkflowTask[], now: Date, grouping: TrendGrouping = "weekly") {
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
   const intervals = Array.from({ length: grouping === "daily" ? 7 : 6 }, (_, index) => {
@@ -74,14 +82,23 @@ export function getCompletionTrend(tasks: WorkflowTask[], now: Date, grouping: T
 }
 
 export function InsightsDashboard() {
-  const { tasks, contentWorkItems, currentUser } = useWorkflow()
+  const { tasks, contentWorkItems, clients, currentUser } = useWorkflow()
   const { openTask } = useTaskDrawer()
   const router = useRouter()
   const isSupervisor = currentUser.role === "supervisor"
   const [scope, setScope] = useState<Scope>("team")
+  const [selectedUserId, setSelectedUserId] = useState("all")
   const [completionRange, setCompletionRange] = useState<CompletionRange>("30")
   const [trendGrouping, setTrendGrouping] = useState<TrendGrouping>("weekly")
   const today = new Date()
+
+  const insightUsers = useMemo(() => {
+    const users = new Map<string, string>([[currentUser.id, currentUser.name]])
+    for (const client of clients) for (const member of client.members ?? []) users.set(member.id, member.name)
+    for (const task of tasks) users.set(task.primaryOwner.id, task.primaryOwner.name)
+    for (const item of contentWorkItems) if (item.assigneeId && item.assigneeName) users.set(item.assigneeId, item.assigneeName)
+    return [...users].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name))
+  }, [clients, contentWorkItems, currentUser.id, currentUser.name, tasks])
 
   const scoped = useMemo(() => {
     if (!isSupervisor || scope === "mine") {
@@ -90,8 +107,8 @@ export function InsightsDashboard() {
         content: contentWorkItems.filter((item) => item.assigneeId === currentUser.id || !item.assigneeId),
       }
     }
-    return { tasks, content: contentWorkItems }
-  }, [contentWorkItems, currentUser.id, isSupervisor, scope, tasks])
+    return filterInsightsByUser(tasks, contentWorkItems, selectedUserId)
+  }, [contentWorkItems, currentUser.id, isSupervisor, scope, selectedUserId, tasks])
 
   const activeTasks = scoped.tasks.filter((task) => !terminalStatuses.has(task.status))
   const overdueTasks = activeTasks.filter((task) => {
@@ -134,9 +151,16 @@ export function InsightsDashboard() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Insights</h1>
         </div>
-        {isSupervisor && <div className="flex items-center gap-1 rounded-lg border bg-background/70 p-1" aria-label="Insight scope">
+        {isSupervisor && <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1 rounded-lg border bg-background/70 p-1" aria-label="Insight scope">
           <button type="button" aria-pressed={scope === "team"} onClick={() => setScope("team")} className={`rounded-md px-3 py-1.5 text-xs font-medium ${scope === "team" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>Team</button>
           <button type="button" aria-pressed={scope === "mine"} onClick={() => setScope("mine")} className={`rounded-md px-3 py-1.5 text-xs font-medium ${scope === "mine" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>My work</button>
+          </div>
+          {scope === "team" && <label className="flex items-center gap-2 text-[11px] font-medium text-muted-foreground">User
+            <select aria-label="Filter insights by user" value={selectedUserId} onChange={(event) => setSelectedUserId(event.target.value)} className="h-8 max-w-48 rounded-md border border-border bg-background px-2 text-xs text-foreground">
+              <option value="all">All users</option>{insightUsers.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}
+            </select>
+          </label>}
         </div>}
       </div>
 

@@ -58,16 +58,18 @@ export function NewTaskSheet({ open, seed, onOpenChange }: NewTaskSheetProps & {
   const { createTask, clients, currentUser, demoMode } = useWorkflow()
   const [submitting, setSubmitting] = useState(false)
   const initialClientId = seed?.clientId ?? clients[0]?.id ?? ""
-  const firstMemberId = clients.find((client) => client.id === initialClientId)?.members?.[0]?.id
   const [selectedClientId, setSelectedClientId] = useState(initialClientId)
-  const [assigneeId, setAssigneeId] = useState(currentUser.role === "supervisor" ? firstMemberId ?? (demoMode ? currentEmployee.id : "") : currentUser.id)
+  const [assigneeId, setAssigneeId] = useState(currentUser.id)
   const [title, setTitle] = useState(seed?.title ?? "")
   const [campaignName, setCampaignName] = useState(seed?.campaignName ?? "")
   const [dueDate, setDueDate] = useState(seed ? contentDeadlineInput(seed.deadlineAt) : defaultDueDate())
   const selectedClient = clients.find((client) => client.id === selectedClientId)
-  const assignableMembers = demoMode && currentUser.role === "supervisor"
+  const clientMembers = demoMode && currentUser.role === "supervisor"
     ? [{ id: currentEmployee.id, name: currentEmployee.name, role: "Account Manager" }]
     : selectedClient?.members ?? []
+  const assignableMembers = currentUser.role === "supervisor"
+    ? [...clientMembers.filter((member) => member.id !== currentUser.id), { id: currentUser.id, name: currentUser.name, role: currentUser.title ?? "Supervisor" }]
+    : clientMembers
   const canCreate = clients.length > 0 && Boolean(assigneeId)
 
   async function submitTask(event: FormEvent<HTMLFormElement>) {
@@ -135,10 +137,7 @@ export function NewTaskSheet({ open, seed, onOpenChange }: NewTaskSheetProps & {
                 const nextClientId = event.target.value
                 setSelectedClientId(nextClientId)
                 setCampaignName("")
-                if (currentUser.role === "supervisor") {
-                  const nextMembers = demoMode ? [{ id: currentEmployee.id }] : clients.find((client) => client.id === nextClientId)?.members ?? []
-                  setAssigneeId(nextMembers[0]?.id ?? "")
-                }
+                if (currentUser.role === "supervisor") setAssigneeId(currentUser.id)
               }}>
                 {clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}
               </select>
