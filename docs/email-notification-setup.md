@@ -51,6 +51,11 @@ authenticated users cannot read or claim the queue directly.
    npx wrangler login
    ```
 
+   If Cloudflare says the account needs a `workers.dev` subdomain before
+   deploying Cron Triggers, open **Workers & Pages** in the Cloudflare
+   dashboard once and complete its subdomain setup. The email dispatcher is
+   scheduled-only (`workers_dev = false`) and does not expose a public route.
+
 3. Set the worker secrets interactively. Wrangler prompts for each value; do
    not paste secrets into Git, project config, or chat:
 
