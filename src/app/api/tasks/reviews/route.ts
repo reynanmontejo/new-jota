@@ -4,7 +4,7 @@ import { getStorageActor, hasStoragePermission } from "@/lib/storage/authorizati
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 type SubmissionRow = { id: string; task_id: string; current_version_number: number; status: string; submitted_by: string | null; submitted_at: string | null }
-type TaskRow = { id: string; title: string; client_id: string; campaign_id: string | null; priority: string; due_at: string | null }
+type TaskRow = { id: string; title: string; client_id: string | null; campaign_id: string | null; priority: string; due_at: string | null }
 type VersionRow = { id: string; submission_id: string; task_id: string; version_number: number; notes: string | null; submitted_by: string; submitted_at: string }
 type VersionFileRow = { submission_version_id: string; attachment_id: string }
 type AttachmentRow = { id: string; file_name: string; mime_type: string; size_bytes: number }
@@ -44,7 +44,7 @@ export async function GET() {
   const fileLinks = (fileLinksResult.data ?? []) as unknown as VersionFileRow[]
   const attachmentIds = [...new Set(fileLinks.map((row) => row.attachment_id))]
   const submitterIds = [...new Set(current.map(({ version }) => version.submitted_by))]
-  const clientIds = [...new Set(current.map(({ task }) => task.client_id))]
+  const clientIds = [...new Set(current.flatMap(({ task }) => task.client_id ? [task.client_id] : []))]
   const campaignIds = [...new Set(current.flatMap(({ task }) => task.campaign_id ? [task.campaign_id] : []))]
   const [attachmentResult, profileResult, clientResult, campaignResult] = await Promise.all([
     attachmentIds.length ? actor.supabase.from("attachments").select("id,file_name,mime_type,size_bytes").in("id", attachmentIds).is("deleted_at", null) : Promise.resolve({ data: [], error: null }),
@@ -66,8 +66,8 @@ export async function GET() {
     versionNumber: version.version_number,
     taskId: task.id,
     title: task.title,
-    clientId: task.client_id,
-    clientName: clients.get(task.client_id) ?? "Client",
+    clientId: task.client_id ?? "",
+    clientName: task.client_id ? clients.get(task.client_id) ?? "Client" : "No client",
     campaignName: task.campaign_id ? campaigns.get(task.campaign_id) ?? "General work" : "General work",
     priority: task.priority,
     dueAt: task.due_at,

@@ -70,6 +70,8 @@ export type WorkflowClient = {
   members?: Array<{ id: string; name: string; role: string }>
 }
 
+export type WorkflowAssignableUser = { id: string; name: string; role: string }
+
 export type WorkflowUpcomingContent = {
   id: string
   title: string

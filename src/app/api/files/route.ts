@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 
 import { getStorageActor, hasStoragePermission } from "@/lib/storage/authorization"
-import { deleteDriveFile, ensureClientFolder, getGoogleDriveStatus, uploadDriveFile } from "@/lib/storage/google-drive"
+import { deleteDriveFile, ensureClientFolder, ensureOrganizationFolder, getGoogleDriveStatus, uploadDriveFile } from "@/lib/storage/google-drive"
 import { createServiceClient } from "@/lib/supabase/service"
 import { MAX_UPLOAD_SIZE_BYTES, MAX_UPLOAD_SIZE_LABEL } from "@/lib/storage/upload-limits"
 
@@ -40,22 +40,30 @@ export async function GET(request: NextRequest) {
   const actor = await getStorageActor()
   if (!actor) return NextResponse.json({ error: "Sign in required." }, { status: 401 })
   const clientId = request.nextUrl.searchParams.get("clientId")
-  if (!clientId) return NextResponse.json({ error: "Client is required." }, { status: 400 })
-  const { data: client, error: clientError } = await actor.supabase.from("clients").select("id").eq("id", clientId).is("deleted_at", null).maybeSingle()
-  if (clientError || !client) return NextResponse.json({ error: "Client files are unavailable." }, { status: 404 })
-
-  let query = actor.supabase.from("attachments").select("id,file_name,mime_type,size_bytes,uploaded_by,created_at,task_id,content_item_id").eq("client_id", clientId).is("deleted_at", null).order("created_at", { ascending: false })
   const taskId = request.nextUrl.searchParams.get("taskId")
   const contentItemId = request.nextUrl.searchParams.get("contentItemId")
   if (taskId && contentItemId) return NextResponse.json({ error: "Choose a task or a content item, not both." }, { status: 400 })
-  if (taskId) query = query.eq("task_id", taskId)
+  let query = actor.supabase.from("attachments").select("id,file_name,mime_type,size_bytes,uploaded_by,created_at,task_id,content_item_id").is("deleted_at", null).order("created_at", { ascending: false })
+  if (taskId) {
+    const { data: task } = await actor.supabase.from("tasks").select("id,client_id").eq("id", taskId).is("deleted_at", null).maybeSingle()
+    if (!task || (clientId && task.client_id !== clientId)) return NextResponse.json({ error: "Task files are unavailable." }, { status: 404 })
+    query = query.eq("task_id", taskId)
+  }
   else if (contentItemId) {
+    if (!clientId) return NextResponse.json({ error: "Client is required for content files." }, { status: 400 })
+    const { data: client } = await actor.supabase.from("clients").select("id").eq("id", clientId).is("deleted_at", null).maybeSingle()
+    if (!client) return NextResponse.json({ error: "Client files are unavailable." }, { status: 404 })
     let contentItemQuery = actor.supabase.from("content_items").select("id").eq("id", contentItemId).eq("client_id", clientId)
     if (!await hasStoragePermission(actor, ["content.update"])) contentItemQuery = contentItemQuery.is("deleted_at", null)
     const { data: contentItem } = await contentItemQuery.maybeSingle()
     if (!contentItem) return NextResponse.json({ error: "Content files are unavailable." }, { status: 404 })
     query = query.eq("content_item_id", contentItemId).is("task_id", null)
-  } else query = query.is("task_id", null).is("content_item_id", null)
+  } else {
+    if (!clientId) return NextResponse.json({ error: "Client is required." }, { status: 400 })
+    const { data: client } = await actor.supabase.from("clients").select("id").eq("id", clientId).is("deleted_at", null).maybeSingle()
+    if (!client) return NextResponse.json({ error: "Client files are unavailable." }, { status: 404 })
+    query = query.eq("client_id", clientId).is("task_id", null).is("content_item_id", null)
+  }
   const { data, error } = await query
   if (error) return NextResponse.json({ error: "Could not load files." }, { status: 503 })
   const driveStatus = await getGoogleDriveStatus(actor.organizationId).catch(() => ({ connected: false as const, email: null }))
@@ -76,7 +84,7 @@ export async function POST(request: NextRequest) {
   let campaignId = String(form.get("campaignId") ?? "") || null
   const file = form.get("file")
   if (taskId && contentItemId) return NextResponse.json({ error: "Choose a task or a content item, not both." }, { status: 400 })
-  if (!clientId || !(file instanceof File)) return NextResponse.json({ error: "Choose a client and file." }, { status: 400 })
+  if ((!clientId && !taskId) || !(file instanceof File)) return NextResponse.json({ error: "Choose a task or client and file." }, { status: 400 })
   if (file.size < 1 || file.size > MAX_UPLOAD_SIZE_BYTES) return NextResponse.json({ error: `File must be between 1 byte and ${MAX_UPLOAD_SIZE_LABEL}.` }, { status: 413 })
   if (file.name.length > 255 || /[\u0000-\u001f]/.test(file.name)) return NextResponse.json({ error: "File name must be 255 characters or fewer and contain no control characters." }, { status: 400 })
   const extension = file.name.slice(file.name.lastIndexOf(".")).toLowerCase()
@@ -84,11 +92,20 @@ export async function POST(request: NextRequest) {
 
   const permissionCodes = taskId ? ["tasks.create", "tasks.update"] : ["content.create", "content.update"]
   if (!await hasStoragePermission(actor, permissionCodes)) return NextResponse.json({ error: "You do not have permission to upload files here." }, { status: 403 })
-  const { data: client, error: clientError } = await actor.supabase.from("clients").select("id,name,organization_id").eq("id", clientId).is("deleted_at", null).maybeSingle()
-  if (clientError || !client || client.organization_id !== actor.organizationId) return NextResponse.json({ error: "Client files are unavailable." }, { status: 404 })
+  let client: { id: string; name: string; organization_id: string } | null = null
   if (taskId) {
-    const { data: task } = await actor.supabase.from("tasks").select("id,client_id").eq("id", taskId).is("deleted_at", null).maybeSingle()
-    if (!task || task.client_id !== clientId) return NextResponse.json({ error: "Task files are unavailable." }, { status: 404 })
+    const { data: task } = await actor.supabase.from("tasks").select("id,client_id,organization_id").eq("id", taskId).is("deleted_at", null).maybeSingle()
+    if (!task || task.client_id !== (clientId || null)) return NextResponse.json({ error: "Task files are unavailable." }, { status: 404 })
+    if (task.organization_id !== actor.organizationId) return NextResponse.json({ error: "Task files are unavailable." }, { status: 404 })
+    if (task.client_id) {
+      const result = await actor.supabase.from("clients").select("id,name,organization_id").eq("id", task.client_id).is("deleted_at", null).maybeSingle()
+      if (result.error || !result.data || result.data.organization_id !== actor.organizationId) return NextResponse.json({ error: "Client files are unavailable." }, { status: 404 })
+      client = result.data
+    }
+  } else {
+    const result = await actor.supabase.from("clients").select("id,name,organization_id").eq("id", clientId).is("deleted_at", null).maybeSingle()
+    if (result.error || !result.data || result.data.organization_id !== actor.organizationId) return NextResponse.json({ error: "Client files are unavailable." }, { status: 404 })
+    client = result.data
   }
   if (contentItemId) {
     const { data: contentItem } = await actor.supabase.from("content_items").select("id,client_id,campaign_id").eq("id", contentItemId).eq("client_id", clientId).is("deleted_at", null).maybeSingle()
@@ -103,14 +120,16 @@ export async function POST(request: NextRequest) {
 
   let uploadStage = "preparing the private client folder"
   try {
-    const { connection, folderId } = await ensureClientFolder(actor.organizationId, clientId, client.name)
+    const { connection, folderId } = client
+      ? await ensureClientFolder(actor.organizationId, client.id, client.name)
+      : await ensureOrganizationFolder(actor.organizationId)
     uploadStage = "uploading the file to Google Drive"
     const uploaded = await uploadDriveFile(connection, folderId, file)
     uploadStage = "saving the file record"
     const service = createServiceClient()
     const { data: attachment, error } = await service.from("attachments").insert({
       organization_id: actor.organizationId,
-      client_id: clientId,
+      client_id: client?.id ?? null,
       campaign_id: campaignId,
       task_id: taskId,
       content_item_id: contentItemId,

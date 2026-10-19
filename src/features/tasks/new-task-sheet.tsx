@@ -55,9 +55,9 @@ function contentDeadlineInput(value: string | null) {
 
 export function NewTaskSheet({ open, seed, onOpenChange }: NewTaskSheetProps & { seed: ContentTaskSeed | null }) {
   const { openTask } = useTaskDrawer()
-  const { createTask, clients, currentUser, demoMode } = useWorkflow()
+  const { createTask, clients, assignableUsers, currentUser, demoMode } = useWorkflow()
   const [submitting, setSubmitting] = useState(false)
-  const initialClientId = seed?.clientId ?? clients[0]?.id ?? ""
+  const initialClientId = seed?.clientId ?? ""
   const [selectedClientId, setSelectedClientId] = useState(initialClientId)
   const [assigneeId, setAssigneeId] = useState(currentUser.id)
   const [title, setTitle] = useState(seed?.title ?? "")
@@ -67,27 +67,28 @@ export function NewTaskSheet({ open, seed, onOpenChange }: NewTaskSheetProps & {
   const clientMembers = demoMode && currentUser.role === "supervisor"
     ? [{ id: currentEmployee.id, name: currentEmployee.name, role: "Account Manager" }]
     : selectedClient?.members ?? []
+  const organizationMembers = demoMode ? clientMembers : (assignableUsers ?? [])
   const assignableMembers = currentUser.role === "supervisor"
-    ? [...clientMembers.filter((member) => member.id !== currentUser.id), { id: currentUser.id, name: currentUser.name, role: currentUser.title ?? "Supervisor" }]
+    ? [...(seed ? clientMembers : organizationMembers).filter((member) => member.id !== currentUser.id), { id: currentUser.id, name: currentUser.name, role: currentUser.title ?? "Supervisor" }]
     : clientMembers
-  const canCreate = clients.length > 0 && Boolean(assigneeId)
+  const canCreate = Boolean(assigneeId) && (!seed || Boolean(selectedClient))
 
   async function submitTask(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const formElement = event.currentTarget
     const form = new FormData(formElement)
-    const clientId = String(form.get("clientId"))
+    const clientId = String(form.get("clientId") ?? "")
     const client = clients.find((entry) => entry.id === clientId)
     const selectedAssignee = assignableMembers.find((member) => member.id === assigneeId)
-    if (!client || !assigneeId || (currentUser.role === "supervisor" && !selectedAssignee)) return
+    if ((seed && !client) || !assigneeId || (currentUser.role === "supervisor" && !selectedAssignee)) return
 
     setSubmitting(true)
     try {
       const taskId = await createTask({
         title: String(form.get("title")).trim(),
-        clientId,
-        clientName: client.name,
-        campaign: String(form.get("campaign")).trim(),
+        clientId: clientId || null,
+        clientName: client?.name ?? "No client",
+        campaign: client ? String(form.get("campaign") ?? "").trim() : "",
         priority: String(form.get("priority")) as "low" | "medium" | "high" | "urgent",
         assigneeId,
         dueAt: new Date(String(form.get("dueDate"))).toISOString(),
@@ -132,20 +133,21 @@ export function NewTaskSheet({ open, seed, onOpenChange }: NewTaskSheetProps & {
             </label>
 
             {seed ? <div className="text-xs font-semibold">Client<input type="hidden" name="clientId" value={selectedClientId} /><p className="mt-1.5 rounded-lg border border-primary/15 bg-muted/30 px-3 py-2 font-normal">{seed.clientName}</p></div> : <label className="text-xs font-semibold">
-              Client
-              <select className={fieldClassName} value={selectedClientId} name="clientId" required disabled={clients.length === 0} onChange={(event) => {
+              Client <span className="font-normal text-muted-foreground">(optional)</span>
+              <select className={fieldClassName} value={selectedClientId} name="clientId" onChange={(event) => {
                 const nextClientId = event.target.value
                 setSelectedClientId(nextClientId)
                 setCampaignName("")
                 if (currentUser.role === "supervisor") setAssigneeId(currentUser.id)
               }}>
+                <option value="">No client</option>
                 {clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}
               </select>
-              {clients.length === 0 && <span className="mt-1 block text-[11px] font-normal text-muted-foreground">No clients are assigned to your account yet.</span>}
+              {!clients.length && <span className="mt-1 block text-[11px] font-normal text-muted-foreground">You can create this task without linking a client.</span>}
             </label>}
 
             <label className="text-xs font-semibold">
-              Campaign
+              Campaign{!seed && <span className="ml-1 font-normal text-muted-foreground">(optional)</span>}
               {seed ? <><input type="hidden" name="campaign" value={campaignName} /><p className="mt-1.5 rounded-lg border border-primary/15 bg-muted/30 px-3 py-2 font-normal">{campaignName || "General / no campaign"}</p></> : demoMode ? (
                 <input className={fieldClassName} name="campaign" placeholder="Campaign or leave blank" value={campaignName} onChange={(event) => setCampaignName(event.target.value)} />
               ) : (
@@ -154,7 +156,7 @@ export function NewTaskSheet({ open, seed, onOpenChange }: NewTaskSheetProps & {
                   {(selectedClient?.campaigns ?? []).map((campaign) => <option key={campaign.id} value={campaign.name}>{campaign.name}</option>)}
                 </select>
               )}
-              {!seed && <span className="mt-1 block text-[11px] font-normal text-muted-foreground">Use a campaign when relevant; off-calendar tasks can stay under General.</span>}
+              {!seed && <span className="mt-1 block text-[11px] font-normal text-muted-foreground">Leave this as General / no campaign for work that isn’t tied to a campaign.</span>}
             </label>
 
             {currentUser.role === "supervisor" ? <label className="text-xs font-semibold">
@@ -162,7 +164,7 @@ export function NewTaskSheet({ open, seed, onOpenChange }: NewTaskSheetProps & {
               <select className={fieldClassName} value={assigneeId} onChange={(event) => setAssigneeId(event.target.value)} required disabled={!assignableMembers.length}>
                 {assignableMembers.map((member) => <option key={member.id} value={member.id}>{member.name} · {member.role}</option>)}
               </select>
-              {!assignableMembers.length && <span className="mt-1 block text-[11px] font-normal text-muted-foreground">No active Account Managers are assigned to this client.</span>}
+              {!assignableMembers.length && <span className="mt-1 block text-[11px] font-normal text-muted-foreground">No active employees are available to assign.</span>}
             </label> : <p className="text-xs text-muted-foreground">Assigned to you</p>}
 
             <div className="grid grid-cols-2 gap-3">

@@ -10,7 +10,7 @@ const uuid = z.string().uuid()
 
 export async function createTaskAction(input: {
   title: string
-  clientId: string
+  clientId: string | null
   campaign: string
   priority: "low" | "medium" | "high" | "urgent"
   dueAt: string
@@ -19,7 +19,7 @@ export async function createTaskAction(input: {
 }) {
   const parsed = z.object({
     title: z.string().trim().min(2).max(220),
-    clientId: uuid,
+    clientId: z.union([uuid, z.literal("")]).nullable().transform((value) => value || null),
     campaign: z.string().trim().max(160),
     priority: z.enum(["low", "medium", "high", "urgent"]),
     dueAt: z.iso.datetime(),

@@ -42,7 +42,8 @@ export function ClientFiles({ clientId, taskId, contentItemId, canUpload = true,
 
   const refresh = useCallback(async () => {
     try {
-      const search = new URLSearchParams({ clientId })
+      const search = new URLSearchParams()
+      if (clientId) search.set("clientId", clientId)
       if (taskId) search.set("taskId", taskId)
       if (contentItemId) search.set("contentItemId", contentItemId)
       const response = await fetch(`/api/files?${search}`, { cache: "no-store" })
@@ -59,7 +60,8 @@ export function ClientFiles({ clientId, taskId, contentItemId, canUpload = true,
   useEffect(() => {
     initialSelectionApplied.current = false
     let active = true
-    const search = new URLSearchParams({ clientId })
+    const search = new URLSearchParams()
+    if (clientId) search.set("clientId", clientId)
     if (taskId) search.set("taskId", taskId)
     if (contentItemId) search.set("contentItemId", contentItemId)
     fetch(`/api/files?${search}`, { cache: "no-store" })
@@ -89,7 +91,7 @@ export function ClientFiles({ clientId, taskId, contentItemId, canUpload = true,
     setMessage("")
     setUploadState({ fileName: file.name, progress: 0, status: "uploading" })
     const form = new FormData()
-    form.set("clientId", clientId)
+    if (clientId) form.set("clientId", clientId)
     if (taskId) form.set("taskId", taskId)
     if (contentItemId) form.set("contentItemId", contentItemId)
     form.set("file", file)

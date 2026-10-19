@@ -1,13 +1,13 @@
 import "server-only"
 
-import type { WorkflowClient, WorkflowContentWorkItem, WorkflowTask, WorkflowUpcomingContent } from "@/features/workflow/types"
+import type { WorkflowAssignableUser, WorkflowClient, WorkflowContentWorkItem, WorkflowTask, WorkflowUpcomingContent } from "@/features/workflow/types"
 import { createClient } from "@/lib/supabase/server"
 
 type DbTask = {
   id: string
   title: string
   description: string | null
-  client_id: string
+  client_id: string | null
   campaign_id: string | null
   content_item_id: string | null
   status: WorkflowTask["status"]
@@ -43,7 +43,7 @@ function actionLabel(action: string) {
   return action.toLowerCase().split("_").map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(" ")
 }
 
-export async function loadWorkflowData(): Promise<{ tasks: WorkflowTask[]; clients: WorkflowClient[]; upcomingContent: WorkflowUpcomingContent[]; contentWorkItems: WorkflowContentWorkItem[] }> {
+export async function loadWorkflowData(): Promise<{ tasks: WorkflowTask[]; clients: WorkflowClient[]; assignableUsers: WorkflowAssignableUser[]; upcomingContent: WorkflowUpcomingContent[]; contentWorkItems: WorkflowContentWorkItem[] }> {
   const supabase = await createClient()
   const [taskResult, clientResult] = await Promise.all([
     supabase.from("tasks").select("id,title,description,client_id,campaign_id,content_item_id,status,priority,start_at,due_at,completed_at,created_by,created_at").is("deleted_at", null).is("archived_at", null).order("due_at", { ascending: true, nullsFirst: false }),
@@ -133,11 +133,16 @@ export async function loadWorkflowData(): Promise<{ tasks: WorkflowTask[]; clien
     ...versions.map((row) => row.submitted_by),
     ...reviews.map((row) => row.reviewer_id),
   ])]
-  const profileResult = profileIds.length
-    ? await supabase.from("profiles").select("id,display_name,job_title,status,deactivated_at").in("id", profileIds)
-    : { data: [], error: null }
+  const [profileResult, assignableUsersResult] = await Promise.all([
+    profileIds.length
+      ? supabase.from("profiles").select("id,display_name,job_title,status,deactivated_at").in("id", profileIds)
+      : Promise.resolve({ data: [], error: null }),
+    supabase.from("profiles").select("id,display_name,job_title,status,deactivated_at").eq("status", "active").is("deactivated_at", null),
+  ])
   if (profileResult.error) throw new Error(`Could not load task participants: ${profileResult.error.message}`)
+  if (assignableUsersResult.error) throw new Error(`Could not load active employees for task assignment: ${assignableUsersResult.error.message}`)
   const profiles = new Map(((profileResult.data ?? []) as unknown as (DbProfile & { status?: string; deactivated_at?: string | null })[]).map((row) => [row.id, row]))
+  const assignableUsers: WorkflowAssignableUser[] = ((assignableUsersResult.data ?? []) as unknown as (DbProfile & { status?: string; deactivated_at?: string | null })[]).map((profile) => ({ id: profile.id, name: profile.display_name, role: profile.job_title ?? "Employee" }))
   const submissionByTask = new Map(submissions.map((item) => [item.task_id, item]))
   const clientsWithCampaigns = clients.map((client) => ({
     ...client,
@@ -172,6 +177,7 @@ export async function loadWorkflowData(): Promise<{ tasks: WorkflowTask[]; clien
 
   return {
     clients: clientsWithCampaigns,
+    assignableUsers,
     upcomingContent,
     contentWorkItems,
     tasks: rows.map((row) => {
@@ -183,8 +189,8 @@ export async function loadWorkflowData(): Promise<{ tasks: WorkflowTask[]; clien
         id: row.id,
         title: row.title,
         description: row.description ?? "",
-        clientId: row.client_id,
-        clientName: clientsById.get(row.client_id) ?? "Client",
+        clientId: row.client_id ?? "",
+        clientName: row.client_id ? clientsById.get(row.client_id) ?? "Client" : "No client",
         campaign: (row.campaign_id && campaigns.get(row.campaign_id)) ?? "General work",
         contentItem: (row.content_item_id && content.get(row.content_item_id)) ?? "General campaign work",
         contentItemId: row.content_item_id,

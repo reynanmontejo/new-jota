@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation"
 import { addTaskCommentAction, createTaskAction, toggleTaskChecklistAction, updateTaskStatusAction } from "@/app/tasks/actions"
 import { initialWorkflowState } from "@/features/workflow/mock-data"
 import { canCreateTask, canEditTask, currentEmployee, currentSupervisor, taskStatusOptions, type DemoUser } from "@/features/workflow/task-permissions"
-import type { TaskStatus, WorkflowClient, WorkflowContentWorkItem, WorkflowFile, WorkflowState, WorkflowUpcomingContent } from "@/features/workflow/types"
+import type { TaskStatus, WorkflowAssignableUser, WorkflowClient, WorkflowContentWorkItem, WorkflowFile, WorkflowState, WorkflowUpcomingContent } from "@/features/workflow/types"
 import { isSupabaseConfigured } from "@/lib/env"
 import { createClient as createSupabaseClient } from "@/lib/supabase/client"
 
@@ -14,7 +14,7 @@ type ReviewDecision = "approved" | "revision_requested"
 
 type NewTaskInputFields = {
   title: string
-  clientId: string
+  clientId: string | null
   clientName: string
   campaign: string
   priority: "low" | "medium" | "high" | "urgent"
@@ -137,6 +137,7 @@ export function workflowReducer(state: WorkflowState, action: WorkflowAction): W
 type WorkflowContextValue = {
   tasks: WorkflowState["tasks"]
   clients: WorkflowClient[]
+  assignableUsers: WorkflowAssignableUser[]
   upcomingContent: WorkflowUpcomingContent[]
   contentWorkItems: WorkflowContentWorkItem[]
   currentUser: DemoUser
@@ -182,6 +183,7 @@ export function WorkflowProvider({
   initialUser,
   initialTasks,
   initialClients,
+  initialAssignableUsers,
   initialUpcomingContent,
   initialContentWorkItems,
   demoMode = true,
@@ -190,6 +192,7 @@ export function WorkflowProvider({
   initialUser?: DemoUser | null
   initialTasks?: WorkflowState["tasks"]
   initialClients?: WorkflowClient[]
+  initialAssignableUsers?: WorkflowAssignableUser[]
   initialUpcomingContent?: WorkflowUpcomingContent[]
   initialContentWorkItems?: WorkflowContentWorkItem[]
   demoMode?: boolean
@@ -248,10 +251,12 @@ export function WorkflowProvider({
     ? demoRole === "supervisor" ? currentSupervisor : currentEmployee
     : initialUser ?? currentEmployee
   const clients = useMemo<WorkflowClient[]>(() => initialClients ?? Array.from(new Map(state.tasks.map((task) => [task.clientId, task.clientName])).entries()).map(([id, name]) => ({ id, name, campaigns: Array.from(new Set(state.tasks.filter((task) => task.clientId === id).map((task) => task.campaign))).map((campaignName) => ({ id: campaignName, name: campaignName })) })), [initialClients, state.tasks])
+  const assignableUsers = useMemo(() => initialAssignableUsers ?? [], [initialAssignableUsers])
 
   const value = useMemo<WorkflowContextValue>(() => ({
     tasks: state.tasks,
     clients,
+    assignableUsers,
     upcomingContent: initialUpcomingContent ?? [],
     contentWorkItems: initialContentWorkItems ?? [],
     currentUser,
@@ -304,7 +309,7 @@ export function WorkflowProvider({
       dispatch({ type: "review_version", taskId, decision, comment, actor: currentUser })
     },
     createTask: async (input) => {
-      const selectedAssignee = clients.find((client) => client.id === input.clientId)?.members?.find((member) => member.id === input.assigneeId)
+      const selectedAssignee = [...assignableUsers, ...clients.flatMap((client) => client.members ?? [])].find((member) => member.id === input.assigneeId)
       const owner: { id: string; name: string; role: string } = selectedAssignee
         ? { id: selectedAssignee.id, name: selectedAssignee.name, role: selectedAssignee.role }
         : demoMode && currentUser.role === "supervisor" && input.assigneeId === currentEmployee.id
@@ -339,7 +344,7 @@ export function WorkflowProvider({
           id,
           title: input.title,
           description: "New task created from the global task form.",
-          clientId: input.clientId,
+          clientId: input.clientId ?? "",
           clientName: input.clientName,
           campaign: input.campaign || "General work",
           contentItem: input.contentItemTitle ?? "General campaign work",
@@ -359,7 +364,7 @@ export function WorkflowProvider({
       })
       return id
     },
-  }), [state.tasks, clients, currentUser, demoMode, error, initialUpcomingContent, initialContentWorkItems, realtimeRevision])
+  }), [state.tasks, clients, assignableUsers, currentUser, demoMode, error, initialUpcomingContent, initialContentWorkItems, realtimeRevision])
 
   return <WorkflowContext.Provider value={value}>{children}</WorkflowContext.Provider>
 }

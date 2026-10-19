@@ -168,6 +168,12 @@ async function ensureRootFolder(connection: Connection) {
   return payload.id
 }
 
+export async function ensureOrganizationFolder(organizationId: string) {
+  const connection = await getConnection(organizationId)
+  if (!connection) throw new Error("Google Drive is not connected")
+  return { connection, folderId: await ensureRootFolder(connection) }
+}
+
 export async function ensureClientFolder(organizationId: string, clientId: string, clientName: string) {
   const connection = await getConnection(organizationId)
   if (!connection) throw new Error("Google Drive is not connected")

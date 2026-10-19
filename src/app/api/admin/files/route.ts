@@ -10,7 +10,7 @@ type AdminFileRow = {
   size_bytes: number
   created_at: string
   deleted_at: string | null
-  client_id: string
+  client_id: string | null
   campaign_id: string | null
   task_id: string | null
   content_item_id?: string | null
@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
   }
   const items = (files ?? []).map((file) => ({ ...file, content_item_id: file.content_item_id ?? null }))
   const ids = items.map((file) => file.id)
-  const clientIds = [...new Set(items.map((file) => file.client_id))]
+  const clientIds = [...new Set(items.flatMap((file) => file.client_id ? [file.client_id] : []))]
   const campaignIds = [...new Set(items.flatMap((file) => file.campaign_id ? [file.campaign_id] : []))]
   const taskIds = [...new Set(items.flatMap((file) => file.task_id ? [file.task_id] : []))]
   const contentItemIds = [...new Set(items.flatMap((file) => file.content_item_id ? [file.content_item_id] : []))]
@@ -87,7 +87,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     files: items.map((file) => ({
       ...file,
-      client_name: clientNames.get(file.client_id) ?? "Client",
+      client_name: file.client_id ? clientNames.get(file.client_id) ?? "Client" : "No client",
       campaign_name: file.campaign_id ? campaignNames.get(file.campaign_id) ?? null : null,
       task_title: file.task_id ? taskNames.get(file.task_id) ?? null : null,
       content_title: file.content_item_id ? contentNames.get(file.content_item_id) ?? null : null,
