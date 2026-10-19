@@ -1,0 +1,7 @@
+name = "jota-notification-email-dispatcher"
+main = "src/index.ts"
+compatibility_date = "2026-10-19"
+workers_dev = true
+
+[triggers]
+crons = ["*/5 * * * *"]

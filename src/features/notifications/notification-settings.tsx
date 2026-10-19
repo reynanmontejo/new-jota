@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState, type ChangeEvent } from "react"
-import { BellRing, MonitorCheck, Music2, Trash2, Upload, Volume2 } from "lucide-react"
+import { BellRing, Mail, MonitorCheck, Music2, Trash2, Upload, Volume2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -31,12 +31,15 @@ async function waitForServiceWorkerReady(timeoutMs = 10_000) {
 
 export function NotificationSettings({ userId, demoMode }: { userId: string; demoMode: boolean }) {
   const [soundEnabled, setSoundEnabled] = useState(false)
+  const [emailEnabled, setEmailEnabled] = useState(false)
+  const [emailAvailable, setEmailAvailable] = useState(true)
   const [pushEnabled, setPushEnabled] = useState(false)
   const [pushAvailable, setPushAvailable] = useState(false)
   const [browserPermission, setBrowserPermission] = useState<NotificationPermission | "unsupported">("default")
   const [vapidPublicKey, setVapidPublicKey] = useState<string | null>(null)
   const [loading, setLoading] = useState(!demoMode)
   const [saving, setSaving] = useState(false)
+  const [emailSaving, setEmailSaving] = useState(false)
   const [pushSaving, setPushSaving] = useState(false)
   const [testingBrowser, setTestingBrowser] = useState(false)
   const [volume, setVolume] = useState(65)
@@ -65,9 +68,13 @@ export function NotificationSettings({ userId, demoMode }: { userId: string; dem
     let active = true
     fetch("/api/notifications/preferences", { cache: "no-store" })
       .then(async (response) => {
-        const payload = await response.json() as { soundEnabled?: boolean; error?: string }
+        const payload = await response.json() as { soundEnabled?: boolean; emailEnabled?: boolean; emailAvailable?: boolean; error?: string }
         if (!response.ok) throw new Error(payload.error ?? "Could not load notification preferences.")
-        if (active) setSoundEnabled(Boolean(payload.soundEnabled))
+        if (active) {
+          setSoundEnabled(Boolean(payload.soundEnabled))
+          setEmailEnabled(Boolean(payload.emailEnabled))
+          setEmailAvailable(payload.emailAvailable !== false)
+        }
       })
       .catch((error: unknown) => { if (active) setMessage(error instanceof Error ? error.message : "Could not load notification preferences.") })
       .finally(() => { if (active) setLoading(false) })
@@ -138,6 +145,23 @@ export function NotificationSettings({ userId, demoMode }: { userId: string; dem
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not save notification preferences.")
     } finally { setSaving(false) }
+  }
+
+  async function updateEmail(enabled: boolean) {
+    setEmailSaving(true)
+    setMessage(null)
+    try {
+      if (demoMode) throw new Error("Email alerts require a signed-in workspace account.")
+      const response = await fetch("/api/notifications/preferences", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ emailEnabled: enabled }),
+      })
+      const payload = await response.json() as { error?: string }
+      if (!response.ok) throw new Error(payload.error ?? "Could not save the email preference.")
+      setEmailEnabled(enabled)
+      setMessage(enabled ? "Email alerts are on for new notifications." : "Email alerts are off.")
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not save the email preference.")
+    } finally { setEmailSaving(false) }
   }
 
   function updateVolume(nextVolume: number) {
@@ -356,6 +380,18 @@ export function NotificationSettings({ userId, demoMode }: { userId: string; dem
           <p className="mt-2 text-[10px] leading-4 text-muted-foreground">MP3, WAV, OGG, M4A, AAC, or WebM · up to 2 MB · saved in this browser.</p>
         </div>
       </div>
+    </div>
+    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+      <div className="flex min-w-0 items-start gap-3">
+        <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-secondary/35 text-primary"><Mail className="size-4" /></span>
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold">Email alerts</h2>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">{emailAvailable ? "Send new Jota notifications to your account email. Messages may include task titles or comment excerpts; use an inbox you control." : "Email alerts will be available after the email notification database migration is applied."}</p>
+        </div>
+      </div>
+      <Button type="button" role="switch" aria-checked={emailEnabled} aria-label="Email alerts" variant="ghost" className={`relative h-6 w-11 shrink-0 rounded-full border p-0 text-transparent hover:text-transparent before:absolute before:left-1 before:top-1/2 before:size-4 before:-translate-y-1/2 before:rounded-full before:bg-background before:shadow-sm before:transition-transform ${emailEnabled ? "border-primary bg-primary hover:bg-primary before:translate-x-5" : "border-input bg-muted hover:bg-muted before:translate-x-0"}`} disabled={loading || emailSaving || demoMode || !emailAvailable} onClick={() => void updateEmail(!emailEnabled)}>
+        {emailSaving ? "Saving…" : emailEnabled ? "On" : "Off"}
+      </Button>
     </div>
     <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
       <div className="min-w-0">

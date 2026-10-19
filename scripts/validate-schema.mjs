@@ -34,6 +34,7 @@ const contentArchiveMigrationPath = "supabase/migrations/202610260001_content_ar
 const supervisorSelfAssignedTaskMigrationPath = "supabase/migrations/202610270001_allow_supervisor_self_assigned_tasks.sql"
 const supervisorTaskReviewBypassMigrationPath = "supabase/migrations/202610280001_supervisor_own_tasks_bypass_review.sql"
 const notificationPushDispatchMigrationPath = "supabase/migrations/202610290001_notification_push_dispatch.sql"
+const notificationEmailDeliveryMigrationPath = "supabase/migrations/202610300001_email_notification_delivery.sql"
 const seedPath = "supabase/seed.sql"
 
 const database = new PGlite()
@@ -165,6 +166,7 @@ await database.exec(await fs.readFile(supervisorTaskReviewBypassMigrationPath, "
 let notificationPushDispatchMigration = await fs.readFile(notificationPushDispatchMigrationPath, "utf8")
 notificationPushDispatchMigration = notificationPushDispatchMigration.replace(/create extension if not exists pg_net with schema net;\s*/i, "")
 await database.exec(notificationPushDispatchMigration)
+await database.exec(await fs.readFile(notificationEmailDeliveryMigrationPath, "utf8"))
 const providerSecretAccess = await database.query(`
   select has_table_privilege('authenticated', 'public.google_drive_connections', 'select') as can_read_tokens,
          has_table_privilege('authenticated', 'public.client_drive_folders', 'select') as can_read_folder_map,
@@ -203,6 +205,47 @@ await database.exec(`
   insert into public.task_checklist_items (organization_id, task_id, title, position) values
     ('10000000-0000-0000-0000-000000000001', '60000000-0000-0000-0000-000000000001', 'Test checklist', 0);
 `)
+
+const emailNotificationId = "92000000-0000-0000-0000-000000000001"
+await asUser(employeeOne, () => database.query(`select public.set_notification_email_preference_for_current_user(true)`))
+await database.query(`insert into public.notifications (
+  id, organization_id, recipient_id, type, title, body, entity_type, entity_id, href
+) values (
+  '${emailNotificationId}', '10000000-0000-0000-0000-000000000001', '${employeeOne}', 'task_assigned',
+  'Email queue test', 'A sample notification', 'task', '60000000-0000-0000-0000-000000000001', '/tasks/60000000-0000-0000-0000-000000000001'
+)`)
+await database.exec("set role service_role")
+try {
+  const emailBatch = await database.query(`select * from public.claim_notification_email_batch(10)`)
+  if (emailBatch.rows.length !== 1 || emailBatch.rows[0]?.notification_id !== emailNotificationId
+    || emailBatch.rows[0]?.recipient_email !== "one@example.test") {
+    throw new Error(`Opted-in notification was not safely queued with the recipient address: ${JSON.stringify(emailBatch.rows)}`)
+  }
+  await database.query(`select public.finish_notification_email_attempt('${emailBatch.rows[0].queue_id}', true, null)`)
+} finally {
+  await database.exec("reset role")
+}
+const emailQueueResult = await database.query(`
+  select queue.processed_at, preference.email_enabled
+  from public.notification_email_queue queue
+  join public.notification_preferences preference
+    on preference.organization_id = queue.organization_id and preference.user_id = queue.recipient_id
+  where queue.notification_id = '${emailNotificationId}'
+`)
+if (!emailQueueResult.rows[0]?.processed_at || emailQueueResult.rows[0]?.email_enabled !== true) {
+  throw new Error("Email notification queue completion or recipient preference was not persisted")
+}
+await asUser(employeeOne, () => database.query(`select public.set_notification_email_preference_for_current_user(false)`))
+const emailRpcGrants = await database.query(`
+  select has_function_privilege('authenticated', 'public.set_notification_email_preference_for_current_user(boolean)', 'execute') as user_can_set,
+         has_function_privilege('authenticated', 'public.claim_notification_email_batch(integer)', 'execute') as user_can_claim,
+         has_function_privilege('service_role', 'public.claim_notification_email_batch(integer)', 'execute') as worker_can_claim,
+         has_table_privilege('authenticated', 'public.notification_email_queue', 'select') as user_can_read_queue
+`)
+if (emailRpcGrants.rows[0]?.user_can_set !== true || emailRpcGrants.rows[0]?.user_can_claim !== false
+  || emailRpcGrants.rows[0]?.worker_can_claim !== true || emailRpcGrants.rows[0]?.user_can_read_queue !== false) {
+  throw new Error(`Email notification grants are not least-privilege: ${JSON.stringify(emailRpcGrants.rows[0])}`)
+}
 
 const provisionedEmployee = "80000000-0000-0000-0000-000000000005"
 await database.exec(`insert into auth.users (id) values ('${provisionedEmployee}')`)
@@ -1280,8 +1323,8 @@ const taskCount = taskResult.rows[0]?.count
 const tablesWithoutRls = rlsResult.rows[0]?.count
 const policyCount = policyResult.rows[0]?.count
 
-if (tableCount !== 39) {
-  throw new Error(`Expected 39 public tables, found ${tableCount}`)
+if (tableCount !== 40) {
+  throw new Error(`Expected 40 public tables, found ${tableCount}`)
 }
 
 if (taskCount !== 7) {
@@ -1296,5 +1339,5 @@ if (policyCount !== 37 || postMutationCount !== 3) {
   throw new Error(`Unexpected policy or task mutation coverage: ${policyCount} policies, employee sees ${postMutationCount} tasks`)
 }
 
-console.log(`Schema validated: ${tableCount} tables, task assignment/review/comment/due notifications, password-change notifications, private push subscriptions and service-only delivery queue, authenticated push-dispatch access denied, queue-triggered dispatch and five-minute recovery cron, missing dispatch configuration does not block in-app notifications, notification RLS/RPCs/triggers, content workflow/import/campaign/content-review/archive/restore RLS and RPCs, immutable task/content versions and decisions, private Drive token/folder tables, client platforms, multi-manager ownership, client status and recoverable Trash, employee provisioning and Trash, profile photo storage policies, service-only password-change requests, first-admin bootstrap, profile updates, and ${policyCount} policies.`)
+console.log(`Schema validated: ${tableCount} tables, task assignment/review/comment/due notifications, password-change notifications, opt-in email notification queue and service-only claim RPC, private push subscriptions and service-only delivery queue, authenticated push-dispatch access denied, queue-triggered dispatch and five-minute recovery cron, missing dispatch configuration does not block in-app notifications, notification RLS/RPCs/triggers, content workflow/import/campaign/content-review/archive/restore RLS and RPCs, immutable task/content versions and decisions, private Drive token/folder tables, client platforms, multi-manager ownership, client status and recoverable Trash, employee provisioning and Trash, profile photo storage policies, service-only password-change requests, first-admin bootstrap, profile updates, and ${policyCount} policies.`)
 await database.close()

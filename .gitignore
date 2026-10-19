@@ -19,6 +19,7 @@
 
 # production
 /build
+/workers/notification-email-dispatcher/.dev.vars
 
 # misc
 .DS_Store

@@ -7,6 +7,10 @@ one reminder when a task is within 24 hours of its due time, then at most one
 overdue reminder per task and assignee per day. Completed, approved, cancelled,
 deleted, unassigned, and inactive-user tasks are excluded.
 
+Email alerts are separate from browser push. See
+[Email notification setup](email-notification-setup.md) for the Brevo and
+Cloudflare Worker route; it does not require the push-dispatch migration.
+
 ## Apply the database migrations
 
 Apply these in order, checking the hosted database's migration history first and
