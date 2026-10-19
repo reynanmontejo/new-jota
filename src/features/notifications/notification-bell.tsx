@@ -35,13 +35,11 @@ export function NotificationBell({
   currentUser,
   demoMode,
   compact = false,
-  onOpenTask,
   onNavigate,
 }: {
   currentUser: DemoUser
   demoMode: boolean
   compact?: boolean
-  onOpenTask: (taskId: string) => void
   onNavigate?: () => void
 }) {
   const router = useRouter()
@@ -177,14 +175,16 @@ export function NotificationBell({
 
   function activate(item: NotificationItem) {
     void markRead(item.id)
-    const href = item.href && item.href.startsWith("/") && !item.href.startsWith("//") ? item.href : null
-    if (href?.startsWith("/tasks/")) onOpenTask(href.slice("/tasks/".length))
-    else if (href) {
-      const target = new URL(href, window.location.href)
-      if (target.origin !== window.location.origin) return
-      if (target.pathname !== window.location.pathname || target.search !== window.location.search) onNavigate?.()
-      router.push(`${target.pathname}${target.search}${target.hash}`)
-    }
+    const href = item.href && item.href.startsWith("/") && !item.href.startsWith("//")
+      ? item.href
+      : item.type === "task_assigned" && item.entity_id
+        ? `/tasks/${encodeURIComponent(item.entity_id)}`
+        : null
+    if (!href) return
+    const target = new URL(href, window.location.href)
+    if (target.origin !== window.location.origin) return
+    if (target.pathname !== window.location.pathname || target.search !== window.location.search) onNavigate?.()
+    router.push(`${target.pathname}${target.search}${target.hash}`)
   }
 
   return <DropdownMenu>

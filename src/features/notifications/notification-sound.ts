@@ -4,6 +4,7 @@ const databaseName = "jota-notification-sounds"
 const storeName = "sounds"
 const databaseVersion = 1
 const defaultVolume = 65
+let sharedAudioContext: AudioContext | null = null
 export const maxNotificationSoundBytes = 2 * 1024 * 1024
 export const supportedNotificationSoundTypes = [
   "audio/mpeg",
@@ -102,11 +103,32 @@ export async function removeCustomNotificationSound(userId: string) {
   }
 }
 
-async function playDefaultChime(volume: number): Promise<boolean> {
+function getAudioContext() {
   const AudioContextConstructor = window.AudioContext
-  if (!AudioContextConstructor) return false
+  if (!AudioContextConstructor) return null
+  if (!sharedAudioContext || sharedAudioContext.state === "closed") {
+    sharedAudioContext = new AudioContextConstructor()
+  }
+  return sharedAudioContext
+}
 
-  const context = new AudioContextConstructor()
+/** Call directly from a user gesture so browsers permit later notification audio. */
+export function primeNotificationAudio() {
+  if (typeof window === "undefined") return false
+  try {
+    const context = getAudioContext()
+    if (!context) return false
+    void context.resume()
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function playDefaultChime(volume: number): Promise<boolean> {
+  const context = getAudioContext()
+  if (!context) return false
+
   try {
     await context.resume()
     const now = context.currentTime
@@ -116,7 +138,7 @@ async function playDefaultChime(volume: number): Promise<boolean> {
       { frequency: 2093, volume: 0.035, decay: 0.7 },
       { frequency: 2920, volume: 0.018, decay: 0.4 },
     ]
-    partials.forEach(({ frequency, volume: partialVolume, decay }, index) => {
+    partials.forEach(({ frequency, volume: partialVolume, decay }) => {
       const oscillator = context.createOscillator()
       const gain = context.createGain()
       oscillator.type = "sine"
@@ -129,14 +151,12 @@ async function playDefaultChime(volume: number): Promise<boolean> {
       oscillator.onended = () => {
         oscillator.disconnect()
         gain.disconnect()
-        if (index === 0) void context.close().catch(() => {})
       }
       oscillator.start(now)
       oscillator.stop(now + decay + 0.02)
     })
     return true
   } catch {
-    void context.close()
     return false
   }
 }
@@ -161,16 +181,13 @@ export async function playNotificationChime(userId: string): Promise<boolean> {
         return true
       } catch {
         releaseUrl()
-        return false
+        // Custom audio can be blocked or unsupported; keep alerts audible with
+        // the built-in tone instead of silently failing.
       }
     }
   } catch {
     // The built-in chime remains available if IndexedDB is blocked or unavailable.
   }
 
-  try {
-    return await playDefaultChime(volume)
-  } catch {
-    return false
-  }
+  return playDefaultChime(volume)
 }

@@ -8,6 +8,7 @@ import {
   getCustomNotificationSound,
   getNotificationVolume,
   maxNotificationSoundBytes,
+  primeNotificationAudio,
   playNotificationChime,
   removeCustomNotificationSound,
   saveCustomNotificationSound,
@@ -125,6 +126,7 @@ export function NotificationSettings({ userId, demoMode }: { userId: string; dem
   }, [demoMode])
 
   async function updateSound(enabled: boolean) {
+    if (enabled) primeNotificationAudio()
     setSaving(true)
     setMessage(null)
     try {
@@ -216,6 +218,7 @@ export function NotificationSettings({ userId, demoMode }: { userId: string; dem
   }
 
   async function testSound() {
+    primeNotificationAudio()
     setMessage(null)
     if (volume === 0) {
       setMessage("Sound volume is at 0%. Increase it to preview the notification sound.")

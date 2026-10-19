@@ -37,7 +37,7 @@ export function DashboardShell({ children, compact = false }: DashboardShellProp
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const searchKey = searchParams.toString()
-  const { openTask, openNewTask, newTaskOpen, newTaskSeed, closeNewTask } = useTaskDrawer()
+  const { openNewTask, newTaskOpen, newTaskSeed, closeNewTask } = useTaskDrawer()
   const { currentUser, switchDemoUser, demoMode, error: workflowError, clearError, tasks, clients } = useWorkflow()
   const navigationVariant = currentUser.role === "supervisor" ? "supervisor" : "account_manager"
   const isAdministrator = !demoMode && currentUser.title?.toLowerCase() === "administrator"
@@ -133,7 +133,7 @@ export function DashboardShell({ children, compact = false }: DashboardShellProp
               <Plus data-icon="inline-start" />
               <span className="hidden sm:inline">New task</span>
             </Button>
-              <NotificationBell currentUser={currentUser} demoMode={demoMode} compact={compact} onOpenTask={openTask} onNavigate={() => setNavigationPending(true)} />
+              <NotificationBell currentUser={currentUser} demoMode={demoMode} compact={compact} onNavigate={() => setNavigationPending(true)} />
             <ThemeModeToggle />
             <Separator orientation="vertical" className="mx-1 hidden h-6 sm:block" />
             <DropdownMenu>
