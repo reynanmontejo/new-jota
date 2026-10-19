@@ -10,21 +10,28 @@ accounts and non-sensitive data.
 This plan is for application and workflow readiness. It does not authorize a
 production deployment, production data changes, or replaying migrations.
 
-## Current baseline
+## Current baseline — refreshed 2026-10-19
 
 At the time this plan was written, local checks pass:
 
 - `npm run typecheck`
 - `npm run lint`
-- `npm test` — 25 tests
-- `npm run test:schema` — 35 tables and 36 policies
+- `npm test` — 61 tests
+- `npm run test:schema` — 40 tables and 37 policies
 - `npm run build`
 
 These checks validate the local code and schema test harness. They do not prove
 that hosted authorization, Google Drive, role-specific screens, or full browser
 workflows work against real accounts.
 
-### Owner verification checkpoint — 2026-10-14
+The owner confirms opted-in email notifications send successfully and Brevo
+logs show them. Treat email as a regression check, not an open blocker. The
+owner also manually confirmed hosted `pg_net` in the `net` schema and the
+dispatcher/Cron job setup. End-to-end push delivery, role-based browser
+workflows, and the currently deployed commit still require independent
+verification.
+
+### Historical owner verification checkpoint — 2026-10-14
 
 The owner reports that the task-archive migration has been applied to the
 intended Supabase project, archiving and restoring completed tasks work, and the

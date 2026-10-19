@@ -25,8 +25,8 @@ Already implemented or locally verified:
 - Content tracker create/update/archive, client/campaign/assignee validation,
   CSV preview/import, duplicate skipping, and no automatic task creation.
 - Calendar content/deadline views and clickable date cells with day details.
-- Local validation currently includes a successful production build, typecheck,
-  lint, 8 Vitest tests, and the PGlite schema validation suite.
+- Local validation most recently passed production build, typecheck, lint,
+  61 Vitest tests, and PGlite schema validation (40 tables / 37 policies).
 
 These checks do not prove that every hosted migration or scheduled job is
 current, nor do they validate the user's actual CSV against production data.
@@ -34,16 +34,31 @@ The hosted content migrations were applied through the Supabase SQL Editor and
 the migration history was repaired after checking live objects. Verify live
 catalog state again before any future `supabase db push`.
 
-### Current owner-reported status — 2026-10-14
+### Historical owner-reported checkpoint — 2026-10-14
 
-This status supersedes older dated checkpoints below where they describe work as
-still pending: the owner confirms the task-archive migration was applied to the
-intended Supabase project, completed-task archive/restore works, and the current
-workflow smoke test passed. Earlier checkpoint notes are retained as historical
-records. Current remaining work is automated validation and review of the
-present worktree, then publishing the approved changes. Search expansion and
-content export remain optional enhancements rather than blockers for the core
-workflow.
+The owner confirmed the task-archive migration was applied to the intended
+Supabase project, completed-task archive/restore works, and the workflow smoke
+test passed. This is a historical checkpoint; older phase notes below may
+describe earlier implementation states.
+
+### Current status — 2026-10-19
+
+- The owner confirms opted-in email notifications are sending and Brevo logs
+  show them. Email is a regression check, not an open defect.
+- Local validation most recently passed typecheck, lint, 61 Vitest tests,
+  schema validation (40 tables / 37 policies), and production build.
+- Dependency remediation is in progress: Next.js has been updated to 16.3.8;
+  the full audit still reports a `braces` advisory in development tooling, with
+  no upstream patch listed at this checkpoint.
+- The owner manually enabled hosted `pg_net` and confirmed `net.http_post` is
+  available. The dispatcher function and five-minute Cron job were also
+  confirmed in the intended project; runtime delivery still needs an end-to-end
+  test. Local schema validation does not establish hosted state.
+- Older phase snapshots below are historical notes, not the current release
+  status. Use the current remediation plan for remaining gates.
+
+Search expansion and content export remain optional enhancements rather than
+blockers for the core workflow.
 
 ## Cross-phase change controls
 
