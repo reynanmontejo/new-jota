@@ -51,6 +51,18 @@ export function filterInsightsByUser(tasks: WorkflowTask[], content: WorkflowCon
   }
 }
 
+export function getContentFormatCounts(content: WorkflowContentWorkItem[]) {
+  return content.reduce((counts, item) => {
+    const format = item.format.trim().toLocaleLowerCase()
+    const isVideo = /(^|[^a-z0-9])(video|reel|shorts?|stories?|tiktok|clip|animation|motion)([^a-z0-9]|$)/.test(format)
+    const isStatic = /(^|[^a-z0-9])(static|image|photo|graphic|carousel|infographic|poster)([^a-z0-9]|$)/.test(format)
+    if (isVideo) counts.video += 1
+    else if (isStatic) counts.static += 1
+    else counts.other += 1
+    return counts
+  }, { total: content.length, static: 0, video: 0, other: 0 })
+}
+
 export function getCompletionTrend(tasks: WorkflowTask[], now: Date, grouping: TrendGrouping = "weekly") {
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
   const intervals = Array.from({ length: grouping === "daily" ? 7 : 6 }, (_, index) => {
@@ -125,6 +137,7 @@ export function InsightsDashboard() {
     const days = dayDistance(item.deadlineAt ?? item.publishAt, today)
     return days !== null && days >= 0 && days <= 7 ? [{ ...item, days }] : []
   }).sort((a, b) => a.days - b.days)
+  const contentFormatCounts = getContentFormatCounts(scoped.content)
   const statusCounts = statusOrder.map((status) => ({ status, count: scoped.tasks.filter((task) => task.status === status).length }))
   const maxStatusCount = Math.max(1, ...statusCounts.map((entry) => entry.count))
   const completionTrend = getCompletionTrend(scoped.tasks, today, trendGrouping)
@@ -171,6 +184,8 @@ export function InsightsDashboard() {
         <MetricCard label="Completed" value={completedTasks.length} detail="Tasks marked complete" icon={<CheckCircle2 className="size-4" />} />
       </section>
 
+      <ContentFormatSummary counts={contentFormatCounts} />
+
       <div className="mt-4 grid gap-4 xl:grid-cols-[1.1fr_.9fr]">
         <section className="overview-panel rounded-xl border p-4 sm:p-5" aria-labelledby="task-flow-heading">
           <div className="flex items-start justify-between gap-3"><div><h2 id="task-flow-heading" className="text-sm font-semibold">Task flow</h2><p className="mt-1 text-xs text-muted-foreground">Tasks by their current stage.</p></div><button type="button" onClick={() => router.push("/tasks")} className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">Open tasks <ArrowRight className="size-3.5" /></button></div>
@@ -207,6 +222,30 @@ export function InsightsDashboard() {
       </section>
     </main>
   )
+}
+
+function ContentFormatSummary({ counts }: { counts: ReturnType<typeof getContentFormatCounts> }) {
+  const staticEnd = counts.total ? counts.static / counts.total * 100 : 0
+  const videoEnd = counts.total ? (counts.static + counts.video) / counts.total * 100 : 0
+  const background = counts.total
+    ? `conic-gradient(var(--chart-1) 0% ${staticEnd}%, var(--chart-2) ${staticEnd}% ${videoEnd}%, var(--chart-3) ${videoEnd}% 100%)`
+    : "var(--secondary)"
+  const formatSummary = `${counts.static} static posts, ${counts.video} video posts, ${counts.other} other or unclassified formats`
+
+  return <section className="overview-panel mt-4 rounded-xl border p-4 sm:p-5" aria-labelledby="content-format-heading">
+    <div className="flex flex-wrap items-start justify-between gap-2">
+      <div><h2 id="content-format-heading" className="text-sm font-semibold">Content by format</h2><p className="mt-1 text-xs text-muted-foreground">Distribution from the saved content format field.</p></div>
+      <p className="text-xs text-muted-foreground"><span className="font-semibold tabular-nums text-foreground">{counts.total}</span> total content items in this view</p>
+    </div>
+    <div className="mt-4 grid items-center gap-4 sm:grid-cols-[auto_minmax(0,1fr)]">
+      <div role="img" aria-label={formatSummary} className="mx-auto size-32 rounded-full border border-border/50" style={{ background }} />
+      <dl className="grid gap-2 sm:grid-cols-2">
+        <div className="flex items-center gap-2 rounded-md border border-border/70 px-3 py-2"><span aria-hidden="true" className="size-2.5 rounded-sm" style={{ backgroundColor: "var(--chart-1)" }} /><dt className="min-w-0 flex-1 text-xs text-muted-foreground">Static posts</dt><dd className="text-sm font-semibold tabular-nums">{counts.static}</dd></div>
+        <div className="flex items-center gap-2 rounded-md border border-border/70 px-3 py-2"><span aria-hidden="true" className="size-2.5 rounded-sm" style={{ backgroundColor: "var(--chart-2)" }} /><dt className="min-w-0 flex-1 text-xs text-muted-foreground">Video posts</dt><dd className="text-sm font-semibold tabular-nums">{counts.video}</dd></div>
+        <div className="flex items-center gap-2 rounded-md border border-border/70 px-3 py-2 sm:col-span-2"><span aria-hidden="true" className="size-2.5 rounded-sm" style={{ backgroundColor: "var(--chart-3)" }} /><dt className="min-w-0 flex-1 text-xs text-muted-foreground">Other / unclassified formats</dt><dd className="text-sm font-semibold tabular-nums">{counts.other}</dd></div>
+      </dl>
+    </div>
+  </section>
 }
 
 function MetricCard({ label, value, detail, icon, alert = false }: { label: string; value: number; detail: string; icon: React.ReactNode; alert?: boolean }) {

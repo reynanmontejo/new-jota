@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { filterCompletedTasks, filterInsightsByUser, getCompletionTrend } from "@/features/insights/insights-dashboard"
+import { filterCompletedTasks, filterInsightsByUser, getCompletionTrend, getContentFormatCounts } from "@/features/insights/insights-dashboard"
 import type { WorkflowContentWorkItem, WorkflowTask } from "@/features/workflow/types"
 
 function task(id: string, status: WorkflowTask["status"], completedAt: string | null): WorkflowTask {
@@ -62,5 +62,19 @@ describe("insights completion metrics", () => {
 
     expect(filterInsightsByUser(tasks, content, "user-2")).toEqual({ tasks: [tasks[1]], content: [content[1]] })
     expect(filterInsightsByUser(tasks, content, "all")).toEqual({ tasks, content })
+  })
+})
+
+describe("content format metrics", () => {
+  it("counts recognized static and video formats while keeping unclear formats separate", () => {
+    const content = [
+      { id: "reel", format: "Reel" },
+      { id: "video", format: "Short video" },
+      { id: "static", format: "Static image" },
+      { id: "carousel", format: "Carousel" },
+      { id: "unknown", format: "Brand concept" },
+    ] as WorkflowContentWorkItem[]
+
+    expect(getContentFormatCounts(content)).toEqual({ total: 5, static: 2, video: 2, other: 1 })
   })
 })

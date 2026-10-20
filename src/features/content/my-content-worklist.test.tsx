@@ -53,6 +53,16 @@ describe("unified content tracker", () => {
     expect(screen.getByText("Loaded file workspace")).toBeInTheDocument()
   })
 
+  it("opens content editing in a responsive sheet instead of an in-card popover", () => {
+    render(<ContentTracker clients={[]} campaigns={[]} assignees={{}} items={items} canCreate={false} canEdit canCreateTask={false} currentUserId="user-1" canAssignContent={false} />)
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[0])
+
+    const editor = screen.getByRole("dialog", { name: "Edit content" })
+    expect(editor).toHaveTextContent("October product reel · Northwind")
+    expect(editor).toHaveAttribute("data-slot", "sheet-content")
+  })
+
   it("archives an item with an undo option and restores it", async () => {
     actionMocks.archiveContentItem.mockResolvedValue({ ok: true })
     actionMocks.restoreContentItem.mockResolvedValue({ ok: true })

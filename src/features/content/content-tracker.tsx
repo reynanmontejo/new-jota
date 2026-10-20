@@ -9,6 +9,7 @@ import { ClientFiles } from "@/features/clients/client-files"
 import { ContentImport } from "@/features/content/content-import"
 import { ContentSubmitButton } from "@/features/content/content-submit-button"
 import { useTaskDrawer } from "@/features/tasks/task-drawer"
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 
 export type TrackerClient = { id: string; name: string }
 export type TrackerCampaign = { id: string; client_id: string; name: string; status: string }
@@ -138,13 +139,16 @@ export function ContentTracker({ clients, campaigns, assignees, items, canCreate
   const [clientFilter, setClientFilter] = useState("all")
   const [viewMode, setViewMode] = useState<"cards" | "list">("cards")
   const [currentPage, setCurrentPage] = useState(1)
+  const [editingItemId, setEditingItemId] = useState<string | null>(null)
   const [hiddenItemIds, setHiddenItemIds] = useState<Set<string>>(() => new Set())
   const [pendingAction, setPendingAction] = useState<string | null>(null)
+  const [sheetError, setSheetError] = useState<string | null>(null)
   const [undoContentId, setUndoContentId] = useState<string | null>(null)
   const [undoItem, setUndoItem] = useState<TrackerItem | null>(null)
   const [feedback, setFeedback] = useState<{ kind: "success" | "error"; message: string } | null>(null)
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const availableItems = useMemo(() => items.filter((item) => !hiddenItemIds.has(item.id)), [items, hiddenItemIds])
+  const editingItem = availableItems.find((item) => item.id === editingItemId) ?? null
   const visibleItems = useMemo(() => availableItems.filter((item) => {
     const text = `${item.title} ${item.client_name} ${item.campaign_name} ${item.platform} ${item.content_type} ${item.status} ${item.client_approval_status ?? ""} ${item.client_issues ?? ""} ${item.notes ?? ""} ${item.revision_notes ?? ""} ${item.assignee_name ?? ""}`.toLocaleLowerCase()
     return (!query || text.includes(query.trim().toLocaleLowerCase())) && (statusFilter === "all" || item.status === statusFilter) && (clientFilter === "all" || item.client_id === clientFilter)
@@ -171,6 +175,7 @@ export function ContentTracker({ clients, campaigns, assignees, items, canCreate
   async function archiveItem(item: TrackerItem) {
     if (pendingAction) return
     setPendingAction(`archive:${item.id}`)
+    setSheetError(null)
     if (undoTimer.current) clearTimeout(undoTimer.current)
     undoTimer.current = null
     setUndoContentId(null)
@@ -179,16 +184,20 @@ export function ContentTracker({ clients, campaigns, assignees, items, canCreate
     try {
       const result = await archiveContentItem(item.id)
       if (!result.ok) {
+        setSheetError(result.error)
         setFeedback({ kind: "error", message: result.error })
         return
       }
       setHiddenItemIds((current) => new Set(current).add(item.id))
+      setEditingItemId(null)
       setUndoContentId(item.id)
       setUndoItem(item)
       setFeedback({ kind: "success", message: `“${item.title}” archived.` })
       expireUndo()
     } catch {
-      setFeedback({ kind: "error", message: "The content could not be archived. Check your connection and try again." })
+      const message = "The content could not be archived. Check your connection and try again."
+      setSheetError(message)
+      setFeedback({ kind: "error", message })
     } finally {
       setPendingAction(null)
     }
@@ -301,10 +310,7 @@ export function ContentTracker({ clients, campaigns, assignees, items, canCreate
               {pendingAction === `restore:${item.id}` ? <LoaderCircle className="size-3 animate-spin" /> : <RotateCcw className="size-3" />}
               {pendingAction === `restore:${item.id}` ? "Restoring…" : "Restore"}
             </button>}
-            {!isArchivedView && canEdit && <details className="relative"><summary className="inline-flex h-7 cursor-pointer list-none items-center rounded-md border border-border/80 bg-background/70 px-2 text-[10px] font-medium text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">Edit</summary><div className="overview-panel absolute right-0 z-30 mt-1.5 max-h-[min(78vh,720px)] w-[min(48rem,calc(100vw-2.5rem))] overflow-y-auto rounded-lg border bg-card p-3 shadow-xl"><ContentForm clients={clients.filter((client) => client.id === item.client_id)} campaigns={campaigns.filter((campaign) => campaign.client_id === item.client_id)} assignees={assignees} item={item} canEdit={canEdit} currentUserId={currentUserId} /><div className="mt-3 border-t pt-3"><button type="button" disabled={Boolean(pendingAction)} onClick={() => void archiveItem(item)} className="inline-flex min-h-8 items-center gap-1.5 rounded-md px-1 text-xs text-destructive transition hover:underline disabled:cursor-wait disabled:opacity-60">
-              {pendingAction === `archive:${item.id}` ? <LoaderCircle className="size-3.5 animate-spin" /> : <Archive className="size-3.5" />}
-              {pendingAction === `archive:${item.id}` ? "Archiving…" : "Archive item"}
-            </button></div></div></details>}
+            {!isArchivedView && canEdit && <button type="button" onClick={() => { setSheetError(null); setEditingItemId(item.id) }} className="inline-flex h-7 items-center rounded-md border border-border/80 bg-background/70 px-2 text-[10px] font-medium text-muted-foreground hover:text-foreground">Edit</button>}
           </div>
           {(item.next_action || item.assignee_name || item.work_date || item.revision_count > 0 || item.client_approval_status || item.client_issues || item.notes || item.revision_notes || (canEdit && !isArchivedView)) && <details className={`border-t border-border/60 pt-1.5 ${viewMode === "list" ? "sm:col-span-3" : "mt-1.5"}`}>
             <summary className="cursor-pointer list-none text-[10px] font-medium text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">More details</summary>
@@ -329,5 +335,25 @@ export function ContentTracker({ clients, campaigns, assignees, items, canCreate
       </nav>}
     </section>
     <p className="mt-3 text-[10px] text-muted-foreground">This is the shared content list for account managers and supervisors. Posts stay here and on Calendar; use Add task when a separate assigned work item is useful.</p>
+    <Sheet open={Boolean(editingItem)} onOpenChange={(open) => { if (!open) { setEditingItemId(null); setSheetError(null) } }}>
+      <SheetContent className="!w-screen !max-w-none gap-0 overflow-y-auto p-0 sm:!w-[min(92vw,900px)] sm:!max-w-[min(92vw,900px)]">
+        {editingItem && <>
+          <SheetHeader className="border-b px-4 py-4 pr-12 sm:px-6">
+            <SheetTitle>Edit content</SheetTitle>
+            <SheetDescription className="truncate">{editingItem.title} · {editingItem.client_name}</SheetDescription>
+          </SheetHeader>
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
+            {sheetError && <p role="alert" className="mb-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">{sheetError}</p>}
+            <ContentForm clients={clients.filter((client) => client.id === editingItem.client_id)} campaigns={campaigns.filter((campaign) => campaign.client_id === editingItem.client_id)} assignees={assignees} item={editingItem} canEdit={canEdit} currentUserId={currentUserId} />
+            <div className="mt-4 border-t pt-3">
+              <button type="button" disabled={Boolean(pendingAction)} onClick={() => void archiveItem(editingItem)} className="inline-flex min-h-8 items-center gap-1.5 rounded-md px-1 text-xs text-destructive transition hover:underline disabled:cursor-wait disabled:opacity-60">
+                {pendingAction === `archive:${editingItem.id}` ? <LoaderCircle className="size-3.5 animate-spin" /> : <Archive className="size-3.5" />}
+                {pendingAction === `archive:${editingItem.id}` ? "Archiving…" : "Archive item"}
+              </button>
+            </div>
+          </div>
+        </>}
+      </SheetContent>
+    </Sheet>
   </main>
 }

@@ -67,6 +67,11 @@ export function filterContentByOwner(posts: ContentCalendarPost[], ownerFilter: 
   return posts.filter((post) => post.ownerId === ownerFilter)
 }
 
+export function getCalendarDayPreview<T>(events: T[], limit = 2) {
+  const visibleEvents = events.slice(0, Math.max(0, limit))
+  return { visibleEvents, remainingCount: Math.max(0, events.length - visibleEvents.length) }
+}
+
 export function ContentCalendar({ contentPosts, contentError = false, clientId }: { contentPosts?: ContentCalendarPost[]; contentError?: boolean; clientId?: string }) {
   const [month, setMonth] = useState(() => {
     const now = new Date()
@@ -95,6 +100,7 @@ export function ContentCalendar({ contentPosts, contentError = false, clientId }
     : visibleScheduledContent
   const scheduledEvents = ownerFilteredContent.map((item) => ({ ...item, date: scheduledDateKey(item.date) }))
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
+  const [detailsMinimized, setDetailsMinimized] = useState(false)
   const selectedPosts = selectedDate ? scheduledEvents.filter((item) => item.date === selectedDate) : []
   const selectedDeadlines = selectedDate ? deadlines.filter((item) => item.date === selectedDate) : []
   const selectedDateLabel = selectedDate
@@ -108,7 +114,13 @@ export function ContentCalendar({ contentPosts, contentError = false, clientId }
 
   function changeMonth(offset: number) {
     setSelectedDate(null)
+    setDetailsMinimized(false)
     setMonth((current) => new Date(current.getFullYear(), current.getMonth() + offset, 1))
+  }
+
+  function selectDate(date: string) {
+    setSelectedDate(date)
+    setDetailsMinimized(false)
   }
 
   return (
@@ -131,45 +143,54 @@ export function ContentCalendar({ contentPosts, contentError = false, clientId }
         <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-sm bg-primary/55" />Scheduled content</span>
         {(Object.entries(deadlineStyles) as [DeadlineUrgency, typeof deadlineStyles[DeadlineUrgency]][]).map(([urgency, style]) => <span key={urgency} className="inline-flex items-center gap-1.5"><span className={`size-2 rounded-sm ${style.dateClassName}`} />{style.legendLabel}</span>)}
       </div>
-      <section aria-label={`${monthLabel} calendar`} className="overview-panel mt-4 hidden overflow-hidden rounded-lg border md:block">
-        <div className="grid grid-cols-7 border-b bg-secondary/15 text-center text-[11px] font-semibold text-muted-foreground">{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <div key={day} className="py-2">{day}</div>)}</div>
-        <div className="grid grid-cols-7">
-          {Array.from({ length: firstWeekday }, (_, index) => <div key={`empty-${index}`} className="min-h-24 border-b border-r bg-muted/10" />)}
-          {Array.from({ length: daysInMonth }, (_, index) => {
-            const day = index + 1
-            const date = dateKey(new Date(month.getFullYear(), month.getMonth(), day))
-            const posts = scheduledEvents.filter((item) => item.date === date)
-            const due = deadlines.filter((item) => item.date === date)
-            return <div key={date} className={`group relative min-h-24 min-w-0 border-b border-r p-1.5 sm:p-2 ${selectedDate === date ? "bg-primary/5" : ""}`}>
-              <button type="button" onClick={() => setSelectedDate(date)} aria-label={`View details for ${monthLabel} ${day}`} aria-pressed={selectedDate === date} className="absolute inset-0 z-0 rounded-sm text-left transition-colors hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
-                <span className="absolute left-1.5 top-1.5 grid min-h-6 min-w-6 place-items-center rounded px-1 text-[11px] font-semibold group-hover:bg-primary/10 sm:left-2 sm:top-2">{day}</span>
-              </button>
-              <div className="pointer-events-none relative z-10 mt-7 space-y-1">{posts.map((post) => {
-                const urgency = post.eventType === "deadline" ? getDeadlineUrgency(date) : null
-                const style = urgency ? deadlineStyles[urgency] : null
-                return <button key={post.id} type="button" onClick={() => setSelectedDate(date)} title={`${urgency ? `${style!.label} content deadline` : "Publish"}: ${post.title} · ${post.client} · ${post.channel}`} className={`pointer-events-auto block w-full truncate rounded border px-1.5 py-1 text-left text-[10px] font-medium ${style ? style.className : "border-primary/15 bg-primary/12 text-primary"}`}>{urgency ? `${style!.label}: ` : ""}{post.title}</button>
-              })}{due.map(({ task }) => {
-                const urgency = getDeadlineUrgency(date)
-                const style = deadlineStyles[urgency]
-                return <button key={task.id} type="button" onClick={() => openTask(task.id)} title={`${style.label} task deadline: ${task.title}`} className={`pointer-events-auto block w-full truncate rounded border px-1.5 py-1 text-left text-[10px] font-medium ${style.className}`}>{style.label}: {task.title}</button>
-              })}</div>
-            </div>
-          })}
-        </div>
-      </section>
-      <section aria-label={`${monthLabel} agenda`} className="mt-4 space-y-2 md:hidden">
+      <div className={`mt-4 grid min-w-0 items-start gap-3 ${selectedDate ? detailsMinimized ? "lg:grid-cols-[minmax(0,1fr)_4rem]" : "lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]" : ""}`}>
+        <section aria-label={`${monthLabel} calendar`} className="overview-panel hidden min-w-0 overflow-hidden rounded-lg border md:block">
+          <div className="grid grid-cols-7 border-b bg-secondary/15 text-center text-[11px] font-semibold text-muted-foreground">{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <div key={day} className="py-2">{day}</div>)}</div>
+          <div className="grid grid-cols-7">
+            {Array.from({ length: firstWeekday }, (_, index) => <div key={`empty-${index}`} className="min-h-24 border-b border-r bg-muted/10" />)}
+            {Array.from({ length: daysInMonth }, (_, index) => {
+              const day = index + 1
+              const date = dateKey(new Date(month.getFullYear(), month.getMonth(), day))
+              const posts = scheduledEvents.filter((item) => item.date === date)
+              const due = deadlines.filter((item) => item.date === date)
+              const dayEvents = [
+                ...posts.map((post) => ({ key: `content-${post.id}`, title: post.title, urgency: post.eventType === "deadline" ? getDeadlineUrgency(date) : null as DeadlineUrgency | null, taskId: null as string | null, detail: `${post.eventType === "deadline" ? "Content deadline" : "Publish"}: ${post.title} · ${post.client} · ${post.channel}` })),
+                ...due.map(({ task }) => ({ key: `task-${task.id}`, title: task.title, urgency: getDeadlineUrgency(date), taskId: task.id, detail: `${getDeadlineUrgency(date)} task deadline: ${task.title}` })),
+              ]
+              const { visibleEvents, remainingCount } = getCalendarDayPreview(dayEvents)
+              return <div key={date} className={`group relative min-h-24 min-w-0 border-b border-r p-1.5 sm:p-2 ${selectedDate === date ? "bg-primary/5" : ""}`}>
+                <button type="button" onClick={() => selectDate(date)} aria-label={`View details for ${monthLabel} ${day}`} aria-pressed={selectedDate === date} className="absolute inset-0 z-0 rounded-sm text-left transition-colors hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+                  <span className="absolute left-1.5 top-1.5 grid min-h-6 min-w-6 place-items-center rounded px-1 text-[11px] font-semibold group-hover:bg-primary/10 sm:left-2 sm:top-2">{day}</span>
+                </button>
+                <div className="pointer-events-none relative z-10 mt-7 space-y-1">
+                  {visibleEvents.map((event) => {
+                    const style = event.urgency ? deadlineStyles[event.urgency] : null
+                    return <button key={event.key} type="button" onClick={() => event.taskId ? openTask(event.taskId) : selectDate(date)} title={event.detail} className={`pointer-events-auto block w-full truncate rounded border px-1.5 py-1 text-left text-[10px] font-medium ${style ? style.className : "border-primary/15 bg-primary/12 text-primary"}`}>{style ? `${style.label}: ` : ""}{event.title}</button>
+                  })}
+                  {remainingCount > 0 && <button type="button" onClick={() => selectDate(date)} aria-label={`View ${remainingCount} more items for ${date}`} className="pointer-events-auto block w-full truncate rounded px-1.5 py-1 text-left text-[10px] font-semibold text-primary hover:bg-primary/10">View {remainingCount} more</button>}
+                </div>
+              </div>
+            })}
+          </div>
+        </section>
+        <section aria-label={`${monthLabel} agenda`} className="space-y-2 md:hidden">
         {agenda.length === 0 ? <div className="overview-panel rounded-lg border px-4 py-6 text-center text-sm text-muted-foreground">No scheduled content or task deadlines this month.</div> : agenda.map((event) => (
-          <button type="button" key={`${event.date}-${event.key}`} onClick={() => event.taskId ? openTask(event.taskId) : setSelectedDate(event.date)} className={`overview-panel flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left ${event.urgency ? deadlineStyles[event.urgency].className : "hover:border-primary/40"}`}>
+          <button type="button" key={`${event.date}-${event.key}`} onClick={() => event.taskId ? openTask(event.taskId) : selectDate(event.date)} className={`overview-panel flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left ${event.urgency ? deadlineStyles[event.urgency].className : "hover:border-primary/40"}`}>
             <span className={`grid size-10 shrink-0 place-items-center rounded-md text-xs font-semibold ${event.urgency ? deadlineStyles[event.urgency].dateClassName : "bg-secondary/35"}`}>{Number(event.date.slice(-2))}</span>
             <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{event.title}</p><p className="truncate text-xs text-muted-foreground">{event.detail}</p></div>
             <span className="shrink-0 text-xs font-medium text-primary">Details</span>
           </button>
         ))}
-      </section>
-      {selectedDate && <section aria-label={`Details for ${selectedDateLabel}`} className="overview-panel mt-4 rounded-lg border p-4" aria-live="polite">
+        </section>
+        {selectedDate && <section aria-label={`Details for ${selectedDateLabel}`} className={`overview-panel min-w-0 rounded-lg border ${detailsMinimized ? "flex items-center justify-between gap-2 p-2 lg:flex-col lg:justify-start" : "p-4 lg:max-h-[calc(100vh-5rem)] lg:overflow-y-auto"}`} aria-live="polite">
+        {detailsMinimized ? <>
+          <span className="min-w-0 truncate text-xs font-medium lg:hidden">{selectedDateLabel}</span>
+          <Button variant="outline" size="sm" onClick={() => setDetailsMinimized(false)} aria-label={`Expand details for ${selectedDateLabel}`}>Expand</Button>
+          <Button variant="ghost" size="sm" onClick={() => setSelectedDate(null)}>Close</Button>
+        </> : <>
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-start gap-2.5"><CalendarDays className="mt-0.5 size-4 text-primary" aria-hidden="true" /><div><h2 className="text-sm font-semibold">{selectedDateLabel}</h2><p className="mt-0.5 text-xs text-muted-foreground">{selectedPosts.length + selectedDeadlines.length ? `${selectedPosts.length + selectedDeadlines.length} item${selectedPosts.length + selectedDeadlines.length === 1 ? "" : "s"} scheduled` : "Nothing scheduled"}</p></div></div>
-          <Button variant="ghost" size="sm" onClick={() => setSelectedDate(null)}>Close</Button>
+          <div className="flex shrink-0 items-center gap-1"><Button variant="ghost" size="sm" onClick={() => setDetailsMinimized(true)}>Minimize</Button><Button variant="ghost" size="sm" onClick={() => setSelectedDate(null)}>Close</Button></div>
         </div>
         {(selectedPosts.length > 0 || selectedDeadlines.length > 0) && <div className="mt-3 divide-y rounded-md border">
           {selectedPosts.map((post) => {
@@ -191,7 +212,9 @@ export function ContentCalendar({ contentPosts, contentError = false, clientId }
             return <button key={task.id} type="button" onClick={() => openTask(task.id)} className={`flex w-full items-center gap-2.5 border-l-2 p-3 text-left ${style.className}`}><CircleCheck className="size-4 shrink-0" aria-hidden="true" /><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{task.title}</span><span className="block text-xs">{style.label} task deadline · {task.clientName} · {task.primaryOwner.name}</span></span><span className="shrink-0 text-xs font-medium">Open task</span></button>
           })}
         </div>}
-      </section>}
+        </>}
+        </section>}
+      </div>
     </div>
   )
 }
