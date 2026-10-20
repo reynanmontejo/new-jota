@@ -9,6 +9,13 @@ function copyCookies(source: NextResponse, destination: NextResponse) {
 }
 
 export async function proxy(request: NextRequest) {
+  // Supabase pg_net calls this server endpoint without a browser session. The
+  // route itself authenticates POST requests with CRON_SECRET, so let that
+  // check run instead of redirecting the request to the interactive login.
+  if (request.nextUrl.pathname === "/api/notifications/dispatch") {
+    return NextResponse.next({ request })
+  }
+
   if (!isSupabaseConfigured()) {
     if (process.env.NODE_ENV === "production") {
       return new NextResponse("Authentication is not configured.", { status: 503 })
