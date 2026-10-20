@@ -54,8 +54,8 @@ export function filterInsightsByUser(tasks: WorkflowTask[], content: WorkflowCon
 export function getContentFormatCounts(content: WorkflowContentWorkItem[]) {
   return content.reduce((counts, item) => {
     const format = item.format.trim().toLocaleLowerCase()
-    const isVideo = /(^|[^a-z0-9])(video|reel|shorts?|stories?|tiktok|clip|animation|motion)([^a-z0-9]|$)/.test(format)
-    const isStatic = /(^|[^a-z0-9])(static|image|photo|graphic|carousel|infographic|poster)([^a-z0-9]|$)/.test(format)
+    const isVideo = /(^|[^a-z0-9])(video|reels?|shorts?|stor(y|ies)|tiktok|clips?|animations?|motion)([^a-z0-9]|$)/.test(format)
+    const isStatic = /(^|[^a-z0-9])(static|images?|photos?|graphics?|carousels?|infographics?|posters?)([^a-z0-9]|$)/.test(format)
     if (isVideo) counts.video += 1
     else if (isStatic) counts.static += 1
     else counts.other += 1

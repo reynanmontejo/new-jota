@@ -68,13 +68,15 @@ describe("insights completion metrics", () => {
 describe("content format metrics", () => {
   it("counts recognized static and video formats while keeping unclear formats separate", () => {
     const content = [
-      { id: "reel", format: "Reel" },
+      { id: "reel", format: "Instagram Reels" },
+      { id: "story", format: "Instagram Story" },
       { id: "video", format: "Short video" },
       { id: "static", format: "Static image" },
       { id: "carousel", format: "Carousel" },
+      { id: "graphic", format: "Graphic post" },
       { id: "unknown", format: "Brand concept" },
     ] as WorkflowContentWorkItem[]
 
-    expect(getContentFormatCounts(content)).toEqual({ total: 5, static: 2, video: 2, other: 1 })
+    expect(getContentFormatCounts(content)).toEqual({ total: 7, static: 3, video: 3, other: 1 })
   })
 })
