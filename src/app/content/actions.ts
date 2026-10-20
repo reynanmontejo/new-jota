@@ -20,8 +20,6 @@ const schema = z.object({
   workDate: z.string().optional(),
   deadlineAt: z.string().optional(),
   publishAt: z.string().optional(),
-  clientApprovalStatus: z.union([z.enum(approvals), z.literal("")]).optional(),
-  clientIssues: z.string().max(5000),
   notes: z.string().max(5000),
   nextAction: z.string().max(500),
   revisionNotes: z.string().max(5000),
@@ -59,8 +57,6 @@ export async function saveContentItem(formData: FormData) {
     workDate: field(formData, "workDate"),
     deadlineAt: field(formData, "deadlineAt"),
     publishAt: field(formData, "publishAt"),
-    clientApprovalStatus: field(formData, "clientApprovalStatus"),
-    clientIssues: field(formData, "clientIssues"),
     notes: field(formData, "notes"),
     nextAction: field(formData, "nextAction"),
     revisionNotes: field(formData, "revisionNotes"),
@@ -73,6 +69,18 @@ export async function saveContentItem(formData: FormData) {
   if (publishAt === undefined || workDate === undefined || deadlineAt === undefined) redirect("/content?notice=invalid")
 
   const supabase = await createClient()
+  let existingClientApprovalStatus: string | null = null
+  let existingClientIssues: string | null = null
+  if (parsed.data.id) {
+    const { data: existingItem, error: existingItemError } = await supabase.from("content_items")
+      .select("client_approval_status,client_issues")
+      .eq("id", parsed.data.id)
+      .is("deleted_at", null)
+      .maybeSingle()
+    if (existingItemError || !existingItem) redirect("/content?notice=failed")
+    existingClientApprovalStatus = existingItem.client_approval_status
+    existingClientIssues = existingItem.client_issues
+  }
   let campaignId = parsed.data.campaignId
   if (!campaignId) {
     const { data, error } = await supabase.rpc("ensure_default_campaign_for_current_user", { p_client_id: parsed.data.clientId })
@@ -95,8 +103,8 @@ export async function saveContentItem(formData: FormData) {
       p_work_date: workDate,
       p_deadline_at: deadlineAt,
       p_publish_at: publishAt,
-      p_client_approval_status: parsed.data.clientApprovalStatus || null,
-      p_client_issues: parsed.data.clientIssues || null,
+      p_client_approval_status: existingClientApprovalStatus,
+      p_client_issues: existingClientIssues,
       p_notes: parsed.data.notes || null,
       p_next_action: parsed.data.nextAction || null,
       p_revision_notes: parsed.data.revisionNotes || null,
@@ -113,8 +121,8 @@ export async function saveContentItem(formData: FormData) {
       p_work_date: workDate,
       p_deadline_at: deadlineAt,
       p_publish_at: publishAt,
-      p_client_approval_status: parsed.data.clientApprovalStatus || null,
-      p_client_issues: parsed.data.clientIssues || null,
+      p_client_approval_status: null,
+      p_client_issues: null,
       p_notes: parsed.data.notes || null,
       p_next_action: parsed.data.nextAction || null,
       p_assigned_to: parsed.data.assignedTo || null,
@@ -128,6 +136,40 @@ export async function saveContentItem(formData: FormData) {
   revalidatePath("/content")
   revalidatePath("/calendar")
   redirect(`/content?notice=${parsed.data.id ? "updated" : "created"}`)
+}
+
+export async function recordExternalClientDecision(formData: FormData) {
+  const parsed = z.object({
+    contentItemId: z.string().uuid(),
+    decision: z.enum(approvals),
+    feedback: z.string().trim().max(5000),
+  }).safeParse({
+    contentItemId: field(formData, "contentItemId"),
+    decision: field(formData, "decision"),
+    feedback: field(formData, "feedback"),
+  })
+  if (!parsed.success || (parsed.data.decision === "revision_requested" && !parsed.data.feedback)) {
+    redirect("/content?notice=client_decision_invalid")
+  }
+
+  const supabase = await createClient()
+  const { error } = await supabase.rpc("record_external_client_decision", {
+    p_content_item_id: parsed.data.contentItemId,
+    p_decision: parsed.data.decision,
+    p_feedback: parsed.data.feedback || null,
+  })
+  if (error?.code === "42501") redirect("/content?notice=forbidden")
+  if (error?.code === "P0002") redirect("/content?notice=content_not_found")
+  if (error?.code === "PGRST202") redirect("/content?notice=client_workflow_migration_missing")
+  if (error?.code === "22023") redirect("/content?notice=client_decision_invalid")
+  if (error) redirect("/content?notice=failed")
+
+  revalidatePath("/content")
+  revalidatePath("/calendar")
+  revalidatePath("/tasks")
+  revalidatePath("/reviews")
+  revalidatePath("/")
+  redirect(`/content?notice=client_decision_updated#content-item-${encodeURIComponent(parsed.data.contentItemId)}`)
 }
 
 type ContentArchiveActionResult = { ok: true } | { ok: false; error: string }

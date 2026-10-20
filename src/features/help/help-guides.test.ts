@@ -23,4 +23,11 @@ describe("Help guide catalog", () => {
       "Keep the outcomes separate",
     ]))
   })
+
+  it("documents the client-to-task workflow and external client approval boundary", () => {
+    const guide = getHelpGuide("create-work-from-client-to-task")
+    expect(guide?.steps.map((step) => step.title)).toContain("Choose Content or New task")
+    expect(guide?.steps.map((step) => step.title)).toContain("Keep review and client decisions distinct")
+    expect(guide?.remember).toContain("does not publish content")
+  })
 })

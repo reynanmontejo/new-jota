@@ -179,6 +179,18 @@ schema privileges. The account-trash migration enables `pg_cron` and schedules
 the hourly purge. If the extension is unavailable, enable **Integrations > Cron**
 in the Supabase Dashboard, then rerun the migration.
 
+The current local workflow also includes `202610300002_optional_client_tasks.sql`
+and `202610300003_client_editor_external_approval.sql`. The latter adds the
+client-level Video Editor assignment, a protected RPC for recording an external
+client decision, and Realtime publication for content workflow tables. A client
+approval changes only the external approval badge; it does not publish content
+or complete a task. A client revision returns active, linked, non-cancelled tasks
+to To do and reopens their submission state while retaining immutable versions
+and prior reviews. These migrations have not been applied to a hosted database
+by this local implementation. Check the hosted migration ledger and live catalog
+first, then apply only the missing migrations in order after review and staging
+tests.
+
 The local schema checker runs all migrations and verifies task/client isolation,
 task/content/campaign RPCs, employee provisioning/deactivation/role changes,
 trash/restore/expiry, and server-role-only permissions:

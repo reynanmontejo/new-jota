@@ -206,7 +206,6 @@ export function WorkflowProvider({
     if (demoMode || !initialUser?.id || !isSupabaseConfigured()) return
 
     const supabase = createSupabaseClient()
-    const channel = supabase.channel(`task-workflow:${initialUser.id}`)
     const trackedTables = [
       "tasks",
       "task_assignees",
@@ -223,6 +222,11 @@ export function WorkflowProvider({
       "content_reviews",
     ] as const
     let refreshTimer: number | undefined
+    let reconnectTimer: number | undefined
+    let channel: ReturnType<typeof supabase.channel> | null = null
+    let retryAttempt = 0
+    let isSubscribed = false
+    let disposed = false
     const refreshWorkflow = () => {
       if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
       refreshTimer = window.setTimeout(() => {
@@ -232,14 +236,62 @@ export function WorkflowProvider({
       }, 200)
     }
 
-    for (const table of trackedTables) {
-      channel.on("postgres_changes", { event: "*", schema: "public", table }, refreshWorkflow)
+    const scheduleReconnect = () => {
+      if (disposed || reconnectTimer !== undefined) return
+      const delay = Math.min(1000 * 2 ** retryAttempt, 30_000)
+      retryAttempt += 1
+      reconnectTimer = window.setTimeout(() => {
+        reconnectTimer = undefined
+        connect()
+      }, delay)
     }
-    channel.subscribe()
+
+    const connect = () => {
+      if (disposed || channel) return
+      const nextChannel = supabase.channel(`task-workflow:${initialUser.id}`)
+      channel = nextChannel
+      for (const table of trackedTables) {
+        nextChannel.on("postgres_changes", { event: "*", schema: "public", table }, refreshWorkflow)
+      }
+      nextChannel.subscribe((status) => {
+        if (disposed || channel !== nextChannel) return
+        if (status === "SUBSCRIBED") {
+          isSubscribed = true
+          retryAttempt = 0
+          refreshWorkflow()
+          return
+        }
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+          isSubscribed = false
+          channel = null
+          void supabase.removeChannel(nextChannel)
+          scheduleReconnect()
+        }
+      })
+    }
+
+    const refreshOnReturn = () => {
+      if (document.visibilityState === "visible") {
+        refreshWorkflow()
+        if (!isSubscribed && !channel) scheduleReconnect()
+      }
+    }
+
+    connect()
+    const fallbackTimer = window.setInterval(() => {
+      if (!isSubscribed && document.visibilityState === "visible") refreshWorkflow()
+    }, 30_000)
+    window.addEventListener("focus", refreshOnReturn)
+    document.addEventListener("visibilitychange", refreshOnReturn)
 
     return () => {
+      disposed = true
       if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
-      void supabase.removeChannel(channel)
+      if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer)
+      if (fallbackTimer !== undefined) window.clearInterval(fallbackTimer)
+      window.removeEventListener("focus", refreshOnReturn)
+      document.removeEventListener("visibilitychange", refreshOnReturn)
+      if (channel) void supabase.removeChannel(channel)
     }
   }, [demoMode, initialUser?.id, router])
 

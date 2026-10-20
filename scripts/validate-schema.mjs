@@ -35,6 +35,8 @@ const supervisorSelfAssignedTaskMigrationPath = "supabase/migrations/20261027000
 const supervisorTaskReviewBypassMigrationPath = "supabase/migrations/202610280001_supervisor_own_tasks_bypass_review.sql"
 const notificationPushDispatchMigrationPath = "supabase/migrations/202610290001_notification_push_dispatch.sql"
 const notificationEmailDeliveryMigrationPath = "supabase/migrations/202610300001_email_notification_delivery.sql"
+const optionalClientTasksMigrationPath = "supabase/migrations/202610300002_optional_client_tasks.sql"
+const clientEditorExternalApprovalMigrationPath = "supabase/migrations/202610300003_client_editor_external_approval.sql"
 const seedPath = "supabase/seed.sql"
 
 const database = new PGlite()
@@ -167,6 +169,10 @@ let notificationPushDispatchMigration = await fs.readFile(notificationPushDispat
 notificationPushDispatchMigration = notificationPushDispatchMigration.replace(/create extension if not exists pg_net with schema net;\s*/i, "")
 await database.exec(notificationPushDispatchMigration)
 await database.exec(await fs.readFile(notificationEmailDeliveryMigrationPath, "utf8"))
+await database.exec(await fs.readFile(optionalClientTasksMigrationPath, "utf8"))
+let clientEditorExternalApprovalMigration = await fs.readFile(clientEditorExternalApprovalMigrationPath, "utf8")
+clientEditorExternalApprovalMigration = clientEditorExternalApprovalMigration.replace(/-- PGLITE_SKIP_START[\s\S]*?-- PGLITE_SKIP_END\s*/i, "")
+await database.exec(clientEditorExternalApprovalMigration)
 const providerSecretAccess = await database.query(`
   select has_table_privilege('authenticated', 'public.google_drive_connections', 'select') as can_read_tokens,
          has_table_privilege('authenticated', 'public.client_drive_folders', 'select') as can_read_folder_map,
@@ -565,7 +571,7 @@ await asUser(employeeOne, async () => database.query(`
   select public.update_content_tracker_item_for_current_user(
     '${workflowContentId}', '30000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001',
     'Workflow alignment test', 'Instagram', 'Reel', null, 'waiting_client', '2026-10-12', '2026-10-20',
-    '2026-10-22T15:00:00Z', 'approved', 'Image delivered', 'Reviewed by AM', 'Await client reply',
+    '2026-10-22T15:00:00Z', 'pending', 'Confirm copy', 'Reviewed by AM', 'Await client reply',
     'Please revise the opening', '${employeeOne}'
   )
 `))
@@ -575,11 +581,28 @@ const alignedContent = await database.query(`
   from public.content_items where id = '${workflowContentId}'
 `)
 if (alignedContent.rows[0]?.status !== "waiting_client" || alignedContent.rows[0]?.work_date !== "2026-10-12"
-  || alignedContent.rows[0]?.deadline_at !== "2026-10-20" || alignedContent.rows[0]?.client_approval_status !== "approved"
-  || alignedContent.rows[0]?.client_issues !== "Image delivered" || alignedContent.rows[0]?.notes !== "Reviewed by AM"
+  || alignedContent.rows[0]?.deadline_at !== "2026-10-20" || alignedContent.rows[0]?.client_approval_status !== "pending"
+  || alignedContent.rows[0]?.client_issues !== "Confirm copy" || alignedContent.rows[0]?.notes !== "Reviewed by AM"
   || alignedContent.rows[0]?.revision_count !== 1) {
   throw new Error(`Aligned content tracker update failed: ${JSON.stringify(alignedContent.rows[0])}`)
 }
+await asUser(employeeOne, () => database.query(`select public.record_external_client_decision('${workflowContentId}', 'approved', null)`))
+const externallyApprovedContent = await database.query(`select status::text as status, client_approval_status, client_issues from public.content_items where id = '${workflowContentId}'`)
+if (externallyApprovedContent.rows[0]?.status !== "waiting_client"
+  || externallyApprovedContent.rows[0]?.client_approval_status !== "approved"
+  || externallyApprovedContent.rows[0]?.client_issues !== null) {
+  throw new Error(`External client approval incorrectly changed content production status: ${JSON.stringify(externallyApprovedContent.rows[0])}`)
+}
+let directClientDecisionWriteRejected = false
+try {
+  await asUser(employeeOne, () => database.query(`select public.update_content_tracker_item_for_current_user(
+    '${workflowContentId}', '30000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001',
+    'Workflow alignment test', 'Instagram', 'Reel', null, 'waiting_client', '2026-10-12', '2026-10-20',
+    '2026-10-22T15:00:00Z', 'rejected', null, 'Reviewed by AM', 'Await client reply',
+    'Please revise the opening', '${employeeOne}'
+  )`))
+} catch (error) { directClientDecisionWriteRejected = error?.code === "42501" }
+if (!directClientDecisionWriteRejected) throw new Error("Generic content edit RPC unexpectedly changed the external client decision")
 
 const defaultCampaignId = await asUser(employeeOne, async () => (await database.query(`
   select public.ensure_default_campaign_for_current_user('30000000-0000-0000-0000-000000000001') as id
@@ -725,6 +748,11 @@ try {
   accountManagerAssignmentRejected = error?.code === "42501"
 }
 if (!accountManagerAssignmentRejected) throw new Error("An Account Manager could change client manager assignments")
+let unrelatedManagerEditorListRejected = false
+try {
+  await asUser(employeeTwo, () => database.query(`select * from public.workflow_list_client_video_editor_candidates('${createdClientId}')`))
+} catch (error) { unrelatedManagerEditorListRejected = error?.code === "P0002" }
+if (!unrelatedManagerEditorListRejected) throw new Error("An Account Manager without client access could view the Video Editor candidate list")
 await asUser(supervisor, () => database.query(`select public.set_client_account_managers(
   '${createdClientId}', array['${employeeOne}'::uuid, '${employeeTwo}'::uuid], '${employeeTwo}'
 )`))
@@ -738,6 +766,50 @@ if (supervisorManagedAccountManagers.length !== 2
   || !supervisorManagedAccountManagers.some((member) => member.user_id === employeeOne && !member.is_primary)) {
   throw new Error("Supervisor could not assign multiple Account Managers and set the primary owner")
 }
+const editorCandidates = await asUser(employeeOne, async () => (await database.query(`
+  select user_id, display_name from public.workflow_list_client_video_editor_candidates('${createdClientId}') order by user_id
+`)).rows)
+if (editorCandidates.length !== 2
+  || !editorCandidates.some((candidate) => candidate.user_id === employeeOne && candidate.display_name === "Employee One")
+  || !editorCandidates.some((candidate) => candidate.user_id === employeeTwo && candidate.display_name === "Employee Two")) {
+  throw new Error(`Account Manager could not load the restricted Video Editor list: ${JSON.stringify(editorCandidates)}`)
+}
+await database.exec(`insert into public.client_members (organization_id, client_id, user_id, client_role, assigned_by)
+  values ('10000000-0000-0000-0000-000000000001', '${createdClientId}', '${employeeOne}', 'video_editor', '${supervisor}'),
+         ('10000000-0000-0000-0000-000000000001', '${createdClientId}', '${employeeTwo}', 'video_editor', '${supervisor}')`)
+await asUser(employeeOne, () => database.query(`select public.set_client_video_editor('${createdClientId}', '${employeeTwo}')`))
+await asUser(employeeOne, () => database.query(`select public.set_client_video_editor('${createdClientId}', '${employeeOne}')`))
+const assignedVideoEditors = await database.query(`select user_id from public.client_members
+  where client_id = '${createdClientId}' and client_role = 'video_editor' and removed_at is null`)
+if (assignedVideoEditors.rows.length !== 1 || assignedVideoEditors.rows[0]?.user_id !== employeeOne) {
+  throw new Error("Account Manager could not replace the client Video Editor while keeping exactly one active assignment")
+}
+const duplicateAssignmentAudit = await database.query(`select metadata->'from_user_ids' as from_user_ids
+  from public.activity_logs where entity_type = 'client' and entity_id = '${createdClientId}'
+    and action = 'CLIENT_VIDEO_EDITOR_CHANGED' order by created_at limit 1`)
+if (duplicateAssignmentAudit.rows[0]?.from_user_ids?.length !== 2) {
+  throw new Error("Replacing duplicate editor assignments did not preserve both prior assignees in the audit log")
+}
+let supervisorAsVideoEditorRejected = false
+try {
+  await asUser(employeeOne, () => database.query(`select public.set_client_video_editor('${createdClientId}', '${supervisor}')`))
+} catch (error) { supervisorAsVideoEditorRejected = error?.code === "22023" }
+if (!supervisorAsVideoEditorRejected) throw new Error("A Supervisor was unexpectedly eligible for the client Video Editor role")
+await asUser(supervisor, () => database.query(`select public.set_client_video_editor('${createdClientId}', '${employeeTwo}')`))
+const reassignedVideoEditor = await database.query(`select user_id from public.client_members
+  where client_id = '${createdClientId}' and client_role = 'video_editor' and removed_at is null`)
+if (reassignedVideoEditor.rows.length !== 1 || reassignedVideoEditor.rows[0]?.user_id !== employeeTwo) {
+  throw new Error("Supervisor could not replace the client Video Editor")
+}
+await asUser(supervisor, () => database.query(`select public.set_client_video_editor('${createdClientId}', null)`))
+const clearedVideoEditor = await database.query(`select count(*)::int as count from public.client_members
+  where client_id = '${createdClientId}' and client_role = 'video_editor' and removed_at is null`)
+if (clearedVideoEditor.rows[0]?.count !== 0) throw new Error("Supervisor could not clear a client Video Editor assignment")
+let unrelatedManagerVideoEditorRejected = false
+try {
+  await asUser(employeeOne, () => database.query(`select public.set_client_video_editor('30000000-0000-0000-0000-000000000002', '${employeeOne}')`))
+} catch (error) { unrelatedManagerVideoEditorRejected = error?.code === "42501" }
+if (!unrelatedManagerVideoEditorRejected) throw new Error("Account Manager changed Video Editor assignment for an inaccessible client")
 const reassignedManagerCanSeeClient = await asUser(employeeTwo, async () => (await database.query(
   `select count(*)::int as count from public.clients where id = '${createdClientId}'`,
 )).rows[0]?.count)
@@ -1090,6 +1162,105 @@ const approvalNotificationCount = await asUser(employeeOne, async () => (await d
     and entity_id = '60000000-0000-0000-0000-000000000001'
 `)).rows[0]?.count)
 if (approvalNotificationCount !== 1) throw new Error("Task approval did not notify the task submitter")
+await asUser(supervisor, () => database.query(`select public.workflow_update_task_status('60000000-0000-0000-0000-000000000001', 'completed')`))
+const completedTaskBeforeClientDecision = await database.query(`select status::text as status, completed_at from public.tasks where id = '60000000-0000-0000-0000-000000000001'`)
+if (completedTaskBeforeClientDecision.rows[0]?.status !== 'completed' || !completedTaskBeforeClientDecision.rows[0]?.completed_at) {
+  throw new Error("Supervisor could not complete an approved task")
+}
+await asUser(supervisor, () => database.query(`select public.workflow_trash_task_for_current_user('60000000-0000-0000-0000-000000000001')`))
+const completedTaskTrashState = await database.query(`
+  select t.deleted_at,
+    (select count(*)::int from public.submissions s where s.task_id = t.id) as submissions,
+    (select count(*)::int from public.attachments a where a.task_id = t.id) as attachments
+  from public.tasks t where t.id = '60000000-0000-0000-0000-000000000001'
+`)
+if (!completedTaskTrashState.rows[0]?.deleted_at
+  || completedTaskTrashState.rows[0]?.submissions !== 1
+  || completedTaskTrashState.rows[0]?.attachments !== 2) {
+  throw new Error("Completed task Trash did not preserve its submission and files")
+}
+await asUser(supervisor, () => database.query(`select public.workflow_restore_task_from_trash('60000000-0000-0000-0000-000000000001')`))
+
+const linkedTaskFileOne = "90000000-0000-0000-0000-000000000007"
+const linkedTaskFileTwo = "90000000-0000-0000-0000-000000000008"
+await database.exec(`insert into public.attachments (
+  id, organization_id, client_id, campaign_id, task_id, provider_file_id,
+  file_name, mime_type, size_bytes, uploaded_by
+) values (
+  '${linkedTaskFileOne}', '10000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001',
+  '40000000-0000-0000-0000-000000000001', '${linkedContentTaskId}',
+  'drive-content-task-one', 'content-task-v1.png', 'image/png', 900, '${employeeOne}'
+)`)
+const linkedTaskVersionOne = await asUser(employeeOne, async () => (await database.query(`
+  select public.submit_task_for_review('${linkedContentTaskId}', array['${linkedTaskFileOne}'::uuid], 'Initial linked work') as version_id
+`)).rows[0]?.version_id)
+let inaccessibleClientDecisionRejected = false
+try {
+  await asUser(employeeTwo, () => database.query(`select public.record_external_client_decision('50000000-0000-0000-0000-000000000001', 'approved', null)`))
+} catch (error) { inaccessibleClientDecisionRejected = error?.code === "P0002" }
+if (!inaccessibleClientDecisionRejected) throw new Error("An Account Manager without client access recorded an external client decision")
+
+const linkedContentStatusBeforeApproval = await database.query(`select status::text as status from public.content_items where id = '50000000-0000-0000-0000-000000000001'`)
+await asUser(employeeOne, () => database.query(`select public.record_external_client_decision('50000000-0000-0000-0000-000000000001', 'approved', null)`))
+const approvedLinkedWork = await database.query(`
+  select ci.status::text as content_status, ci.client_approval_status, t.status::text as task_status
+  from public.content_items ci join public.tasks t on t.content_item_id = ci.id
+  where ci.id = '50000000-0000-0000-0000-000000000001' and t.id = '${linkedContentTaskId}'
+`)
+if (approvedLinkedWork.rows[0]?.content_status !== linkedContentStatusBeforeApproval.rows[0]?.status
+  || approvedLinkedWork.rows[0]?.client_approval_status !== "approved"
+  || approvedLinkedWork.rows[0]?.task_status !== "for_review") {
+  throw new Error(`External client approval altered Jota workflow state: ${JSON.stringify(approvedLinkedWork.rows[0])}`)
+}
+
+await asUser(employeeOne, () => database.query(`select public.record_external_client_decision(
+  '50000000-0000-0000-0000-000000000001', 'revision_requested', 'Please replace the opening video'
+)`))
+const reopenedLinkedWork = await database.query(`
+  select ci.status::text as content_status, ci.client_approval_status, ci.client_issues, ci.revision_count,
+    t.status::text as task_status, t.completed_at, s.status::text as submission_status, s.approved_at,
+    (select count(*)::int from public.submission_versions v where v.submission_id = s.id) as version_count
+  from public.content_items ci
+  join public.tasks t on t.content_item_id = ci.id and t.id = '${linkedContentTaskId}'
+  join public.submissions s on s.task_id = t.id
+  where ci.id = '50000000-0000-0000-0000-000000000001'
+`)
+if (reopenedLinkedWork.rows[0]?.content_status !== linkedContentStatusBeforeApproval.rows[0]?.status
+  || reopenedLinkedWork.rows[0]?.client_approval_status !== "revision_requested"
+  || reopenedLinkedWork.rows[0]?.client_issues !== "Please replace the opening video"
+  || reopenedLinkedWork.rows[0]?.revision_count !== 1
+  || reopenedLinkedWork.rows[0]?.task_status !== "todo"
+  || reopenedLinkedWork.rows[0]?.completed_at !== null
+  || reopenedLinkedWork.rows[0]?.submission_status !== "revision_requested"
+  || reopenedLinkedWork.rows[0]?.approved_at !== null
+  || reopenedLinkedWork.rows[0]?.version_count !== 1) {
+  throw new Error(`Client revision did not safely reopen linked work and preserve its first version: ${JSON.stringify(reopenedLinkedWork.rows[0])}`)
+}
+await database.exec(`insert into public.attachments (
+  id, organization_id, client_id, campaign_id, task_id, provider_file_id,
+  file_name, mime_type, size_bytes, uploaded_by, created_at
+) values (
+  '${linkedTaskFileTwo}', '10000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001',
+  '40000000-0000-0000-0000-000000000001', '${linkedContentTaskId}',
+  'drive-content-task-two', 'content-task-v2.png', 'image/png', 1100, '${employeeOne}', now() + interval '1 second'
+)`)
+const linkedTaskVersionTwo = await asUser(employeeOne, async () => (await database.query(`
+  select public.submit_task_for_review('${linkedContentTaskId}', array['${linkedTaskFileTwo}'::uuid], 'Revised for the client') as version_id
+`)).rows[0]?.version_id)
+if (!linkedTaskVersionOne || !linkedTaskVersionTwo || linkedTaskVersionOne === linkedTaskVersionTwo) {
+  throw new Error("Task could not be resubmitted after external client revisions")
+}
+await asUser(employeeOne, () => database.query(`select public.record_external_client_decision('50000000-0000-0000-0000-000000000001', 'approved', null)`))
+const clientApprovedResubmission = await database.query(`
+  select t.status::text as task_status, s.status::text as submission_status,
+    (select count(*)::int from public.submission_versions v where v.submission_id = s.id) as version_count
+  from public.tasks t join public.submissions s on s.task_id = t.id where t.id = '${linkedContentTaskId}'
+`)
+if (clientApprovedResubmission.rows[0]?.task_status !== "for_review"
+  || clientApprovedResubmission.rows[0]?.submission_status !== "submitted"
+  || clientApprovedResubmission.rows[0]?.version_count !== 2) {
+  throw new Error("External client approval incorrectly completed or rewrote the task's internal review workflow")
+}
 await asUser(employeeOne, () => database.query(`select public.register_notification_push_subscription_for_current_user(
   'https://fcm.googleapis.com/employee-one', repeat('p', 50), repeat('a', 24)
 )`))
@@ -1127,7 +1298,13 @@ try {
 } finally {
   await database.exec("reset role")
 }
-if (claimedPushCount !== 1) throw new Error(`A push-enabled comment notification was not queued for delivery: ${claimedPushCount}`)
+const claimedPushTypes = await database.query(`select notification.type::text as type, count(*)::int as count
+  from public.notification_push_queue queue join public.notifications notification on notification.id = queue.notification_id
+  where queue.lease_until is not null group by notification.type`)
+const claimedPushCountByType = new Map(claimedPushTypes.rows.map((row) => [row.type, row.count]))
+if (claimedPushCount !== 2 || claimedPushCountByType.get("comment_added") !== 1 || claimedPushCountByType.get("task_overdue") !== 1) {
+  throw new Error(`Expected one comment and one overdue push for the linked task revision: ${JSON.stringify(claimedPushTypes.rows)}`)
+}
 const pushDataProtection = await database.query(`
   select has_table_privilege('authenticated', 'public.notification_push_subscriptions', 'select') as users_can_read_subscriptions,
          has_table_privilege('authenticated', 'public.notification_push_queue', 'select') as users_can_read_push_queue,
@@ -1148,24 +1325,10 @@ const markedRead = await asUser(employeeOne, async () => (await database.query(`
   ) as changed
 `)).rows[0]?.changed)
 if (markedRead !== true) throw new Error("Notification read-state RPC did not mark the recipient's notification")
-await asUser(supervisor, () => database.query(`select public.workflow_update_task_status('60000000-0000-0000-0000-000000000001', 'completed')`))
-const completedTask = await database.query(`select status::text as status, completed_at from public.tasks where id = '60000000-0000-0000-0000-000000000001'`)
-if (completedTask.rows[0]?.status !== 'completed' || !completedTask.rows[0]?.completed_at) {
-  throw new Error("Supervisor could not complete an approved task")
+const reopenedTaskAfterExternalRevision = await database.query(`select status::text as status, completed_at from public.tasks where id = '60000000-0000-0000-0000-000000000001'`)
+if (reopenedTaskAfterExternalRevision.rows[0]?.status !== 'todo' || reopenedTaskAfterExternalRevision.rows[0]?.completed_at !== null) {
+  throw new Error("External client revisions did not return completed linked work to To do")
 }
-await asUser(supervisor, () => database.query(`select public.workflow_trash_task_for_current_user('60000000-0000-0000-0000-000000000001')`))
-const completedTaskTrashState = await database.query(`
-  select t.deleted_at,
-    (select count(*)::int from public.submissions s where s.task_id = t.id) as submissions,
-    (select count(*)::int from public.attachments a where a.task_id = t.id) as attachments
-  from public.tasks t where t.id = '60000000-0000-0000-0000-000000000001'
-`)
-if (!completedTaskTrashState.rows[0]?.deleted_at
-  || completedTaskTrashState.rows[0]?.submissions !== 1
-  || completedTaskTrashState.rows[0]?.attachments !== 2) {
-  throw new Error("Completed task Trash did not preserve its submission and files")
-}
-await asUser(supervisor, () => database.query(`select public.workflow_restore_task_from_trash('60000000-0000-0000-0000-000000000001')`))
 const restoredCompletedTask = await database.query(`select deleted_at from public.tasks where id = '60000000-0000-0000-0000-000000000001'`)
 if (restoredCompletedTask.rows[0]?.deleted_at !== null) throw new Error("Completed task could not be restored after Trash")
 let immutableTaskReviewRejected = false

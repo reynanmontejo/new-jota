@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
 import { Archive, CalendarDays, ChevronDown, CircleAlert, Files, LayoutGrid, List, ListPlus, LoaderCircle, Plus, RotateCcw, Search } from "lucide-react"
 
-import { archiveContentItem, restoreContentItem, saveContentItem } from "@/app/content/actions"
+import { archiveContentItem, recordExternalClientDecision, restoreContentItem, saveContentItem } from "@/app/content/actions"
 import { ClientFiles } from "@/features/clients/client-files"
 import { ContentImport } from "@/features/content/content-import"
 import { ContentSubmitButton } from "@/features/content/content-submit-button"
@@ -42,7 +42,7 @@ const contentPageSize = 10
 const statusLabels: Record<string, string> = {
   idea: "Idea", planned: "Planned", in_production: "In production", for_review: "For review", revision_requested: "Revision requested", waiting_client: "Waiting for client", scheduled: "Scheduled", published: "Published", rejected: "Rejected", cancelled: "Cancelled",
 }
-const approvalLabels: Record<string, string> = { pending: "Pending", approved: "Approved", revision_requested: "Revision requested", rejected: "Rejected" }
+const approvalLabels: Record<string, string> = { pending: "Waiting on client", approved: "Approved", revision_requested: "Revisions requested", rejected: "Declined" }
 const canReceiveNewContent = (campaign: TrackerCampaign) => campaign.status === "active" || campaign.status === "draft"
 const fieldClass = "h-9 w-full rounded-md border border-input bg-background px-2.5 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
 const filterSelectClass = "h-9 w-full rounded-md border border-input bg-background px-2.5 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 sm:w-auto sm:min-w-32"
@@ -115,12 +115,10 @@ function ContentForm({ clients, campaigns, assignees, item, canEdit, currentUser
         {item && <label className={labelClass}>Status<select className={fieldClass} name="status" defaultValue={item.status}>{statuses.map((status) => <option key={status} value={status}>{statusLabels[status]}</option>)}</select></label>}
         <label className={labelClass}>Work date<input className={fieldClass} type="date" name="workDate" defaultValue={item?.work_date ?? ""} /></label>
         <label className={labelClass}>Deadline<input className={fieldClass} type="date" name="deadlineAt" defaultValue={item?.deadline_at ?? ""} /></label>
-        <label className={labelClass}>Client approval<select className={fieldClass} name="clientApprovalStatus" defaultValue={item?.client_approval_status ?? ""}><option value="">Not set</option>{Object.entries(approvalLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
         <label className={labelClass}>Next action<input className={fieldClass} name="nextAction" placeholder="Send draft for review" defaultValue={item?.next_action ?? ""} maxLength={500} /></label>
         <label className={labelClass}>Assigned creator / editor<select className={fieldClass} name="assignedTo" defaultValue={item ? item.assigned_to ?? "" : currentUserId}><option value="">Not assigned</option>{(assignees[clientId] ?? []).map((person) => <option key={person.id} value={person.id}>{person.display_name}</option>)}</select></label>
         {item && <label className={labelClass}>Revision count<input className={`${fieldClass} bg-muted/50`} value={item.revision_count} readOnly aria-label="Revision count" /></label>}
         <label className={`${labelClass} sm:col-span-2`}>Brief / caption notes<textarea className="min-h-16 w-full rounded-md border border-input bg-background px-2.5 py-2 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/10" name="description" maxLength={5000} defaultValue={item?.description ?? ""} /></label>
-        <label className={`${labelClass} sm:col-span-2`}>Client issues<textarea className="min-h-16 w-full rounded-md border border-input bg-background px-2.5 py-2 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/10" name="clientIssues" maxLength={5000} defaultValue={item?.client_issues ?? ""} /></label>
         <label className={`${labelClass} sm:col-span-2`}>Notes / comments<textarea className="min-h-16 w-full rounded-md border border-input bg-background px-2.5 py-2 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/10" name="notes" maxLength={5000} defaultValue={item?.notes ?? ""} /></label>
         {item && <label className={`${labelClass} sm:col-span-2`}>Latest revision feedback<textarea className="min-h-16 w-full rounded-md border border-input bg-background px-2.5 py-2 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/10" name="revisionNotes" maxLength={5000} defaultValue={item.revision_notes ?? ""} placeholder="Record the latest revision notes" /></label>}
       </div>
@@ -132,7 +130,7 @@ function ContentForm({ clients, campaigns, assignees, item, canEdit, currentUser
 }
 
 export function ContentTracker({ clients, campaigns, assignees, items, canCreate, canEdit, canCreateTask, currentUserId, canAssignContent, notice, importedCount, skippedCount, isArchivedView = false }: {
-  clients: TrackerClient[]; campaigns: TrackerCampaign[]; assignees: Record<string, TrackerAssignee[]>; items: TrackerItem[]; canCreate: boolean; canEdit: boolean; canCreateTask: boolean; currentUserId: string; canAssignContent: boolean; notice?: string; importedCount?: number; skippedCount?: number; isArchivedView?: boolean
+    clients: TrackerClient[]; campaigns: TrackerCampaign[]; assignees: Record<string, TrackerAssignee[]>; items: TrackerItem[]; canCreate: boolean; canEdit: boolean; canCreateTask: boolean; currentUserId: string; canAssignContent: boolean; notice?: string; importedCount?: number; skippedCount?: number; isArchivedView?: boolean
 }) {
   const { openNewTask } = useTaskDrawer()
   const [query, setQuery] = useState("")
@@ -156,7 +154,7 @@ export function ContentTracker({ clients, campaigns, assignees, items, canCreate
   const displayedItems = useMemo(() => visibleItems.slice((activePage - 1) * contentPageSize, activePage * contentPageSize), [visibleItems, activePage])
   const upcomingCount = availableItems.filter((item) => item.status === "planned" || item.status === "scheduled").length
   const attentionCount = availableItems.filter((item) => ["for_review", "revision_requested", "waiting_client", "rejected"].includes(item.status)).length
-  const notices: Record<string, string> = { created: "Content added to the tracker.", updated: "Content updated.", archived: "Content moved out of the active tracker.", imported: `${importedCount ?? 0} content rows imported; ${skippedCount ?? 0} duplicates skipped.`, import_too_large: "CSV file exceeds the 1 MB limit.", invalid_import: "CSV import failed validation. Review the row preview and required columns.", content_migration_missing: "Apply the local content workflow alignment migration under supabase/migrations, then refresh.", campaign_paused: "The default campaign is paused or closed. Ask a supervisor or admin to reopen it, then try again.", invalid: "Check the required fields and try again.", failed: "The change could not be saved. Refresh and try again.", forbidden: "Your account does not have permission for that change." }
+  const notices: Record<string, string> = { created: "Content added to the tracker.", updated: "Content updated.", archived: "Content moved out of the active tracker.", imported: `${importedCount ?? 0} content rows imported; ${skippedCount ?? 0} duplicates skipped.`, client_decision_updated: "External client response recorded. Jota does not contact the client.", client_decision_invalid: "Choose a valid client decision. Feedback is required when requesting revisions.", client_workflow_migration_missing: "Apply the client/editor workflow migration under supabase/migrations, then refresh.", content_not_found: "That content item is no longer available. Refresh and try again.", import_too_large: "CSV file exceeds the 1 MB limit.", invalid_import: "CSV import failed validation. Review the row preview and required columns.", content_migration_missing: "Apply the local content workflow alignment migration under supabase/migrations, then refresh.", campaign_paused: "The default campaign is paused or closed. Ask a supervisor or admin to reopen it, then try again.", invalid: "Check the required fields and try again.", failed: "The change could not be saved. Refresh and try again.", forbidden: "Your account does not have permission for that change." }
 
   useEffect(() => () => { if (undoTimer.current) clearTimeout(undoTimer.current) }, [])
 
@@ -291,7 +289,7 @@ export function ContentTracker({ clients, campaigns, assignees, items, canCreate
         {displayedItems.map((item) => <article id={`content-item-${item.id}`} key={item.id} className={`scroll-mt-24 min-w-0 transition hover:border-primary/25 hover:bg-background/90 ${viewMode === "cards" ? "rounded-lg border border-border/80 bg-background/70 p-2.5" : "grid gap-2 bg-background/40 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center"}`}>
           <div className="flex min-w-0 items-start justify-between gap-2">
             <div className="min-w-0"><h2 className="truncate text-xs font-semibold">{item.title}</h2><p className="mt-0.5 truncate text-[10px] text-muted-foreground">{item.client_name} · {item.campaign_name}</p><p className="truncate text-[10px] text-muted-foreground">{item.platform} · {item.content_type}</p></div>
-            <span className="shrink-0 rounded-md border border-primary/15 bg-primary/5 px-1.5 py-0.5 text-[9px] font-medium">{statusLabels[item.status] ?? item.status}</span>
+            <span className="flex shrink-0 flex-col items-end gap-1"><span className="rounded-md border border-primary/15 bg-primary/5 px-1.5 py-0.5 text-[9px] font-medium">{statusLabels[item.status] ?? item.status}</span>{item.client_approval_status && <span className="rounded-md border border-border/80 bg-muted/35 px-1.5 py-0.5 text-[9px] text-muted-foreground">Client: {approvalLabels[item.client_approval_status] ?? item.client_approval_status}</span>}</span>
           </div>
           <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] ${viewMode === "cards" ? "mt-1.5 border-t border-border/60 pt-1.5" : "sm:justify-end"}`}>
             <p><span className="font-medium">Publish</span> <span className="text-muted-foreground">{formatDate(item.publish_at)}</span></p>
@@ -308,12 +306,18 @@ export function ContentTracker({ clients, campaigns, assignees, items, canCreate
               {pendingAction === `archive:${item.id}` ? "Archiving…" : "Archive item"}
             </button></div></div></details>}
           </div>
-          {(item.next_action || item.assignee_name || item.work_date || item.revision_count > 0 || item.client_approval_status || item.client_issues || item.notes || item.revision_notes) && <details className={`border-t border-border/60 pt-1.5 ${viewMode === "list" ? "sm:col-span-3" : "mt-1.5"}`}>
+          {(item.next_action || item.assignee_name || item.work_date || item.revision_count > 0 || item.client_approval_status || item.client_issues || item.notes || item.revision_notes || (canEdit && !isArchivedView)) && <details className={`border-t border-border/60 pt-1.5 ${viewMode === "list" ? "sm:col-span-3" : "mt-1.5"}`}>
             <summary className="cursor-pointer list-none text-[10px] font-medium text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">More details</summary>
             <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-muted-foreground">
               {item.next_action && <p>Next: {item.next_action}</p>}{item.assignee_name && <p>Creator/editor: {item.assignee_name}</p>}{item.work_date && <p>Work date: {formatDate(item.work_date)}</p>}{item.revision_count > 0 && <p>{item.revision_count} revision{item.revision_count === 1 ? "" : "s"}</p>}
-              {item.client_approval_status && <p>Client approval: <span className="font-medium text-foreground">{approvalLabels[item.client_approval_status] ?? item.client_approval_status}</span></p>}
+              {item.client_approval_status && <p>Client approval (external): <span className="font-medium text-foreground">{approvalLabels[item.client_approval_status] ?? item.client_approval_status}</span></p>}
               {item.client_issues && <p>Client issues: {item.client_issues}</p>}{item.notes && <p>Notes: {item.notes}</p>}{item.revision_notes && <p><span className="font-medium text-foreground">Latest feedback:</span> {item.revision_notes}</p>}
+              {canEdit && !isArchivedView && <div className="mt-2 w-full border-t border-border/60 pt-2"><form action={recordExternalClientDecision} className="grid gap-2 sm:grid-cols-[minmax(150px,.7fr)_minmax(180px,1.3fr)_auto] sm:items-end">
+                <input type="hidden" name="contentItemId" value={item.id} />
+                <label className={labelClass}>Record client response (external)<select className={fieldClass} name="decision" defaultValue={item.client_approval_status ?? "pending"}>{Object.entries(approvalLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+                <label className={labelClass}>Feedback <span className="font-normal">(required for revisions)</span><textarea className="min-h-9 w-full rounded-md border border-input bg-background px-2.5 py-2 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/10" name="feedback" maxLength={5000} defaultValue={item.client_issues ?? ""} placeholder="Record the client's requested changes, if any" /></label>
+                <ContentSubmitButton pendingLabel="Recording…">Record response</ContentSubmitButton>
+              </form><p className="mt-1 text-[10px] text-muted-foreground">The client communicates outside Jota. This records their decision; it does not send a message or mark content as published.</p></div>}
             </div>
           </details>}
           <div className={viewMode === "list" ? "sm:col-span-3" : ""}><ContentFilesDisclosure clientId={item.client_id} contentItemId={item.id} canUpload={canEdit && !isArchivedView} /></div>

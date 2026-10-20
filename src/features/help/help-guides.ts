@@ -35,6 +35,22 @@ export const helpGuides: HelpGuide[] = [
     related: ["manage-content-calendar", "add-content-as-task", "task-board-basics"],
   },
   {
+    slug: "create-work-from-client-to-task",
+    title: "Create work from Client to Task",
+    summary: "Follow the path from client setup to campaigns, content, assigned tasks, and review.",
+    section: "Start here", audience: "Everyone", minutes: 4,
+    steps: [
+      { title: "Open the client workspace", body: "Choose an existing client you can access, or ask a Supervisor or Administrator to create one and assign the right Account Manager. Client access controls which work and files you can see." },
+      { title: "Set up the client team", body: "An assigned Account Manager can choose one Video Editor for that client. Supervisors and Administrators can also manage that assignment; it does not change the creator/editor assigned to a specific content item." },
+      { title: "Use campaigns as groupings", body: "Campaigns belong to one client and group related content. Content uses the client's General / Ongoing campaign by default. Tasks may be created without a client or campaign when the work is general." },
+      { title: "Choose Content or New task", body: "Create a Content item for a planned post or creative deliverable. Use Add task only when that content needs separately assigned production work, or choose New task for standalone work. Creating content does not create a task automatically." },
+      { title: "Keep review and client decisions distinct", body: "Jota's review is an internal supervisor decision on submitted work. Client approval happens through the team's normal external channel; record the response on the content item. A client revision returns its active linked tasks to To do while retaining their submitted versions." },
+    ],
+    remember: "Client approval is recorded in Jota, not sent to or received from the client. An approved client response does not publish content or automatically complete a task.",
+    actions: [{ label: "Open Clients", href: "/clients" }, { label: "Open Content", href: "/content" }, { label: "Open My Work", href: "/tasks" }],
+    related: ["how-jota-fits-together", "clients-and-campaigns", "manage-content-calendar", "add-content-as-task", "task-board-basics", "submit-and-revise-work"],
+  },
+  {
     slug: "manage-content-calendar",
     title: "Manage the content calendar",
     summary: "Create planned posts and understand how they appear across Content, Calendar, and My Work.",
@@ -131,7 +147,7 @@ export const helpGuides: HelpGuide[] = [
     summary: "Keep approval, task completion, scheduling, and actual publishing as separate steps.",
     section: "Account managers", audience: "Account managers and supervisors", minutes: 2,
     steps: [
-      { title: "Get the content approved", body: "Complete any internal review or client approval your team requires before posting." },
+      { title: "Record approval separately", body: "Complete Jota's internal content review when required. If your team gets client approval through another platform, record the response on the content item; Jota does not contact the client." },
       { title: "Publish on the social platform", body: "Jota tracks the content and schedule; the team posts to the selected social platform using its normal publishing process." },
       { title: "Update the content item", body: "When the post is actually live, open the scheduled content item and choose Mark as published. The content tracker then records the published state." },
       { title: "Complete its task separately", body: "If the content has a linked task, its owner should also mark that task Completed when assigned work is finished." },
@@ -147,7 +163,7 @@ export const helpGuides: HelpGuide[] = [
     section: "Supervisors", audience: "Supervisors and users with client-management access", minutes: 3,
     steps: [
       { title: "Create or open a client", body: "Client records hold the account details, assigned account managers, platforms, and links to that client’s campaigns, tasks, content, and files." },
-      { title: "Assign the right people", body: "Add account managers or team members to the client so they can access its work. A supervisor can also create and perform assigned work while overseeing reviews." },
+      { title: "Assign the right people", body: "Assign Account Managers so they can access the client. An assigned Account Manager can select one Video Editor for that client; a Supervisor or Administrator can also change this assignment. Client-level editor assignment does not replace the creator/editor assigned to an individual content item." },
       { title: "Create a campaign only when useful", body: "A campaign belongs to one client and groups related content and work. Leave work under General / Ongoing when it does not need a dedicated campaign." },
       { title: "Pause or archive intentionally", body: "Pause a campaign to stop new content being added while keeping existing records. Archive a client or campaign only when it should leave normal active views." },
     ],

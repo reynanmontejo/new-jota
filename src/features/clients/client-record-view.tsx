@@ -7,7 +7,7 @@ import { ContentCalendar, type ContentCalendarPost } from "@/features/calendar/c
 import { CampaignManager, type CampaignRecord } from "@/features/clients/campaign-manager"
 import { ClientTaskList } from "@/features/clients/client-task-list"
 import { ClientFiles } from "@/features/clients/client-files"
-import { moveClientToTrash, updateClientAccountManagers, updateClientStatus } from "@/app/clients/actions"
+import { moveClientToTrash, updateClientAccountManagers, updateClientStatus, updateClientVideoEditor } from "@/app/clients/actions"
 import type { CampaignPermissions } from "@/lib/supabase/campaign-admin"
 
 export type ClientRecord = {
@@ -29,6 +29,7 @@ const statusStyle: Record<ClientRecord["status"], string> = {
 
 export type ClientTeamMember = { id: string; name: string; jobTitle: string | null; role: string; isPrimary: boolean; avatarUrl: string | null }
 export type AssignableAccountManager = { id: string; name: string; jobTitle: string | null }
+export type AssignableVideoEditor = { id: string; name: string; jobTitle: string | null }
 export type ClientActivityItem = { id: string; action: string; entity: string; actor: string; createdAt: string }
 
 const tabs = ["overview", "campaigns", "calendar", "tasks", "files", "team", "activity"] as const
@@ -38,7 +39,7 @@ function localDateKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
 }
 
-export function ClientRecordView({ client, activeTab = "overview", campaigns = [], campaignPermissions = { canCreate: false, canUpdate: false, canArchive: false }, contentPosts = [], team = [], assignableAccountManagers = [], canManageAssignments = false, canManageStatus = false, canManageTrash = false, activity = [], contentError = false, notice }: {
+export function ClientRecordView({ client, activeTab = "overview", campaigns = [], campaignPermissions = { canCreate: false, canUpdate: false, canArchive: false }, contentPosts = [], team = [], assignableAccountManagers = [], assignableVideoEditors = [], canManageAssignments = false, canManageVideoEditor = false, canManageStatus = false, canManageTrash = false, activity = [], contentError = false, notice }: {
   client: ClientRecord
   activeTab?: ClientTab
   campaigns?: CampaignRecord[]
@@ -46,7 +47,9 @@ export function ClientRecordView({ client, activeTab = "overview", campaigns = [
   contentPosts?: ContentCalendarPost[]
   team?: ClientTeamMember[]
   assignableAccountManagers?: AssignableAccountManager[]
+  assignableVideoEditors?: AssignableVideoEditor[]
   canManageAssignments?: boolean
+  canManageVideoEditor?: boolean
   canManageStatus?: boolean
   canManageTrash?: boolean
   activity?: ClientActivityItem[]
@@ -115,7 +118,7 @@ export function ClientRecordView({ client, activeTab = "overview", campaigns = [
         ) : activeTab === "tasks" ? (
           <div className="mt-4 border-t border-border/70 pt-4"><ClientTaskList clientId={client.id} /></div>
         ) : activeTab === "team" ? (
-          <section aria-labelledby="client-team-heading" className="mt-6 border-t border-border/70 pt-5"><h2 id="client-team-heading" className="text-sm font-semibold">Client team</h2><p className="mt-1 text-xs text-muted-foreground">People currently assigned to this client. Roster changes are managed by a workspace administrator.</p>{team.length ? <ul className="mt-3 divide-y rounded-md border">{team.map((member) => <li key={member.id} className="flex items-center gap-3 p-3"><span className="grid size-8 place-items-center rounded-full bg-secondary/35 text-[10px] font-semibold text-primary">{member.name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase()}</span><span className="min-w-0 flex-1"><span className="block truncate text-xs font-semibold">{member.name}{member.isPrimary ? " · Primary" : ""}</span><span className="text-[10px] text-muted-foreground">{member.jobTitle || member.role}</span></span><Badge variant="outline" className="text-[10px] capitalize">{member.role.replaceAll("_", " ")}</Badge></li>)}</ul> : <p className="mt-3 rounded-md border border-dashed px-4 py-8 text-center text-xs text-muted-foreground">No active client team members are available.</p>}</section>
+          <section aria-labelledby="client-team-heading" className="mt-6 border-t border-border/70 pt-5"><h2 id="client-team-heading" className="text-sm font-semibold">Client team</h2><p className="mt-1 text-xs text-muted-foreground">Account Managers can select a Video Editor for this client. Supervisor and Administrator access can also manage the assignment.</p>{team.length ? <ul className="mt-3 divide-y rounded-md border">{team.map((member) => <li key={`${member.id}-${member.role}`} className="flex items-center gap-3 p-3"><span className="grid size-8 place-items-center rounded-full bg-secondary/35 text-[10px] font-semibold text-primary">{member.name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase()}</span><span className="min-w-0 flex-1"><span className="block truncate text-xs font-semibold">{member.name}{member.isPrimary ? " · Primary" : ""}</span><span className="text-[10px] text-muted-foreground">{member.jobTitle || member.role}</span></span><Badge variant="outline" className="text-[10px] capitalize">{member.role.replaceAll("_", " ")}</Badge></li>)}</ul> : <p className="mt-3 rounded-md border border-dashed px-4 py-8 text-center text-xs text-muted-foreground">No active client team members are available.</p>}</section>
         ) : activeTab === "activity" ? (
           <section aria-labelledby="client-activity-heading" className="mt-6 border-t border-border/70 pt-5"><h2 id="client-activity-heading" className="text-sm font-semibold">Recent activity</h2><p className="mt-1 text-xs text-muted-foreground">Activity you are permitted to see in this client workspace.</p>{activity.length ? <ol className="mt-3 divide-y rounded-md border">{activity.map((item) => <li key={item.id} className="flex flex-wrap items-start justify-between gap-2 p-3"><span><span className="block text-xs font-medium">{item.action} · {item.entity}</span><span className="mt-1 block text-[10px] text-muted-foreground">{item.actor}</span></span><time className="text-[10px] text-muted-foreground" dateTime={item.createdAt}>{new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(item.createdAt))}</time></li>)}</ol> : <p className="mt-3 rounded-md border border-dashed px-4 py-8 text-center text-xs text-muted-foreground">No activity is available for this client yet.</p>}</section>
         ) : activeTab === "files" ? (
@@ -138,8 +141,15 @@ export function ClientRecordView({ client, activeTab = "overview", campaigns = [
           <Button type="submit" size="sm" className="justify-self-start">Save assignments</Button>
         </> : <p className="text-xs text-muted-foreground">No active Account Manager accounts are available to assign.</p>}
       </form>}
+      {activeTab === "team" && canManageVideoEditor && <form action={updateClientVideoEditor} className="mt-3 grid gap-3 rounded-md border bg-background/60 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+        <input type="hidden" name="clientId" value={client.id} />
+        <div className="grid gap-1.5"><label htmlFor="client-video-editor" className="text-xs font-semibold">Video Editor for {client.name}</label><select id="client-video-editor" className="h-9 rounded-md border border-input bg-background px-2.5 text-xs" name="videoEditorId" defaultValue={team.find((member) => member.role === "video_editor")?.id ?? ""}><option value="">No Video Editor assigned</option>{assignableVideoEditors.map((editor) => <option key={editor.id} value={editor.id}>{editor.name}{editor.jobTitle ? ` · ${editor.jobTitle}` : ""}</option>)}</select><p className="text-[10px] text-muted-foreground">Choose one active team member. This is a client-level assignment and does not change content creator assignments.</p></div>
+        <Button type="submit" size="sm" disabled={assignableVideoEditors.length === 0 && !team.some((member) => member.role === "video_editor")}>Save Video Editor</Button>
+      </form>}
       {activeTab === "team" && notice === "assignments-updated" && <p role="status" className="mt-3 rounded-md border border-emerald-700/15 bg-emerald-700/8 px-3 py-2 text-xs text-emerald-800 dark:text-emerald-300">Account Manager assignments saved.</p>}
       {activeTab === "team" && notice?.startsWith("assignment-") && notice !== "assignments-updated" && <p role="alert" className="mt-3 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive">Could not save Account Manager assignments. Check your selection and permissions, then try again.</p>}
+      {activeTab === "team" && notice === "video-editor-updated" && <p role="status" className="mt-3 rounded-md border border-emerald-700/15 bg-emerald-700/8 px-3 py-2 text-xs text-emerald-800 dark:text-emerald-300">Video Editor assignment saved.</p>}
+      {activeTab === "team" && notice?.startsWith("video-editor-") && notice !== "video-editor-updated" && <p role="alert" className="mt-3 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive">Could not save this Video Editor assignment. Check your access and selection, then try again.</p>}
     </main>
   )
 }

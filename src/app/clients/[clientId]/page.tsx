@@ -2,7 +2,7 @@ import { notFound } from "next/navigation"
 
 import { DashboardShell } from "@/components/layout/dashboard-shell"
 import { ContentState } from "@/components/states/content-state"
-import { ClientRecordView, type AssignableAccountManager, type ClientRecord } from "@/features/clients/client-record-view"
+import { ClientRecordView, type AssignableAccountManager, type AssignableVideoEditor, type ClientRecord } from "@/features/clients/client-record-view"
 import type { ClientActivityItem, ClientTeamMember } from "@/features/clients/client-record-view"
 import { ClientWorkspace } from "@/features/clients/client-workspace"
 import type { CampaignRecord } from "@/features/clients/campaign-manager"
@@ -33,6 +33,7 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
 
   // The query is RLS-scoped; unavailable and unauthorized records must not leak.
   if (error || !row) notFound()
+  const { data: authData } = await supabase.auth.getUser()
 
   const [campaignResult, taskResult, contentResult, teamResult, campaignPermissions, assignmentContext, lifecyclePermissions] = await Promise.all([
     supabase.from("campaigns").select("id,client_id,name,description,status,start_date,end_date").eq("client_id", clientId).is("deleted_at", null).order("start_date", { ascending: true, nullsFirst: false }).order("name"),
@@ -52,6 +53,15 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
   const taskRows = taskResult.data ?? []
   const contentRows = contentResult.data ?? []
   const teamRows = teamResult.data ?? []
+  const canManageVideoEditor = Boolean(assignmentContext || teamRows.some((member) => member.user_id === authData.user?.id && member.client_role === "account_manager"))
+  let assignableVideoEditors: AssignableVideoEditor[] = []
+  if (canManageVideoEditor) {
+    const editorCandidatesResult = await supabase.rpc("workflow_list_client_video_editor_candidates", { p_client_id: clientId })
+    if (editorCandidatesResult.error) {
+      return <DashboardShell><main className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:px-8"><ContentState variant="error" title="Video Editor choices couldn’t be loaded" description="Apply the client/editor workflow migration, then refresh. No client assignments were changed." /></main></DashboardShell>
+    }
+    assignableVideoEditors = ((editorCandidatesResult.data ?? []) as Array<{ user_id: string; display_name: string; job_title: string | null }>).map((candidate) => ({ id: candidate.user_id, name: candidate.display_name, jobTitle: candidate.job_title }))
+  }
   let assignableAccountManagers: AssignableAccountManager[] = []
   if (assignmentContext) {
     const managerRolesResult = await supabase.from("roles").select("id")
@@ -104,6 +114,7 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
     return <DashboardShell><main className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:px-8"><ContentState variant="error" title="Client team details could not be loaded" description="Refresh and try again. No client data was changed." /></main></DashboardShell>
   }
   const profileById = new Map((profileResult.data ?? []).map((profile) => [profile.id, profile]))
+  const videoEditorById = new Map(assignableVideoEditors.map((editor) => [editor.id, editor]))
 
   const client = {
     ...row,
@@ -130,8 +141,10 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
   }] : [])
   const team: ClientTeamMember[] = teamRows.flatMap((member) => {
     const profile = profileById.get(member.user_id)
-    if (!profile || profile.status !== "active" || profile.deactivated_at) return []
-    return [{ id: member.user_id, name: profile.display_name, jobTitle: profile.job_title, role: member.client_role, isPrimary: member.is_primary, avatarUrl: profile.avatar_url }]
+    const candidate = videoEditorById.get(member.user_id)
+    if (profile && (profile.status !== "active" || profile.deactivated_at)) return []
+    if (!profile && !candidate && member.client_role !== "video_editor") return []
+    return [{ id: member.user_id, name: profile?.display_name ?? candidate?.name ?? "Assigned Video Editor", jobTitle: profile?.job_title ?? candidate?.jobTitle ?? null, role: member.client_role, isPrimary: member.is_primary, avatarUrl: profile?.avatar_url ?? null }]
   })
   const entityNames = new Map<string, string>()
   entityNames.set(`client:${clientId}`, row.name)
@@ -145,5 +158,5 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
     actor: item.actor_id ? profileById.get(item.actor_id)?.display_name ?? "Former member" : "System",
     createdAt: item.created_at,
   })).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
-  return <DashboardShell><ClientRecordView client={client} activeTab={activeTab} campaigns={campaignRows} campaignPermissions={campaignPermissions} contentPosts={contentPosts} contentError={Boolean(contentResult.error)} team={team} assignableAccountManagers={assignableAccountManagers} canManageAssignments={Boolean(assignmentContext)} canManageStatus={Boolean(lifecyclePermissions?.canManageStatus)} canManageTrash={Boolean(lifecyclePermissions?.canManageTrash)} activity={activity} notice={notice} /></DashboardShell>
+  return <DashboardShell><ClientRecordView client={client} activeTab={activeTab} campaigns={campaignRows} campaignPermissions={campaignPermissions} contentPosts={contentPosts} contentError={Boolean(contentResult.error)} team={team} assignableAccountManagers={assignableAccountManagers} assignableVideoEditors={assignableVideoEditors} canManageAssignments={Boolean(assignmentContext)} canManageVideoEditor={canManageVideoEditor} canManageStatus={Boolean(lifecyclePermissions?.canManageStatus)} canManageTrash={Boolean(lifecyclePermissions?.canManageTrash)} activity={activity} notice={notice} /></DashboardShell>
 }

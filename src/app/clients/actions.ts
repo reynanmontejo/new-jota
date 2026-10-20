@@ -95,6 +95,33 @@ export async function updateClientAccountManagers(formData: FormData) {
   redirect(`/clients/${encodeURIComponent(clientId)}?tab=team&notice=assignments-updated`)
 }
 
+export async function updateClientVideoEditor(formData: FormData) {
+  const clientId = field(formData, "clientId")
+  const parsed = z.object({
+    clientId: z.uuid(),
+    videoEditorId: z.union([z.uuid(), z.literal("")]),
+  }).safeParse({
+    clientId,
+    videoEditorId: field(formData, "videoEditorId"),
+  })
+  if (!parsed.success) redirect(`/clients/${encodeURIComponent(clientId)}?tab=team&notice=video-editor-invalid`)
+
+  const supabase = await createClient()
+  const { error } = await supabase.rpc("set_client_video_editor", {
+    p_client_id: parsed.data.clientId,
+    p_video_editor_id: parsed.data.videoEditorId || null,
+  })
+  if (error?.code === "42501") redirect(`/clients/${encodeURIComponent(clientId)}?tab=team&notice=video-editor-forbidden`)
+  if (error?.code === "PGRST202") redirect(`/clients/${encodeURIComponent(clientId)}?tab=team&notice=video-editor-migration-missing`)
+  if (error) redirect(`/clients/${encodeURIComponent(clientId)}?tab=team&notice=video-editor-failed`)
+
+  revalidatePath("/clients")
+  revalidatePath(`/clients/${encodeURIComponent(clientId)}`)
+  revalidatePath("/content")
+  revalidatePath("/tasks")
+  redirect(`/clients/${encodeURIComponent(clientId)}?tab=team&notice=video-editor-updated`)
+}
+
 export async function updateClientStatus(formData: FormData) {
   const permissions = await getClientLifecyclePermissions()
   const clientId = field(formData, "clientId")

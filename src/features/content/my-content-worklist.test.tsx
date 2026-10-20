@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-const actionMocks = vi.hoisted(() => ({ archiveContentItem: vi.fn(), restoreContentItem: vi.fn() }))
+const actionMocks = vi.hoisted(() => ({ archiveContentItem: vi.fn(), recordExternalClientDecision: vi.fn(), restoreContentItem: vi.fn() }))
 vi.mock("@/app/content/actions", () => ({ ...actionMocks, saveContentItem: vi.fn() }))
 vi.mock("@/features/clients/client-files", () => ({ ClientFiles: () => <div>Loaded file workspace</div> }))
 vi.mock("@/features/content/content-import", () => ({ ContentImport: () => null }))
