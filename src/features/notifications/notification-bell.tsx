@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
-import { Bell, CheckCheck } from "lucide-react"
+import { Bell, CheckCheck, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -44,11 +44,32 @@ export function NotificationBell({
 }) {
   const router = useRouter()
   const [notifications, setNotifications] = useState<NotificationItem[]>([])
+  const [toastNotifications, setToastNotifications] = useState<NotificationItem[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const knownIds = useRef(new Set<string>())
   const soundEnabled = useRef(false)
   const unreadCountRef = useRef(0)
+  const toastTimers = useRef(new Map<string, number>())
+
+  const dismissToast = useCallback((id: string) => {
+    const timer = toastTimers.current.get(id)
+    if (timer !== undefined) window.clearTimeout(timer)
+    toastTimers.current.delete(id)
+    setToastNotifications((current) => current.filter((item) => item.id !== id))
+  }, [])
+
+  const showToast = useCallback((item: NotificationItem) => {
+    setToastNotifications((current) => [item, ...current.filter((notification) => notification.id !== item.id)])
+    const existingToastTimer = toastTimers.current.get(item.id)
+    if (existingToastTimer !== undefined) window.clearTimeout(existingToastTimer)
+    toastTimers.current.set(item.id, window.setTimeout(() => dismissToast(item.id), 8000))
+  }, [dismissToast])
+
+  useEffect(() => () => {
+    toastTimers.current.forEach((timer) => window.clearTimeout(timer))
+    toastTimers.current.clear()
+  }, [])
 
   const showDesktopNotification = useCallback(async (item: NotificationItem) => {
     if (typeof window === "undefined" || !window.isSecureContext
@@ -106,6 +127,7 @@ export function NotificationBell({
           unreadCountRef.current += 1
           setUnreadCount(unreadCountRef.current)
         }
+        showToast(incoming)
         void showDesktopNotification(incoming)
         if (soundEnabled.current) import("@/features/notifications/notification-sound").then(({ playNotificationChime }) => playNotificationChime(currentUser.id))
       })
@@ -133,9 +155,14 @@ export function NotificationBell({
     const refreshSoundPreferenceFromStorage = (event: StorageEvent) => {
       if (event.key === `jota-sound-alerts:${currentUser.id}`) soundEnabled.current = event.newValue === "true"
     }
+    const showNotificationPreview = (event: Event) => {
+      const preview = (event as CustomEvent<NotificationItem>).detail
+      if (preview?.recipient_id === currentUser.id) showToast(preview)
+    }
     window.addEventListener("focus", refreshWhenVisible)
     window.addEventListener("jota-notification-sound-changed", refreshSoundPreference)
     window.addEventListener("storage", refreshSoundPreferenceFromStorage)
+    window.addEventListener("jota-notification-preview", showNotificationPreview)
     return () => {
       active = false
       window.clearTimeout(loadTimer)
@@ -143,9 +170,10 @@ export function NotificationBell({
       window.removeEventListener("focus", refreshWhenVisible)
       window.removeEventListener("jota-notification-sound-changed", refreshSoundPreference)
       window.removeEventListener("storage", refreshSoundPreferenceFromStorage)
+      window.removeEventListener("jota-notification-preview", showNotificationPreview)
       void supabase.removeChannel(channel)
     }
-  }, [currentUser.id, demoMode, loadNotifications, showDesktopNotification])
+  }, [currentUser.id, demoMode, loadNotifications, showDesktopNotification, showToast])
 
   async function markRead(id: string) {
     const target = notifications.find((item) => item.id === id)
@@ -187,7 +215,8 @@ export function NotificationBell({
     router.push(`${target.pathname}${target.search}${target.hash}`)
   }
 
-  return <DropdownMenu>
+  return <>
+    <DropdownMenu>
     <DropdownMenuTrigger render={<Button variant="ghost" size="icon" className={cn("relative", compact ? "size-8 rounded-lg" : "rounded-xl")} aria-label={`${unreadCount} unread notifications`} />}>
       <Bell className="size-[18px]" />
       {unreadCount > 0 && <span aria-hidden="true" className="absolute -right-1 -top-1 grid h-[18px] min-w-[18px] place-items-center rounded-full border-2 border-background bg-destructive px-1 text-[9px] font-bold leading-none text-destructive-foreground shadow-sm">{unreadCount > 99 ? "99+" : unreadCount}</span>}
@@ -208,5 +237,19 @@ export function NotificationBell({
         <CheckCheck className="size-3.5" /> Mark all as read
       </DropdownMenuItem>
     </DropdownMenuContent>
-  </DropdownMenu>
+    </DropdownMenu>
+    {toastNotifications.length > 0 && <div aria-label="New notifications" aria-live="polite" className="pointer-events-none fixed inset-x-3 top-16 z-[100] ml-auto flex max-h-[calc(100dvh-5rem)] w-auto max-w-sm flex-col gap-2 overflow-y-auto sm:inset-x-auto sm:right-4 sm:w-[min(24rem,calc(100vw-2rem))]">
+      {toastNotifications.map((item) => <section key={item.id} role="status" className="pointer-events-auto flex items-start gap-2 overflow-hidden rounded-xl border border-border border-l-4 border-l-primary bg-card/95 p-3 text-card-foreground shadow-xl backdrop-blur-md">
+        <Bell aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-primary" />
+        <button type="button" className="min-w-0 flex-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={`Open notification: ${item.title}`} onClick={() => { dismissToast(item.id); activate(item) }}>
+          <span className="block truncate text-sm font-semibold">{item.title}</span>
+          {item.body && <span className="mt-0.5 line-clamp-2 block text-xs text-muted-foreground">{item.body}</span>}
+          <span className="mt-1.5 block text-[10px] font-medium text-primary">Open notification</span>
+        </button>
+        <Button type="button" variant="ghost" size="icon-xs" aria-label={`Dismiss notification: ${item.title}`} onClick={() => dismissToast(item.id)}>
+          <X className="size-3.5" />
+        </Button>
+      </section>)}
+    </div>}
+  </>
 }

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
@@ -61,5 +61,48 @@ describe("task assignment notification navigation", () => {
 
     expect(mocks.push).toHaveBeenCalledWith("/tasks/task-1")
     expect(onNavigate).toHaveBeenCalledOnce()
+  })
+
+  it("shows a clickable in-browser banner for each new realtime notification", async () => {
+    render(<NotificationBell
+      currentUser={{ id: "employee-1", name: "Employee One", role: "employee" }}
+      demoMode={false}
+    />)
+
+    await screen.findByRole("button", { name: "1 unread notifications" })
+    const insertSubscription = mocks.channel.on.mock.calls.find(([, filter]) => (filter as { event?: string }).event === "INSERT")
+    const onInsert = insertSubscription?.[2] as ((event: { new: typeof taskNotification }) => void) | undefined
+    expect(onInsert).toBeTypeOf("function")
+
+    const newNotification = { ...taskNotification, id: "notification-2", title: "New assignment: Review the draft" }
+    act(() => onInsert?.({ new: newNotification }))
+
+    const banner = await screen.findByRole("button", { name: "Open notification: New assignment: Review the draft" })
+    expect(screen.getByText("You have been assigned to this task.")).toBeInTheDocument()
+    fireEvent.click(banner)
+
+    expect(mocks.push).toHaveBeenCalledWith("/tasks/task-1")
+  })
+
+  it("shows the in-browser banner when Settings sends a notification preview", async () => {
+    render(<NotificationBell
+      currentUser={{ id: "employee-1", name: "Employee One", role: "employee" }}
+      demoMode={false}
+    />)
+
+    await screen.findByRole("button", { name: "1 unread notifications" })
+    act(() => window.dispatchEvent(new CustomEvent("jota-notification-preview", {
+      detail: {
+        ...taskNotification,
+        id: "notification-test-preview",
+        type: "notification_test",
+        title: "Jota test notification",
+        body: "Test banner preview.",
+        href: "/settings",
+      },
+    })))
+
+    expect(await screen.findByRole("button", { name: "Open notification: Jota test notification" })).toBeInTheDocument()
+    expect(screen.getByText("Test banner preview.")).toBeInTheDocument()
   })
 })

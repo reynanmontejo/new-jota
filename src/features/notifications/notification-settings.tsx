@@ -290,18 +290,38 @@ export function NotificationSettings({ userId, demoMode }: { userId: string; dem
       const permission = Notification.permission
       setBrowserPermission(permission)
       if (permission !== "granted") throw new Error("Browser access is not currently allowed for this site. Allow it in the browser's site settings, then try again.")
-      await navigator.serviceWorker.register("/sw.js", { scope: "/" })
-      const registration = await waitForServiceWorkerReady()
+      const createdAt = new Date().toISOString()
       const testTag = `jota-notification-test-${Date.now()}`
-      await registration.showNotification("Jota test notification", {
-        body: `Jota successfully sent this test at ${new Date().toLocaleTimeString()}.`,
-        tag: testTag,
-        silent: false,
-        icon: "/jota-notification-icon.svg",
-        badge: "/jota-notification-icon.svg",
-        data: { path: "/settings" },
-      })
-      setMessage("The browser accepted the test notification. If no banner appeared, check the notification center and your computer's banner or Do Not Disturb settings.")
+      window.dispatchEvent(new CustomEvent("jota-notification-preview", {
+        detail: {
+          id: testTag,
+          recipient_id: userId,
+          type: "notification_test",
+          title: "Jota test notification",
+          body: `Test sent at ${new Date(createdAt).toLocaleTimeString()}.`,
+          entity_type: null,
+          entity_id: null,
+          href: "/settings",
+          read_at: null,
+          created_at: createdAt,
+        },
+      }))
+
+      try {
+        await navigator.serviceWorker.register("/sw.js", { scope: "/" })
+        const registration = await waitForServiceWorkerReady()
+        await registration.showNotification("Jota test notification", {
+          body: `Jota successfully sent this test at ${new Date(createdAt).toLocaleTimeString()}.`,
+          tag: testTag,
+          silent: false,
+          icon: "/jota-notification-icon.svg",
+          badge: "/jota-notification-icon.svg",
+          data: { path: "/settings" },
+        })
+        setMessage("The in-app banner appeared and the browser accepted the device notification. If no desktop banner appeared, check your computer's notification and Do Not Disturb settings.")
+      } catch (error) {
+        setMessage(`The in-app banner appeared, but the device notification failed: ${error instanceof Error ? error.message : "browser notification error"}`)
+      }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not show a test notification.")
     } finally { setTestingBrowser(false) }
