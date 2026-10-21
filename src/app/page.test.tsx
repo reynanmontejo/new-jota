@@ -10,7 +10,7 @@ vi.mock("next/navigation", () => ({
 import { WorkflowProvider } from "@/features/workflow/workflow-provider"
 import { TaskDrawerProvider } from "@/features/tasks/task-drawer"
 import type { WorkflowTask } from "@/features/workflow/types"
-import Home from "./page"
+import Home from "./(workspace)/page"
 
 afterEach(cleanup)
 

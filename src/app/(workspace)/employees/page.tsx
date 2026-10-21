@@ -8,7 +8,7 @@ import { getEmployeeManagementAccess } from "@/lib/supabase/employee-admin"
 import { createClient } from "@/lib/supabase/server"
 import { createServiceClient } from "@/lib/supabase/service"
 import { EmployeeRowActions } from "@/features/employees/employee-row-actions"
-import { createEmployee, restoreEmployeeFromTrash, updateEmployee } from "./actions"
+import { createEmployee, restoreEmployeeFromTrash, updateEmployee } from "@/app/employees/actions"
 import { decidePasswordChangeRequest } from "@/app/profile/password-actions"
 
 type EmployeeRow = {

@@ -1,11 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { WorkflowProvider } from "@/features/workflow/workflow-provider";
-import { TaskDrawerProvider } from "@/features/tasks/task-drawer";
-import { isSupabaseConfigured } from "@/lib/env";
-import { getAuthenticatedAppUser } from "@/lib/supabase/profile";
-import { loadWorkflowData } from "@/features/workflow/workflow-data";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -29,9 +24,6 @@ export const metadata: Metadata = {
 };
 
 export default async function RootLayout({ children }: LayoutProps<"/">) {
-  const demoMode = !isSupabaseConfigured();
-  const initialUser = demoMode ? null : await getAuthenticatedAppUser();
-  const workflowData = demoMode || !initialUser ? null : await loadWorkflowData();
   return (
     <html
       lang="en"
@@ -39,7 +31,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
     >
       <body className="min-h-full flex flex-col">
         <TooltipProvider>
-          <WorkflowProvider initialUser={initialUser} initialTasks={workflowData?.tasks} initialClients={workflowData?.clients} initialAssignableUsers={workflowData?.assignableUsers} initialUpcomingContent={workflowData?.upcomingContent} initialContentWorkItems={workflowData?.contentWorkItems} demoMode={demoMode}><TaskDrawerProvider>{children}</TaskDrawerProvider></WorkflowProvider>
+          {children}
         </TooltipProvider>
       </body>
     </html>
