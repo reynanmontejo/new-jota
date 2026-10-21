@@ -54,10 +54,14 @@ export type WorkflowTask = {
   comments: Array<{ id: string; author: string; initials: string; body: string; createdAt: string }>
   versions: WorkflowVersion[]
   activity: Array<{ id: string; label: string; actor: string; createdAt: string }>
+  /** True once the task's checklist, comments, version history, and activity have been fetched. */
+  detailsLoaded?: boolean
   /** Null means attachment visibility could not be verified for Trash eligibility. */
   fileCount?: number | null
   hasSubmissions?: boolean
 }
+
+export type WorkflowTaskDetails = Pick<WorkflowTask, "checklist" | "comments" | "versions" | "activity">
 
 export type WorkflowState = {
   tasks: WorkflowTask[]

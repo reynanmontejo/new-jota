@@ -56,11 +56,18 @@ export async function proxy(request: NextRequest) {
   // The database RPC independently enforces that no organization/profile exists.
   if (pathname === "/setup") return response
 
-  const { data: profile, error: profileError } = await supabase
-    .from("profiles")
-    .select("organization_id, status, deactivated_at")
-    .eq("id", userId)
-    .maybeSingle()
+  const [profileResult, membershipsResult] = await Promise.all([
+    supabase
+      .from("profiles")
+      .select("organization_id, status, deactivated_at")
+      .eq("id", userId)
+      .maybeSingle(),
+    // RLS limits this to the active user's organization. user_roles has a
+    // composite FK to roles(organization_id, id), so a visible membership is
+    // sufficient here; the app request context resolves role details separately.
+    supabase.from("user_roles").select("role_id").eq("user_id", userId),
+  ])
+  const { data: profile, error: profileError } = profileResult
 
   if (profile && (profile.status === "inactive" || profile.deactivated_at)) {
     if (pathname === "/account-deactivated") return response
@@ -84,24 +91,10 @@ export async function proxy(request: NextRequest) {
     return copyCookies(response, NextResponse.redirect(target))
   }
 
-  // Keep role resolution as explicit organization-scoped reads. Nested PostgREST
-  // joins can fail under RLS even when the user's own membership is readable,
-  // which otherwise sends valid users to access-denied on every route.
-  const { data: memberships, error: membershipsError } = await supabase
-    .from("user_roles")
-    .select("role_id")
-    .eq("organization_id", profile.organization_id)
-    .eq("user_id", userId)
-  const roleIds = memberships?.map(({ role_id }) => role_id) ?? []
-  const { data: roles, error: rolesError } = roleIds.length
-    ? await supabase
-        .from("roles")
-        .select("id")
-        .eq("organization_id", profile.organization_id)
-        .in("id", roleIds)
-    : { data: [], error: null }
+  const { data: memberships, error: membershipsError } = membershipsResult
+  const hasWorkspaceRole = memberships?.some(({ role_id }) => Boolean(role_id))
 
-  if (membershipsError || rolesError || !roles?.length) {
+  if (membershipsError || !hasWorkspaceRole) {
     if (pathname === "/access-denied") return response
     const target = request.nextUrl.clone()
     target.pathname = "/access-denied"

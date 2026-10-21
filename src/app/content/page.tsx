@@ -2,7 +2,7 @@ import { DashboardShell } from "@/components/layout/dashboard-shell"
 import { ContentState } from "@/components/states/content-state"
 import { ContentTracker, type TrackerAssignee, type TrackerCampaign, type TrackerClient, type TrackerItem } from "@/features/content/content-tracker"
 import { isSupabaseConfigured } from "@/lib/env"
-import { createClient } from "@/lib/supabase/server"
+import { getWorkspaceRequestContext } from "@/lib/supabase/request-context"
 import { redirect } from "next/navigation"
 
 export default async function ContentPage({ searchParams }: { searchParams: Promise<{ notice?: string | string[]; added?: string; duplicates?: string; view?: string }> }) {
@@ -14,20 +14,12 @@ export default async function ContentPage({ searchParams }: { searchParams: Prom
     return <DashboardShell><main className="mx-auto max-w-6xl px-4 py-6"><ContentState variant="error" title="Connect the workspace database to use the content tracker" description="The tracker stores client content and publishing dates in Supabase. Configure the project environment, then reload." /></main></DashboardShell>
   }
 
-  const supabase = await createClient()
-  const { data: authData } = await supabase.auth.getUser()
-  if (!authData.user) return <DashboardShell><main className="mx-auto max-w-6xl px-4 py-6"><ContentState variant="access_denied" title="Sign in to view content" description="Your content tracker is available to active workspace members." /></main></DashboardShell>
+  const context = await getWorkspaceRequestContext()
+  if (!context) return <DashboardShell><main className="mx-auto max-w-6xl px-4 py-6"><ContentState variant="access_denied" title="Workspace access is unavailable" description="An active workspace profile is required to access tracked content." /></main></DashboardShell>
+  const { supabase } = context
+  const canAssignContent = context.roles.some((role) => ["supervisor", "administrator"].includes(role.code))
 
-  const { data: profile } = await supabase.from("profiles").select("organization_id,status,deactivated_at").eq("id", authData.user.id).maybeSingle()
-  if (!profile || profile.status !== "active" || profile.deactivated_at) return <DashboardShell><main className="mx-auto max-w-6xl px-4 py-6"><ContentState variant="access_denied" title="Workspace access is unavailable" description="An active employee profile is required to access tracked content." /></main></DashboardShell>
-
-  const { data: memberships, error: roleError } = await supabase.from("user_roles").select("role_id").eq("organization_id", profile.organization_id).eq("user_id", authData.user.id)
-  if (roleError || !memberships?.length) return <DashboardShell><main className="mx-auto max-w-6xl px-4 py-6"><ContentState variant="error" title="Content access couldn’t be checked" description="Refresh the page. No content was changed." /></main></DashboardShell>
-  const { data: roleRows, error: rolesError } = await supabase.from("roles").select("code").in("id", memberships.map((membership) => membership.role_id))
-  if (rolesError) return <DashboardShell><main className="mx-auto max-w-6xl px-4 py-6"><ContentState variant="error" title="Content role could not be checked" description="Refresh the page. No content was changed." /></main></DashboardShell>
-  const canAssignContent = Boolean(roleRows?.some((role) => ["supervisor", "administrator"].includes(role.code)))
-
-  const { data: permissions, error: permissionError } = await supabase.from("role_permissions").select("permission_code").eq("organization_id", profile.organization_id).in("role_id", memberships.map((membership) => membership.role_id)).in("permission_code", ["content.create", "content.update", "tasks.create"])
+  const { data: permissions, error: permissionError } = await supabase.from("role_permissions").select("permission_code").eq("organization_id", context.organizationId).in("role_id", context.roleIds).in("permission_code", ["content.create", "content.update", "tasks.create"])
   if (permissionError) return <DashboardShell><main className="mx-auto max-w-6xl px-4 py-6"><ContentState variant="error" title="Content permissions couldn’t be loaded" description="Refresh the page. No content was changed." /></main></DashboardShell>
   const canCreate = Boolean(permissions?.some((permission) => permission.permission_code === "content.create"))
   const canEdit = Boolean(permissions?.some((permission) => permission.permission_code === "content.update"))
@@ -76,5 +68,5 @@ export default async function ContentPage({ searchParams }: { searchParams: Prom
     return campaign && client ? [{ ...item, client_name: client.name, campaign_name: campaign.name, assignee_name: assignee?.display_name ?? null }] : []
   })
 
-  return <DashboardShell><ContentTracker clients={clients} campaigns={campaigns} assignees={assignees} items={items} canCreate={canCreate} canEdit={canEdit} canCreateTask={canCreateTask} currentUserId={authData.user.id} canAssignContent={canAssignContent} notice={typeof params.notice === "string" ? params.notice : undefined} importedCount={importedCount} skippedCount={skippedCount} isArchivedView={isArchivedView} /></DashboardShell>
+  return <DashboardShell><ContentTracker clients={clients} campaigns={campaigns} assignees={assignees} items={items} canCreate={canCreate} canEdit={canEdit} canCreateTask={canCreateTask} currentUserId={context.userId} canAssignContent={canAssignContent} notice={typeof params.notice === "string" ? params.notice : undefined} importedCount={importedCount} skippedCount={skippedCount} isArchivedView={isArchivedView} /></DashboardShell>
 }

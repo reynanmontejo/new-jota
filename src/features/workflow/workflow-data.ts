@@ -1,7 +1,8 @@
 import "server-only"
 
-import type { WorkflowAssignableUser, WorkflowClient, WorkflowContentWorkItem, WorkflowTask, WorkflowUpcomingContent } from "@/features/workflow/types"
-import { createClient } from "@/lib/supabase/server"
+import type { WorkflowAssignableUser, WorkflowClient, WorkflowContentWorkItem, WorkflowTask, WorkflowTaskDetails, WorkflowUpcomingContent } from "@/features/workflow/types"
+import { getWorkspaceRequestContext } from "@/lib/supabase/request-context"
+import type { WorkspaceRequestContext } from "@/lib/supabase/request-context"
 
 type DbTask = {
   id: string
@@ -17,7 +18,7 @@ type DbTask = {
   completed_at: string | null
   created_by: string | null
 }
-type DbAssignee = { task_id: string; user_id: string; is_primary: boolean; profiles?: { display_name: string; job_title: string | null } | null }
+type DbAssignee = { task_id: string; user_id: string; is_primary: boolean }
 type DbChecklist = { id: string; task_id: string; title: string; is_completed: boolean; position: number }
 type DbComment = { id: string; task_id: string; author_id: string; body: string; created_at: string }
 type DbActivity = { id: string; entity_id: string; actor_id: string | null; action: string; created_at: string }
@@ -44,117 +45,89 @@ function actionLabel(action: string) {
 }
 
 export async function loadWorkflowData(): Promise<{ tasks: WorkflowTask[]; clients: WorkflowClient[]; assignableUsers: WorkflowAssignableUser[]; upcomingContent: WorkflowUpcomingContent[]; contentWorkItems: WorkflowContentWorkItem[] }> {
-  const supabase = await createClient()
-  const [taskResult, clientResult] = await Promise.all([
-    supabase.from("tasks").select("id,title,description,client_id,campaign_id,content_item_id,status,priority,start_at,due_at,completed_at,created_by,created_at").is("deleted_at", null).is("archived_at", null).order("due_at", { ascending: true, nullsFirst: false }),
+  const context = await getWorkspaceRequestContext()
+  if (!context) throw new Error("Could not load the active workspace context.")
+  const { supabase } = context
+  const [taskResult, clientResult, contentWorkResult, profileResult] = await Promise.all([
+    supabase.from("tasks").select("id,title,description,client_id,campaign_id,content_item_id,status,priority,start_at,due_at,completed_at,created_by").is("deleted_at", null).is("archived_at", null).order("due_at", { ascending: true, nullsFirst: false }),
     supabase.from("clients").select("id,name").is("deleted_at", null).order("name"),
+    supabase.from("content_items")
+      .select("id,title,client_id,campaign_id,platform,content_type,status,publish_at,deadline_at,assigned_to")
+      .in("status", ["idea", "planned", "in_production", "for_review", "revision_requested", "waiting_client", "scheduled"])
+      .is("deleted_at", null)
+      .order("publish_at", { ascending: true, nullsFirst: false }),
+    // Fetch small profile rows in this first wave so participant names do not
+    // require a third, serial round trip after assignment IDs are known.
+    supabase.from("profiles").select("id,display_name,job_title,status,deactivated_at"),
   ])
   if (taskResult.error) throw new Error(`Could not load tasks: ${taskResult.error.message}`)
   if (clientResult.error) throw new Error(`Could not load available clients: ${clientResult.error.message}`)
-
-  const rows = (taskResult.data ?? []) as unknown as (DbTask & { created_at: string })[]
-  const clients = (clientResult.data ?? []) as unknown as WorkflowClient[]
-  const clientNames = new Map(clients.map((client) => [client.id, client.name]))
-  const contentWorkResult = await supabase.from("content_items")
-    .select("id,title,client_id,campaign_id,platform,content_type,status,publish_at,deadline_at,assigned_to")
-    .in("status", ["idea", "planned", "in_production", "for_review", "revision_requested", "waiting_client", "scheduled"])
-    .is("deleted_at", null)
-    .order("publish_at", { ascending: true, nullsFirst: false })
   if (contentWorkResult.error) throw new Error(`Could not load content work: ${contentWorkResult.error.message}`)
+  if (profileResult.error) throw new Error(`Could not load workflow participants: ${profileResult.error.message}`)
+
+  const rows = (taskResult.data ?? []) as unknown as DbTask[]
+  const clients = (clientResult.data ?? []) as unknown as WorkflowClient[]
   const contentWorkRows = (contentWorkResult.data ?? []) as unknown as Array<{
     id: string; title: string; client_id: string; campaign_id: string; platform: string; content_type: string
     status: string; publish_at: string | null; deadline_at: string | null; assigned_to: string | null
   }>
-  const upcomingContent: WorkflowUpcomingContent[] = contentWorkRows
-    .filter((item) => ["planned", "in_production", "scheduled"].includes(item.status) && Boolean(item.publish_at) && item.publish_at! >= new Date().toISOString())
-    .slice(0, 3)
-    .map((item) => ({ id: item.id, title: item.title, clientId: item.client_id, clientName: clientNames.get(item.client_id) ?? "Client", platform: item.platform, publishAt: item.publish_at! }))
   const taskIds = rows.map((row) => row.id)
   const clientIds = clients.map((client) => client.id)
   const contentIds = [...new Set(rows.flatMap((row) => row.content_item_id ? [row.content_item_id] : []))]
 
-  const [campaignResult, contentResult, assigneeResult, checklistResult, commentResult, activityResult, submissionResult, taskAttachmentResult] = await Promise.all([
+  // Only fetch the summary fields used by shared navigation, task boards, and insights.
+  // Comments, activity, checklist, and version history are fetched only when a task is opened.
+  const [campaignResult, contentResult, assigneeResult, clientMemberResult] = await Promise.all([
     clientIds.length ? supabase.from("campaigns").select("id,name,client_id").is("deleted_at", null).in("client_id", clientIds) : Promise.resolve({ data: [], error: null }),
     contentIds.length ? supabase.from("content_items").select("id,title").in("id", contentIds) : Promise.resolve({ data: [], error: null }),
     taskIds.length ? supabase.from("task_assignees").select("task_id,user_id,is_primary").is("removed_at", null).in("task_id", taskIds) : Promise.resolve({ data: [], error: null }),
-    taskIds.length ? supabase.from("task_checklist_items").select("id,task_id,title,is_completed,position").in("task_id", taskIds).order("position") : Promise.resolve({ data: [], error: null }),
-    taskIds.length ? supabase.from("comments").select("id,task_id,author_id,body,created_at").is("deleted_at", null).in("task_id", taskIds).order("created_at") : Promise.resolve({ data: [], error: null }),
-    taskIds.length ? supabase.from("activity_logs").select("id,entity_id,actor_id,action,created_at").eq("entity_type", "task").in("entity_id", taskIds).order("created_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
-    taskIds.length ? supabase.from("submissions").select("id,task_id,current_version_number,status").in("task_id", taskIds) : Promise.resolve({ data: [], error: null }),
-    taskIds.length ? supabase.from("attachments").select("task_id").in("task_id", taskIds) : Promise.resolve({ data: [], error: null }),
+    clientIds.length ? supabase.from("client_members").select("client_id,user_id").is("removed_at", null).in("client_id", clientIds) : Promise.resolve({ data: [], error: null }),
   ])
-  for (const result of [campaignResult, contentResult, assigneeResult, checklistResult, commentResult, activityResult, submissionResult]) {
-    if (result.error) throw new Error(`Could not load task details: ${result.error.message}`)
+  for (const result of [campaignResult, contentResult, assigneeResult, clientMemberResult]) {
+    if (result.error) throw new Error(`Could not load workflow summaries: ${result.error.message}`)
   }
 
   const campaignRows = (campaignResult.data ?? []) as unknown as { id: string; name: string; client_id: string }[]
-  const campaigns = new Map(campaignRows.map((row) => [row.id, row.name]))
+  const campaignById = new Map(campaignRows.map((row) => [row.id, row.name]))
+  const campaignsByClient = new Map<string, Array<{ id: string; name: string }>>()
+  for (const campaign of campaignRows) {
+    const items = campaignsByClient.get(campaign.client_id) ?? []
+    items.push({ id: campaign.id, name: campaign.name })
+    campaignsByClient.set(campaign.client_id, items)
+  }
   const content = new Map(((contentResult.data ?? []) as unknown as { id: string; title: string }[]).map((row) => [row.id, row.title]))
   const assignees = (assigneeResult.data ?? []) as unknown as DbAssignee[]
-  const checklists = (checklistResult.data ?? []) as unknown as DbChecklist[]
-  const comments = (commentResult.data ?? []) as unknown as DbComment[]
-  const activities = (activityResult.data ?? []) as unknown as DbActivity[]
-  const submissions = (submissionResult.data ?? []) as unknown as DbSubmission[]
-  const taskFileCounts = new Map<string, number>()
-  for (const attachment of (taskAttachmentResult.data ?? []) as unknown as { task_id: string | null }[]) {
-    if (attachment.task_id) taskFileCounts.set(attachment.task_id, (taskFileCounts.get(attachment.task_id) ?? 0) + 1)
+  const assigneesByTask = new Map<string, DbAssignee[]>()
+  for (const assignee of assignees) {
+    const items = assigneesByTask.get(assignee.task_id) ?? []
+    items.push(assignee)
+    assigneesByTask.set(assignee.task_id, items)
   }
-  const clientMemberResult = clientIds.length
-    ? await supabase.from("client_members").select("client_id,user_id").is("removed_at", null).in("client_id", clientIds)
-    : { data: [], error: null }
-  if (clientMemberResult.error) throw new Error(`Could not load client task assignees: ${clientMemberResult.error.message}`)
   const clientMembers = (clientMemberResult.data ?? []) as unknown as { client_id: string; user_id: string }[]
-  const submissionIds = submissions.map((item) => item.id)
-  const versionResult = submissionIds.length
-    ? await supabase.from("submission_versions").select("id,task_id,submission_id,version_number,notes,submitted_by,submitted_at").in("submission_id", submissionIds).order("version_number")
-    : { data: [], error: null }
-  if (versionResult.error) throw new Error(`Could not load task submission versions: ${versionResult.error.message}`)
-  const versions = (versionResult.data ?? []) as unknown as DbSubmissionVersion[]
-  const versionIds = versions.map((item) => item.id)
-  const [versionFileResult, reviewResult] = await Promise.all([
-    versionIds.length ? supabase.from("submission_version_files").select("submission_version_id,attachment_id").in("submission_version_id", versionIds) : Promise.resolve({ data: [], error: null }),
-    versionIds.length ? supabase.from("reviews").select("submission_version_id,reviewer_id,decision,comment,created_at").in("submission_version_id", versionIds) : Promise.resolve({ data: [], error: null }),
-  ])
-  if (versionFileResult.error || reviewResult.error) throw new Error("Could not load task review history.")
-  const versionFiles = (versionFileResult.data ?? []) as unknown as DbSubmissionFile[]
-  const reviews = (reviewResult.data ?? []) as unknown as DbReview[]
-  const attachmentIds = [...new Set(versionFiles.map((item) => item.attachment_id))]
-  const attachmentResult = attachmentIds.length
-    ? await supabase.from("attachments").select("id,file_name,mime_type,size_bytes").in("id", attachmentIds)
-    : { data: [], error: null }
-  if (attachmentResult.error) throw new Error("Could not load submitted task files.")
-  const attachments = new Map(((attachmentResult.data ?? []) as unknown as DbAttachment[]).map((item) => [item.id, item]))
-  const profileIds = [...new Set([
-    ...contentWorkRows.flatMap((row) => row.assigned_to ? [row.assigned_to] : []),
-    ...clientMembers.map((row) => row.user_id),
-    ...assignees.map((row) => row.user_id),
-    ...comments.map((row) => row.author_id),
-    ...activities.flatMap((row) => row.actor_id ? [row.actor_id] : []),
-    ...versions.map((row) => row.submitted_by),
-    ...reviews.map((row) => row.reviewer_id),
-  ])]
-  const [profileResult, assignableUsersResult] = await Promise.all([
-    profileIds.length
-      ? supabase.from("profiles").select("id,display_name,job_title,status,deactivated_at").in("id", profileIds)
-      : Promise.resolve({ data: [], error: null }),
-    supabase.from("profiles").select("id,display_name,job_title,status,deactivated_at").eq("status", "active").is("deactivated_at", null),
-  ])
-  if (profileResult.error) throw new Error(`Could not load task participants: ${profileResult.error.message}`)
-  if (assignableUsersResult.error) throw new Error(`Could not load active employees for task assignment: ${assignableUsersResult.error.message}`)
   const profiles = new Map(((profileResult.data ?? []) as unknown as (DbProfile & { status?: string; deactivated_at?: string | null })[]).map((row) => [row.id, row]))
-  const assignableUsers: WorkflowAssignableUser[] = ((assignableUsersResult.data ?? []) as unknown as (DbProfile & { status?: string; deactivated_at?: string | null })[]).map((profile) => ({ id: profile.id, name: profile.display_name, role: profile.job_title ?? "Employee" }))
-  const submissionByTask = new Map(submissions.map((item) => [item.task_id, item]))
+  const assignableUsers: WorkflowAssignableUser[] = [...profiles.values()]
+    .filter((profile) => profile.status === "active" && !profile.deactivated_at)
+    .map((profile) => ({ id: profile.id, name: profile.display_name, role: profile.job_title ?? "Employee" }))
+  const membersByClient = new Map<string, string[]>()
+  for (const member of clientMembers) {
+    const userIds = membersByClient.get(member.client_id) ?? []
+    userIds.push(member.user_id)
+    membersByClient.set(member.client_id, userIds)
+  }
   const clientsWithCampaigns = clients.map((client) => ({
     ...client,
-    campaigns: campaignRows.filter((campaign) => campaign.client_id === client.id).map(({ id, name }) => ({ id, name })),
-    members: clientMembers.flatMap((member) => {
-      if (member.client_id !== client.id) return []
-      const profile = profiles.get(member.user_id)
+    campaigns: campaignsByClient.get(client.id) ?? [],
+    members: (membersByClient.get(client.id) ?? []).flatMap((userId) => {
+      const profile = profiles.get(userId)
       if (!profile || profile.status !== "active" || profile.deactivated_at) return []
-      return [{ id: profile.id, name: profile.display_name, role: profile.job_title ?? "Employee" }]
+      return [{ id: userId, name: profile.display_name, role: profile.job_title ?? "Employee" }]
     }),
   }))
   const clientsById = new Map(clientsWithCampaigns.map((row) => [row.id, row.name]))
+  const upcomingContent: WorkflowUpcomingContent[] = contentWorkRows
+    .filter((item) => ["planned", "in_production", "scheduled"].includes(item.status) && Boolean(item.publish_at) && item.publish_at! >= new Date().toISOString())
+    .slice(0, 3)
+    .map((item) => ({ id: item.id, title: item.title, clientId: item.client_id, clientName: clientsById.get(item.client_id) ?? "Client", platform: item.platform, publishAt: item.publish_at! }))
   const contentWorkItems: WorkflowContentWorkItem[] = contentWorkRows.flatMap((row) => {
     const clientName = clientsById.get(row.client_id)
     if (!clientName) return []
@@ -164,7 +137,7 @@ export async function loadWorkflowData(): Promise<{ tasks: WorkflowTask[]; clien
       title: row.title,
       clientId: row.client_id,
       clientName,
-      campaignName: campaigns.get(row.campaign_id) ?? "General / Ongoing",
+      campaignName: campaignById.get(row.campaign_id) ?? "General / Ongoing",
       platform: row.platform,
       format: row.content_type,
       status: row.status,
@@ -175,77 +148,141 @@ export async function loadWorkflowData(): Promise<{ tasks: WorkflowTask[]; clien
     }]
   })
 
+  const tasks: WorkflowTask[] = rows.map((row) => {
+    const taskAssignees = assigneesByTask.get(row.id) ?? []
+    const primary = taskAssignees.find((item) => item.is_primary) ?? taskAssignees[0]
+    const primaryProfile = primary ? profiles.get(primary.user_id) : null
+    const ownerName = primaryProfile?.display_name ?? "Unassigned"
+    return {
+      id: row.id,
+      title: row.title,
+      description: row.description ?? "",
+      clientId: row.client_id ?? "",
+      clientName: row.client_id ? clientsById.get(row.client_id) ?? "Client" : "No client",
+      campaign: (row.campaign_id && campaignById.get(row.campaign_id)) ?? "General work",
+      contentItem: (row.content_item_id && content.get(row.content_item_id)) ?? "General campaign work",
+      contentItemId: row.content_item_id,
+      createdById: row.created_by,
+      priority: row.priority,
+      status: row.status,
+      startDate: displayDate(row.start_at),
+      dueDate: displayDate(row.due_at),
+      dueAt: row.due_at,
+      completedAt: row.completed_at,
+      primaryOwner: {
+        id: primary?.user_id ?? row.created_by ?? "unassigned",
+        name: ownerName,
+        initials: initials(ownerName),
+        role: primaryProfile?.job_title ?? "Employee",
+      },
+      collaborators: taskAssignees.filter((item) => item.user_id !== primary?.user_id).flatMap((item) => {
+        const profile = profiles.get(item.user_id)
+        return profile ? [{ id: item.user_id, name: profile.display_name, initials: initials(profile.display_name), role: profile.job_title ?? "Employee" }] : []
+      }),
+      checklist: [],
+      comments: [],
+      versions: [],
+      activity: [],
+      detailsLoaded: false,
+      fileCount: null,
+      hasSubmissions: false,
+    }
+  })
+
+  return { clients: clientsWithCampaigns, assignableUsers, upcomingContent, contentWorkItems, tasks }
+}
+
+type ServerSupabaseClient = WorkspaceRequestContext["supabase"]
+
+export async function loadWorkflowTaskDetails(supabase: ServerSupabaseClient, taskId: string): Promise<WorkflowTaskDetails | null> {
+  const taskResult = await supabase.from("tasks").select("id").eq("id", taskId).is("deleted_at", null).is("archived_at", null).maybeSingle()
+  if (taskResult.error) throw new Error("Could not load task details.")
+  if (!taskResult.data) return null
+
+  const [checklistResult, commentResult, activityResult, submissionResult] = await Promise.all([
+    supabase.from("task_checklist_items").select("id,task_id,title,is_completed,position").eq("task_id", taskId).order("position"),
+    supabase.from("comments").select("id,task_id,author_id,body,created_at").eq("task_id", taskId).is("deleted_at", null).order("created_at"),
+    supabase.from("activity_logs").select("id,entity_id,actor_id,action,created_at").eq("entity_type", "task").eq("entity_id", taskId).order("created_at", { ascending: false }),
+    supabase.from("submissions").select("id,task_id,current_version_number,status").eq("task_id", taskId),
+  ])
+  for (const result of [checklistResult, commentResult, activityResult, submissionResult]) {
+    if (result.error) throw new Error("Could not load task details.")
+  }
+
+  const checklists = (checklistResult.data ?? []) as unknown as DbChecklist[]
+  const comments = (commentResult.data ?? []) as unknown as DbComment[]
+  const activities = (activityResult.data ?? []) as unknown as DbActivity[]
+  const submissions = (submissionResult.data ?? []) as unknown as DbSubmission[]
+  const submissionIds = submissions.map((item) => item.id)
+  const versionResult = submissionIds.length
+    ? await supabase.from("submission_versions").select("id,task_id,submission_id,version_number,notes,submitted_by,submitted_at").in("submission_id", submissionIds).order("version_number")
+    : { data: [], error: null }
+  if (versionResult.error) throw new Error("Could not load task versions.")
+  const versions = (versionResult.data ?? []) as unknown as DbSubmissionVersion[]
+  const versionIds = versions.map((item) => item.id)
+  const [versionFileResult, reviewResult] = await Promise.all([
+    versionIds.length ? supabase.from("submission_version_files").select("submission_version_id,attachment_id").in("submission_version_id", versionIds) : Promise.resolve({ data: [], error: null }),
+    versionIds.length ? supabase.from("reviews").select("submission_version_id,reviewer_id,decision,comment,created_at").in("submission_version_id", versionIds) : Promise.resolve({ data: [], error: null }),
+  ])
+  if (versionFileResult.error || reviewResult.error) throw new Error("Could not load task review history.")
+  const versionFiles = (versionFileResult.data ?? []) as unknown as DbSubmissionFile[]
+  const reviews = (reviewResult.data ?? []) as unknown as DbReview[]
+  const attachmentIds = [...new Set(versionFiles.map((item) => item.attachment_id))]
+  const profileIds = [...new Set([
+    ...comments.map((item) => item.author_id),
+    ...activities.flatMap((item) => item.actor_id ? [item.actor_id] : []),
+    ...versions.map((item) => item.submitted_by),
+    ...reviews.map((item) => item.reviewer_id),
+  ])]
+  const [attachmentResult, profileResult] = await Promise.all([
+    attachmentIds.length ? supabase.from("attachments").select("id,file_name,mime_type,size_bytes").in("id", attachmentIds) : Promise.resolve({ data: [], error: null }),
+    profileIds.length ? supabase.from("profiles").select("id,display_name,job_title").in("id", profileIds) : Promise.resolve({ data: [], error: null }),
+  ])
+  if (attachmentResult.error || profileResult.error) throw new Error("Could not load task participants or files.")
+
+  const profiles = new Map(((profileResult.data ?? []) as unknown as DbProfile[]).map((row) => [row.id, row]))
+  const attachments = new Map(((attachmentResult.data ?? []) as unknown as DbAttachment[]).map((item) => [item.id, item]))
+  const submissionByTask = new Map(submissions.map((item) => [item.task_id, item]))
+  const filesByVersion = new Map<string, WorkflowTaskDetails["versions"][number]["files"]>()
+  for (const item of versionFiles) {
+    const attachment = attachments.get(item.attachment_id)
+    if (!attachment) continue
+    const files = filesByVersion.get(item.submission_version_id) ?? []
+    files.push({ id: attachment.id, name: attachment.file_name, size: attachment.size_bytes, type: attachment.mime_type })
+    filesByVersion.set(item.submission_version_id, files)
+  }
+  const reviewByVersion = new Map(reviews.map((review) => [review.submission_version_id, review]))
+
   return {
-    clients: clientsWithCampaigns,
-    assignableUsers,
-    upcomingContent,
-    contentWorkItems,
-    tasks: rows.map((row) => {
-      const taskAssignees = assignees.filter((item) => item.task_id === row.id)
-      const primary = taskAssignees.find((item) => item.is_primary) ?? taskAssignees[0]
-      const primaryProfile = primary ? profiles.get(primary.user_id) : null
-      const ownerName = primaryProfile?.display_name ?? "Unassigned"
+    checklist: checklists.map((item) => ({ id: item.id, label: item.title, completed: item.is_completed })),
+    comments: comments.map((item) => {
+      const author = profiles.get(item.author_id)?.display_name ?? "Teammate"
+      return { id: item.id, author, initials: initials(author), body: item.body, createdAt: displayDate(item.created_at) }
+    }),
+    versions: versions.map((version) => {
+      const review = reviewByVersion.get(version.id)
+      const submitter = profiles.get(version.submitted_by)?.display_name ?? "Teammate"
+      const currentSubmission = submissionByTask.get(taskId)
+      const status = review?.decision ?? (currentSubmission?.status === "revision_requested" && version.version_number === currentSubmission.current_version_number ? "revision_requested" : currentSubmission?.status === "approved" && version.version_number === currentSubmission.current_version_number ? "approved" : "submitted")
       return {
-        id: row.id,
-        title: row.title,
-        description: row.description ?? "",
-        clientId: row.client_id ?? "",
-        clientName: row.client_id ? clientsById.get(row.client_id) ?? "Client" : "No client",
-        campaign: (row.campaign_id && campaigns.get(row.campaign_id)) ?? "General work",
-        contentItem: (row.content_item_id && content.get(row.content_item_id)) ?? "General campaign work",
-        contentItemId: row.content_item_id,
-        createdById: row.created_by,
-        priority: row.priority,
-        status: row.status,
-        startDate: displayDate(row.start_at),
-        dueDate: displayDate(row.due_at),
-        dueAt: row.due_at,
-        completedAt: row.completed_at,
-        primaryOwner: {
-          id: primary?.user_id ?? row.created_by ?? "unassigned",
-          name: ownerName,
-          initials: initials(ownerName),
-          role: primaryProfile?.job_title ?? "Employee",
-        },
-        collaborators: taskAssignees.filter((item) => item.user_id !== primary?.user_id).flatMap((item) => {
-          const profile = profiles.get(item.user_id)
-          return profile ? [{ id: item.user_id, name: profile.display_name, initials: initials(profile.display_name), role: profile.job_title ?? "Employee" }] : []
-        }),
-        checklist: checklists.filter((item) => item.task_id === row.id).map((item) => ({ id: item.id, label: item.title, completed: item.is_completed })),
-        comments: comments.filter((item) => item.task_id === row.id).map((item) => {
-          const author = profiles.get(item.author_id)?.display_name ?? "Teammate"
-          return { id: item.id, author, initials: initials(author), body: item.body, createdAt: displayDate(item.created_at) }
-        }),
-        versions: versions.filter((version) => version.task_id === row.id).map((version) => {
-          const review = reviews.find((item) => item.submission_version_id === version.id)
-          const submitter = profiles.get(version.submitted_by)?.display_name ?? "Teammate"
-          const status = review?.decision ?? (submissionByTask.get(row.id)?.status === "revision_requested" && version.version_number === submissionByTask.get(row.id)?.current_version_number ? "revision_requested" : submissionByTask.get(row.id)?.status === "approved" && version.version_number === submissionByTask.get(row.id)?.current_version_number ? "approved" : "submitted")
-          return {
-            id: version.id,
-            number: version.version_number,
-            status: status as WorkflowTask["versions"][number]["status"],
-            notes: version.notes ?? "",
-            submittedBy: submitter,
-            submittedById: version.submitted_by,
-            submittedAt: displayDate(version.submitted_at),
-            files: versionFiles.filter((item) => item.submission_version_id === version.id).flatMap((item) => {
-              const attachment = attachments.get(item.attachment_id)
-              return attachment ? [{ id: attachment.id, name: attachment.file_name, size: attachment.size_bytes, type: attachment.mime_type }] : []
-            }),
-            reviewComment: review?.comment ?? undefined,
-            reviewedBy: review ? profiles.get(review.reviewer_id)?.display_name ?? "Supervisor" : undefined,
-            reviewedAt: review ? displayDate(review.created_at) : undefined,
-          }
-        }),
-        activity: activities.filter((item) => item.entity_id === row.id).map((item) => ({
-          id: item.id,
-          label: actionLabel(item.action),
-          actor: item.actor_id ? profiles.get(item.actor_id)?.display_name ?? "System" : "System",
-          createdAt: displayDate(item.created_at),
-        })),
-        fileCount: taskAttachmentResult.error ? null : taskFileCounts.get(row.id) ?? 0,
-        hasSubmissions: submissions.some((submission) => submission.task_id === row.id),
+        id: version.id,
+        number: version.version_number,
+        status: status as WorkflowTask["versions"][number]["status"],
+        notes: version.notes ?? "",
+        submittedBy: submitter,
+        submittedById: version.submitted_by,
+        submittedAt: displayDate(version.submitted_at),
+        files: filesByVersion.get(version.id) ?? [],
+        reviewComment: review?.comment ?? undefined,
+        reviewedBy: review ? profiles.get(review.reviewer_id)?.display_name ?? "Supervisor" : undefined,
+        reviewedAt: review ? displayDate(review.created_at) : undefined,
       }
     }),
+    activity: activities.map((item) => ({
+      id: item.id,
+      label: actionLabel(item.action),
+      actor: item.actor_id ? profiles.get(item.actor_id)?.display_name ?? "System" : "System",
+      createdAt: displayDate(item.created_at),
+    })),
   }
 }

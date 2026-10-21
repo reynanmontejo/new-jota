@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { FormEvent, useState } from "react"
+import { FormEvent, useEffect, useState } from "react"
 import {
   Activity,
   ArrowLeft,
@@ -34,15 +34,27 @@ import { useWorkflow } from "@/features/workflow/workflow-provider"
 import { cn } from "@/lib/utils"
 
 export function TaskDetail({ taskId, embedded = false }: { taskId: string; embedded?: boolean }) {
-  const { tasks, currentUser, demoMode, toggleChecklist, addComment, updateStatus, createVersion, submitLatestVersion } = useWorkflow()
+  const { tasks, currentUser, demoMode, toggleChecklist, addComment, updateStatus, createVersion, submitLatestVersion, loadTaskDetails } = useWorkflow()
   const task = tasks.find((item) => item.id === taskId)
   const [comment, setComment] = useState("")
   const [versionNotes, setVersionNotes] = useState("")
   const [upload, setUpload] = useState<{ fileName: string; progress: number; status: "uploading" | "complete" | "error" } | null>(null)
+  const [detailsErrorTaskId, setDetailsErrorTaskId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!task || !canViewTask(task, currentUser) || demoMode || task.detailsLoaded) return
+    let active = true
+    void loadTaskDetails(taskId).then((loaded) => {
+      if (active && !loaded) setDetailsErrorTaskId(taskId)
+    })
+    return () => { active = false }
+  }, [taskId, task, currentUser, demoMode, loadTaskDetails])
 
   if (!task) return <ContentState variant="empty" title="Task not found" description="This task does not exist or has been removed." />
   if (!canViewTask(task, currentUser)) return <ContentState variant="access_denied" title="Task access restricted" description="Only the assigned employee and supervisors can view this task." />
 
+  const taskDetailsReady = demoMode || task.detailsLoaded === true
+  const detailsError = detailsErrorTaskId === taskId
   const taskTitle = task.title
   const latestVersion = task.versions.at(-1)
   const completedChecklist = task.checklist.filter((item) => item.completed).length
@@ -108,6 +120,10 @@ export function TaskDetail({ taskId, embedded = false }: { taskId: string; embed
         ? <p className="max-w-lg rounded-lg border border-primary/15 bg-background/45 px-3 py-2 text-xs text-muted-foreground">{trashUnavailableMessage}</p>
         : <TaskTrashButton taskId={task.id} />}</div>}
 
+      {!taskDetailsReady && <p role={detailsError ? "alert" : "status"} className={cn("mt-3 rounded-lg border px-3 py-2 text-xs", detailsError ? "border-destructive/25 bg-destructive/5 text-destructive" : "border-primary/15 bg-background/55 text-muted-foreground")}>
+        {detailsError ? <>Task history could not be loaded. <button type="button" className="font-semibold underline" onClick={() => { setDetailsErrorTaskId(null); void loadTaskDetails(taskId).then((loaded) => { if (!loaded) setDetailsErrorTaskId(taskId) }) }}>Try again</button></> : "Loading task history…"}
+      </p>}
+
       <div className={cn("mt-4 grid items-start", embedded ? "gap-3" : "gap-5", !embedded && "xl:grid-cols-[minmax(0,1.35fr)_minmax(340px,.72fr)]")}>
         <div className={embedded ? "space-y-3" : "space-y-5"}>
           <section className={cn("glass-panel rounded-2xl border", embedded ? "p-3" : "p-5")}>
@@ -134,25 +150,25 @@ export function TaskDetail({ taskId, embedded = false }: { taskId: string; embed
           </section>}
 
           <section className={cn("glass-panel rounded-2xl border", embedded ? "p-3" : "p-5")}>
-            <div className="flex items-center justify-between"><div><h2 className="text-sm font-semibold">Checklist</h2><p className="mt-0.5 text-[11px] text-muted-foreground">{completedChecklist}/{task.checklist.length} done</p></div><span className="text-xs font-semibold text-primary">{checklistProgress}%</span></div>
+            <div className="flex items-center justify-between"><div><h2 className="text-sm font-semibold">Checklist</h2><p className="mt-0.5 text-[11px] text-muted-foreground">{taskDetailsReady ? `${completedChecklist}/${task.checklist.length} done` : "Loading…"}</p></div><span className="text-xs font-semibold text-primary">{taskDetailsReady ? `${checklistProgress}%` : "—"}</span></div>
             <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-secondary/25"><div className="h-full bg-gradient-to-r from-primary to-accent transition-[width]" style={{ width: `${checklistProgress}%` }} /></div>
-            <div className="mt-3 space-y-1">{task.checklist.map((item) => <button key={item.id} disabled={!canEdit} onClick={() => toggleChecklist(task.id, item.id)} className="flex w-full items-center gap-2 rounded-lg border border-transparent p-2 text-left transition hover:border-primary/15 hover:bg-background/55 disabled:cursor-default"><span className={cn("grid size-4 place-items-center rounded-full border-2", item.completed ? "border-primary bg-primary text-primary-foreground" : "border-primary/30 bg-background")}><Check className="size-2.5" /></span><span className={cn("text-xs", item.completed && "text-muted-foreground line-through")}>{item.label}</span></button>)}</div>
+            {!taskDetailsReady ? <p className="mt-3 text-xs text-muted-foreground">Checklist loads with task history.</p> : task.checklist.length === 0 ? <p className="mt-3 text-xs text-muted-foreground">No checklist items.</p> : <div className="mt-3 space-y-1">{task.checklist.map((item) => <button key={item.id} disabled={!canEdit} onClick={() => toggleChecklist(task.id, item.id)} className="flex w-full items-center gap-2 rounded-lg border border-transparent p-2 text-left transition hover:border-primary/15 hover:bg-background/55 disabled:cursor-default"><span className={cn("grid size-4 place-items-center rounded-full border-2", item.completed ? "border-primary bg-primary text-primary-foreground" : "border-primary/30 bg-background")}><Check className="size-2.5" /></span><span className={cn("text-xs", item.completed && "text-muted-foreground line-through")}>{item.label}</span></button>)}</div>}
           </section>
 
           <section className={cn("glass-panel rounded-2xl border", embedded ? "p-3" : "p-5")}>
             <div className="flex items-center gap-2"><MessageSquare className="size-4 text-primary" /><h2 className="text-sm font-semibold">Comments</h2></div>
-            <div className="mt-3 space-y-3">{task.comments.length === 0 && <p className="rounded-lg bg-muted/35 p-3 text-xs text-muted-foreground">No comments yet.</p>}{task.comments.map((item) => <div key={item.id} className="flex gap-2"><Avatar className="size-7"><AvatarFallback className="bg-secondary/35 text-[9px]">{item.initials}</AvatarFallback></Avatar><div className="min-w-0 flex-1 rounded-lg bg-background/60 p-2.5"><div className="flex justify-between gap-3"><span className="text-xs font-semibold">{item.author}</span><span className="text-[10px] text-muted-foreground">{item.createdAt}</span></div><p className="mt-1 text-xs leading-5 text-muted-foreground">{item.body}</p></div></div>)}</div>
-            {canEdit && <form onSubmit={handleComment} className="mt-4 flex gap-2"><input value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Add a comment..." aria-label="Comment" className="h-10 min-w-0 flex-1 rounded-xl border border-primary/20 bg-background/70 px-3 text-sm outline-none focus:border-primary focus:ring-3 focus:ring-primary/10" /><Button type="submit" size="icon" aria-label="Post comment"><Send /></Button></form>}
+            <div className="mt-3 space-y-3">{!taskDetailsReady ? <p className="rounded-lg bg-muted/35 p-3 text-xs text-muted-foreground">Loading comments…</p> : task.comments.length === 0 ? <p className="rounded-lg bg-muted/35 p-3 text-xs text-muted-foreground">No comments yet.</p> : task.comments.map((item) => <div key={item.id} className="flex gap-2"><Avatar className="size-7"><AvatarFallback className="bg-secondary/35 text-[9px]">{item.initials}</AvatarFallback></Avatar><div className="min-w-0 flex-1 rounded-lg bg-background/60 p-2.5"><div className="flex justify-between gap-3"><span className="text-xs font-semibold">{item.author}</span><span className="text-[10px] text-muted-foreground">{item.createdAt}</span></div><p className="mt-1 text-xs leading-5 text-muted-foreground">{item.body}</p></div></div>)}</div>
+            {canEdit && taskDetailsReady && <form onSubmit={handleComment} className="mt-4 flex gap-2"><input value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Add a comment..." aria-label="Comment" className="h-10 min-w-0 flex-1 rounded-xl border border-primary/20 bg-background/70 px-3 text-sm outline-none focus:border-primary focus:ring-3 focus:ring-primary/10" /><Button type="submit" size="icon" aria-label="Post comment"><Send /></Button></form>}
           </section>
         </div>
 
         <aside className={embedded ? "space-y-3" : "space-y-5"}>
           <section className={cn("glass-panel rounded-2xl border", embedded ? "p-3" : "p-5")}>
             <div className="flex items-center justify-between"><h2 className="text-sm font-semibold">Version history</h2><LockKeyhole className="size-4 text-primary" /></div>
-            {task.versions.length === 0 ? <p className="mt-3 rounded-lg bg-muted/35 p-3 text-xs text-muted-foreground">No submitted versions yet.</p> : <div className="mt-3 space-y-2">{[...task.versions].reverse().map((version) => <article key={version.id} className="rounded-lg border border-primary/14 bg-background/55 p-2.5"><div className="flex items-center justify-between"><span className="text-xs font-bold">V{version.number}</span><Badge variant="outline" className="capitalize text-[9px]">{version.status.replace("_", " ")}</Badge></div>{version.notes && <p className="mt-1.5 text-xs leading-5 text-muted-foreground">{version.notes}</p>}{version.reviewComment && <div className="mt-2 rounded-lg border border-[#9a6242]/20 bg-[#9a6242]/8 p-2.5"><p className="text-[10px] font-semibold text-[#7f5136] dark:text-secondary">{version.status === "approved" ? "Reviewer feedback" : "Changes requested"}{version.reviewedBy ? ` · ${version.reviewedBy}` : ""}</p><p className="mt-1 text-xs leading-5 text-muted-foreground">{version.reviewComment}</p></div>}{version.files.map((file) => <a key={file.id} href={`/api/files/${encodeURIComponent(file.id)}`} className="mt-2 flex items-center gap-2 rounded-lg bg-muted/35 p-2 hover:bg-muted/60"><FileText className="size-3.5 shrink-0 text-primary" /><span className="min-w-0 flex-1 truncate text-[11px] font-medium">{file.name}</span><Download className="size-3.5 shrink-0 text-muted-foreground" /></a>)}<p className="mt-1.5 text-[10px] text-muted-foreground">{version.submittedAt ?? "Draft"} · {version.submittedBy}{version.reviewedAt ? ` · reviewed ${version.reviewedAt}` : ""}</p></article>)}</div>}
+            {!taskDetailsReady ? <p className="mt-3 rounded-lg bg-muted/35 p-3 text-xs text-muted-foreground">Loading version history…</p> : task.versions.length === 0 ? <p className="mt-3 rounded-lg bg-muted/35 p-3 text-xs text-muted-foreground">No submitted versions yet.</p> : <div className="mt-3 space-y-2">{[...task.versions].reverse().map((version) => <article key={version.id} className="rounded-lg border border-primary/14 bg-background/55 p-2.5"><div className="flex items-center justify-between"><span className="text-xs font-bold">V{version.number}</span><Badge variant="outline" className="capitalize text-[9px]">{version.status.replace("_", " ")}</Badge></div>{version.notes && <p className="mt-1.5 text-xs leading-5 text-muted-foreground">{version.notes}</p>}{version.reviewComment && <div className="mt-2 rounded-lg border border-[#9a6242]/20 bg-[#9a6242]/8 p-2.5"><p className="text-[10px] font-semibold text-[#7f5136] dark:text-secondary">{version.status === "approved" ? "Reviewer feedback" : "Changes requested"}{version.reviewedBy ? ` · ${version.reviewedBy}` : ""}</p><p className="mt-1 text-xs leading-5 text-muted-foreground">{version.reviewComment}</p></div>}{version.files.map((file) => <a key={file.id} href={`/api/files/${encodeURIComponent(file.id)}`} className="mt-2 flex items-center gap-2 rounded-lg bg-muted/35 p-2 hover:bg-muted/60"><FileText className="size-3.5 shrink-0 text-primary" /><span className="min-w-0 flex-1 truncate text-[11px] font-medium">{file.name}</span><Download className="size-3.5 shrink-0 text-muted-foreground" /></a>)}<p className="mt-1.5 text-[10px] text-muted-foreground">{version.submittedAt ?? "Draft"} · {version.submittedBy}{version.reviewedAt ? ` · reviewed ${version.reviewedAt}` : ""}</p></article>)}</div>}
           </section>
 
-          {!embedded && <section className="glass-panel rounded-2xl border p-5"><div className="flex items-center gap-2"><Activity className="size-4 text-primary" /><h2 className="font-semibold">Activity</h2></div><div className="mt-4 space-y-4">{task.activity.map((item) => <div key={item.id} className="border-l-2 border-secondary pl-3"><p className="text-xs font-medium">{item.label}</p><p className="mt-0.5 text-[10px] text-muted-foreground">{item.actor} · {item.createdAt}</p></div>)}</div></section>}
+          {!embedded && <section className="glass-panel rounded-2xl border p-5"><div className="flex items-center gap-2"><Activity className="size-4 text-primary" /><h2 className="font-semibold">Activity</h2></div><div className="mt-4 space-y-4">{!taskDetailsReady ? <p className="text-xs text-muted-foreground">Loading activity…</p> : task.activity.length === 0 ? <p className="text-xs text-muted-foreground">No activity yet.</p> : task.activity.map((item) => <div key={item.id} className="border-l-2 border-secondary pl-3"><p className="text-xs font-medium">{item.label}</p><p className="mt-0.5 text-[10px] text-muted-foreground">{item.actor} · {item.createdAt}</p></div>)}</div></section>}
         </aside>
       </div>
     </main>

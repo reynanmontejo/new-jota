@@ -1,12 +1,12 @@
 "use client"
 
-import { createContext, useContext, useEffect, useMemo, useReducer, useState, useSyncExternalStore, type ReactNode } from "react"
+import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore, type ReactNode } from "react"
 import { useRouter } from "next/navigation"
 
 import { addTaskCommentAction, createTaskAction, toggleTaskChecklistAction, updateTaskStatusAction } from "@/app/tasks/actions"
 import { initialWorkflowState } from "@/features/workflow/mock-data"
 import { canCreateTask, canEditTask, currentEmployee, currentSupervisor, taskStatusOptions, type DemoUser } from "@/features/workflow/task-permissions"
-import type { TaskStatus, WorkflowAssignableUser, WorkflowClient, WorkflowContentWorkItem, WorkflowFile, WorkflowState, WorkflowUpcomingContent } from "@/features/workflow/types"
+import type { TaskStatus, WorkflowAssignableUser, WorkflowClient, WorkflowContentWorkItem, WorkflowFile, WorkflowState, WorkflowTaskDetails, WorkflowUpcomingContent } from "@/features/workflow/types"
 import { isSupabaseConfigured } from "@/lib/env"
 import { createClient as createSupabaseClient } from "@/lib/supabase/client"
 
@@ -32,6 +32,7 @@ function formatTaskDate(value: string) {
 
 type WorkflowAction =
   | { type: "replace_tasks"; tasks: WorkflowState["tasks"] }
+  | { type: "hydrate_task_details"; taskId: string; details: WorkflowTaskDetails }
   | { type: "toggle_checklist"; taskId: string; itemId: string; actor: DemoUser }
   | { type: "add_comment"; taskId: string; body: string; actor: DemoUser }
   | { type: "update_status"; taskId: string; status: TaskStatus; actor: DemoUser }
@@ -42,6 +43,15 @@ type WorkflowAction =
 
 export function workflowReducer(state: WorkflowState, action: WorkflowAction): WorkflowState {
   if (action.type === "replace_tasks") return { tasks: action.tasks }
+  if (action.type === "hydrate_task_details") {
+    let changed = false
+    const tasks = state.tasks.map((task) => {
+      if (task.id !== action.taskId || task.detailsLoaded) return task
+      changed = true
+      return { ...task, ...action.details, detailsLoaded: true }
+    })
+    return changed ? { tasks } : state
+  }
   if (action.type === "create_task") {
     if (!canCreateTask(action.actor)) return state
     return { tasks: [action.task, ...state.tasks] }
@@ -153,6 +163,7 @@ type WorkflowContextValue = {
   submitLatestVersion: (taskId: string) => void
   reviewLatestVersion: (taskId: string, decision: ReviewDecision, comment: string) => void
   createTask: (input: NewTaskInput) => Promise<string | null>
+  loadTaskDetails: (taskId: string) => Promise<boolean>
 }
 
 const WorkflowContext = createContext<WorkflowContextValue | null>(null)
@@ -200,6 +211,7 @@ export function WorkflowProvider({
   const [state, dispatch] = useReducer(workflowReducer, { tasks: initialTasks ?? initialWorkflowState.tasks })
   const [error, setError] = useState<string | null>(null)
   const [realtimeRevision, setRealtimeRevision] = useState(0)
+  const taskDetailsRequests = useRef(new Map<string, Promise<boolean>>())
   const router = useRouter()
 
   useEffect(() => {
@@ -226,6 +238,7 @@ export function WorkflowProvider({
     let channel: ReturnType<typeof supabase.channel> | null = null
     let retryAttempt = 0
     let isSubscribed = false
+    let hasSubscribed = false
     let disposed = false
     const refreshWorkflow = () => {
       if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
@@ -256,9 +269,11 @@ export function WorkflowProvider({
       nextChannel.subscribe((status) => {
         if (disposed || channel !== nextChannel) return
         if (status === "SUBSCRIBED") {
+          const isReconnect = hasSubscribed
+          hasSubscribed = true
           isSubscribed = true
           retryAttempt = 0
-          refreshWorkflow()
+          if (isReconnect) refreshWorkflow()
           return
         }
         if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
@@ -281,7 +296,6 @@ export function WorkflowProvider({
     const fallbackTimer = window.setInterval(() => {
       if (!isSubscribed && document.visibilityState === "visible") refreshWorkflow()
     }, 30_000)
-    window.addEventListener("focus", refreshOnReturn)
     document.addEventListener("visibilitychange", refreshOnReturn)
 
     return () => {
@@ -289,7 +303,6 @@ export function WorkflowProvider({
       if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
       if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer)
       if (fallbackTimer !== undefined) window.clearInterval(fallbackTimer)
-      window.removeEventListener("focus", refreshOnReturn)
       document.removeEventListener("visibilitychange", refreshOnReturn)
       if (channel) void supabase.removeChannel(channel)
     }
@@ -304,6 +317,27 @@ export function WorkflowProvider({
     : initialUser ?? currentEmployee
   const clients = useMemo<WorkflowClient[]>(() => initialClients ?? Array.from(new Map(state.tasks.map((task) => [task.clientId, task.clientName])).entries()).map(([id, name]) => ({ id, name, campaigns: Array.from(new Set(state.tasks.filter((task) => task.clientId === id).map((task) => task.campaign))).map((campaignName) => ({ id: campaignName, name: campaignName })) })), [initialClients, state.tasks])
   const assignableUsers = useMemo(() => initialAssignableUsers ?? [], [initialAssignableUsers])
+  const loadTaskDetails = useCallback((taskId: string) => {
+    const cached = taskDetailsRequests.current.get(taskId)
+    if (cached) return cached
+
+    const request = (async () => {
+      try {
+        const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/details`, { cache: "no-store" })
+        const payload = await response.json() as { details?: WorkflowTaskDetails; error?: string }
+        if (!response.ok || !payload.details) throw new Error(payload.error ?? "Could not load task details.")
+        dispatch({ type: "hydrate_task_details", taskId, details: payload.details })
+        return true
+      } catch {
+        return false
+      } finally {
+        taskDetailsRequests.current.delete(taskId)
+      }
+    })()
+
+    taskDetailsRequests.current.set(taskId, request)
+    return request
+  }, [])
 
   const value = useMemo<WorkflowContextValue>(() => ({
     tasks: state.tasks,
@@ -416,7 +450,8 @@ export function WorkflowProvider({
       })
       return id
     },
-  }), [state.tasks, clients, assignableUsers, currentUser, demoMode, error, initialUpcomingContent, initialContentWorkItems, realtimeRevision])
+    loadTaskDetails,
+  }), [state.tasks, clients, assignableUsers, currentUser, demoMode, error, initialUpcomingContent, initialContentWorkItems, realtimeRevision, loadTaskDetails])
 
   return <WorkflowContext.Provider value={value}>{children}</WorkflowContext.Provider>
 }

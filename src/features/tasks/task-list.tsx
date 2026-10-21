@@ -106,19 +106,24 @@ type TaskArchiveNotice = { taskId: string; title: string; error?: string }
 
 export function filterAndSortTasks(tasks: WorkflowTask[], filters: TaskFilters) {
   const query = filters.query.trim().toLowerCase()
+  const visible: WorkflowTask[] = []
 
-  return tasks
-    .filter((task) => !query || [task.title, task.clientName, task.campaign, task.contentItem].some((value) => value.toLowerCase().includes(query)))
-    .filter((task) => filters.client === "all" || task.clientId === filters.client)
-    .filter((task) => filters.owner === "all" || task.primaryOwner.id === filters.owner)
-    .filter((task) => filters.status === "all" || task.status === filters.status)
-    .filter((task) => filters.priority === "all" || task.priority === filters.priority)
-    .toSorted((a, b) => {
-      if (filters.sort === "priority") return priorityRank[a.priority] - priorityRank[b.priority]
-      if (filters.sort === "client") return a.clientName.localeCompare(b.clientName)
-      if (filters.sort === "title") return a.title.localeCompare(b.title)
-      return getTaskDueTimestamp(a) - getTaskDueTimestamp(b) || parseDueDate(a.dueDate) - parseDueDate(b.dueDate)
-    })
+  for (const task of tasks) {
+    if (filters.client !== "all" && task.clientId !== filters.client) continue
+    if (filters.owner !== "all" && task.primaryOwner.id !== filters.owner) continue
+    if (filters.status !== "all" && task.status !== filters.status) continue
+    if (filters.priority !== "all" && task.priority !== filters.priority) continue
+    if (query && !task.title.toLowerCase().includes(query) && !task.clientName.toLowerCase().includes(query)
+      && !task.campaign.toLowerCase().includes(query) && !task.contentItem.toLowerCase().includes(query)) continue
+    visible.push(task)
+  }
+
+  return visible.toSorted((a, b) => {
+    if (filters.sort === "priority") return priorityRank[a.priority] - priorityRank[b.priority]
+    if (filters.sort === "client") return a.clientName.localeCompare(b.clientName)
+    if (filters.sort === "title") return a.title.localeCompare(b.title)
+    return getTaskDueTimestamp(a) - getTaskDueTimestamp(b) || parseDueDate(a.dueDate) - parseDueDate(b.dueDate)
+  })
 }
 
 function parseDueDate(value: string) {

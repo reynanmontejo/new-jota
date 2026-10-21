@@ -11,7 +11,7 @@ import { initialWorkflowState } from "@/features/workflow/mock-data"
 import { isSupabaseConfigured } from "@/lib/env"
 import { getCampaignPermissions } from "@/lib/supabase/campaign-admin"
 import { getClientAssignmentContext, getClientLifecyclePermissions } from "@/lib/supabase/client-admin"
-import { createClient } from "@/lib/supabase/server"
+import { getWorkspaceRequestContext } from "@/lib/supabase/request-context"
 
 const demoClientIds = new Set(["luma-skincare", "northwind-coffee", "harbor-and-pine"])
 
@@ -24,7 +24,9 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
     return <DashboardShell><ClientWorkspace clientId={clientId} initialTab={tab} /></DashboardShell>
   }
 
-  const supabase = await createClient()
+  const requestContext = await getWorkspaceRequestContext()
+  if (!requestContext) notFound()
+  const supabase = requestContext.supabase
   const { data: row, error } = await supabase.from("clients")
     .select("id, organization_id, name, description, website_url, social_platforms, status")
     .eq("id", clientId)
@@ -33,7 +35,6 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
 
   // The query is RLS-scoped; unavailable and unauthorized records must not leak.
   if (error || !row) notFound()
-  const { data: authData } = await supabase.auth.getUser()
 
   const [campaignResult, taskResult, contentResult, teamResult, campaignPermissions, assignmentContext, lifecyclePermissions] = await Promise.all([
     supabase.from("campaigns").select("id,client_id,name,description,status,start_date,end_date").eq("client_id", clientId).is("deleted_at", null).order("start_date", { ascending: true, nullsFirst: false }).order("name"),
@@ -53,7 +54,7 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
   const taskRows = taskResult.data ?? []
   const contentRows = contentResult.data ?? []
   const teamRows = teamResult.data ?? []
-  const canManageVideoEditor = Boolean(assignmentContext || teamRows.some((member) => member.user_id === authData.user?.id && member.client_role === "account_manager"))
+  const canManageVideoEditor = Boolean(assignmentContext || teamRows.some((member) => member.user_id === requestContext.userId && member.client_role === "account_manager"))
   let assignableVideoEditors: AssignableVideoEditor[] = []
   if (canManageVideoEditor) {
     const editorCandidatesResult = await supabase.rpc("workflow_list_client_video_editor_candidates", { p_client_id: clientId })
