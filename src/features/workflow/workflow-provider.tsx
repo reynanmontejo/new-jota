@@ -150,6 +150,9 @@ type WorkflowContextValue = {
   assignableUsers: WorkflowAssignableUser[]
   upcomingContent: WorkflowUpcomingContent[]
   contentWorkItems: WorkflowContentWorkItem[]
+  workflowDataReady: boolean
+  workflowDataLoading: boolean
+  ensureWorkflowData: () => Promise<boolean>
   currentUser: DemoUser
   demoMode: boolean
   realtimeRevision: number
@@ -165,6 +168,8 @@ type WorkflowContextValue = {
   createTask: (input: NewTaskInput) => Promise<string | null>
   loadTaskDetails: (taskId: string) => Promise<boolean>
 }
+
+type WorkflowSummary = Pick<WorkflowContextValue, "tasks" | "clients" | "assignableUsers" | "upcomingContent" | "contentWorkItems">
 
 const WorkflowContext = createContext<WorkflowContextValue | null>(null)
 const demoRoleKey = "jota-demo-role"
@@ -208,9 +213,13 @@ export function WorkflowProvider({
   initialContentWorkItems?: WorkflowContentWorkItem[]
   demoMode?: boolean
 }) {
-  const [state, dispatch] = useReducer(workflowReducer, { tasks: initialTasks ?? initialWorkflowState.tasks })
+  const [state, dispatch] = useReducer(workflowReducer, { tasks: initialTasks ?? (demoMode ? initialWorkflowState.tasks : []) })
   const [error, setError] = useState<string | null>(null)
   const [realtimeRevision, setRealtimeRevision] = useState(0)
+  const [deferredSummary, setDeferredSummary] = useState<WorkflowSummary | null>(null)
+  const [workflowDataLoading, setWorkflowDataLoading] = useState(false)
+  const summaryRequest = useRef<Promise<boolean> | null>(null)
+  const lazyWorkflow = initialTasks === undefined
   const taskDetailsRequests = useRef(new Map<string, Promise<boolean>>())
   const router = useRouter()
 
@@ -244,6 +253,12 @@ export function WorkflowProvider({
       if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
       refreshTimer = window.setTimeout(() => {
         refreshTimer = undefined
+        // Light routes only load task data on demand. Invalidate that snapshot
+        // so the next search or task form gets current rows after realtime changes.
+        if (lazyWorkflow) {
+          setDeferredSummary(null)
+          dispatch({ type: "replace_tasks", tasks: [] })
+        }
         setRealtimeRevision((revision) => revision + 1)
         router.refresh()
       }, 200)
@@ -306,7 +321,7 @@ export function WorkflowProvider({
       document.removeEventListener("visibilitychange", refreshOnReturn)
       if (channel) void supabase.removeChannel(channel)
     }
-  }, [demoMode, initialUser?.id, router])
+  }, [demoMode, initialUser?.id, lazyWorkflow, router])
 
   useEffect(() => {
     if (!demoMode && initialTasks) dispatch({ type: "replace_tasks", tasks: initialTasks })
@@ -315,8 +330,32 @@ export function WorkflowProvider({
   const currentUser = demoMode
     ? demoRole === "supervisor" ? currentSupervisor : currentEmployee
     : initialUser ?? currentEmployee
-  const clients = useMemo<WorkflowClient[]>(() => initialClients ?? Array.from(new Map(state.tasks.map((task) => [task.clientId, task.clientName])).entries()).map(([id, name]) => ({ id, name, campaigns: Array.from(new Set(state.tasks.filter((task) => task.clientId === id).map((task) => task.campaign))).map((campaignName) => ({ id: campaignName, name: campaignName })) })), [initialClients, state.tasks])
-  const assignableUsers = useMemo(() => initialAssignableUsers ?? [], [initialAssignableUsers])
+  const workflowDataReady = demoMode || initialTasks !== undefined || deferredSummary !== null
+  const clients = useMemo<WorkflowClient[]>(() => deferredSummary?.clients ?? initialClients ?? Array.from(new Map(state.tasks.map((task) => [task.clientId, task.clientName])).entries()).map(([id, name]) => ({ id, name, campaigns: Array.from(new Set(state.tasks.filter((task) => task.clientId === id).map((task) => task.campaign))).map((campaignName) => ({ id: campaignName, name: campaignName })) })), [deferredSummary, initialClients, state.tasks])
+  const assignableUsers = useMemo(() => deferredSummary?.assignableUsers ?? initialAssignableUsers ?? [], [deferredSummary, initialAssignableUsers])
+  const ensureWorkflowData = useCallback((): Promise<boolean> => {
+    if (workflowDataReady) return Promise.resolve(true)
+    if (summaryRequest.current) return summaryRequest.current
+    setWorkflowDataLoading(true)
+    const request = (async () => {
+      try {
+        const response = await fetch("/api/workflow-summary", { cache: "no-store" })
+        const payload = await response.json() as { summary?: WorkflowSummary; error?: string }
+        if (!response.ok || !payload.summary) throw new Error(payload.error ?? "Could not load workspace data.")
+        setDeferredSummary(payload.summary)
+        dispatch({ type: "replace_tasks", tasks: payload.summary.tasks })
+        return true
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : "Could not load workspace data.")
+        return false
+      } finally {
+        setWorkflowDataLoading(false)
+        summaryRequest.current = null
+      }
+    })()
+    summaryRequest.current = request
+    return request
+  }, [workflowDataReady])
   const loadTaskDetails = useCallback((taskId: string) => {
     const cached = taskDetailsRequests.current.get(taskId)
     if (cached) return cached
@@ -343,8 +382,11 @@ export function WorkflowProvider({
     tasks: state.tasks,
     clients,
     assignableUsers,
-    upcomingContent: initialUpcomingContent ?? [],
-    contentWorkItems: initialContentWorkItems ?? [],
+    upcomingContent: deferredSummary?.upcomingContent ?? initialUpcomingContent ?? [],
+    contentWorkItems: deferredSummary?.contentWorkItems ?? initialContentWorkItems ?? [],
+    workflowDataReady,
+    workflowDataLoading,
+    ensureWorkflowData,
     currentUser,
     demoMode,
     realtimeRevision,
@@ -451,7 +493,7 @@ export function WorkflowProvider({
       return id
     },
     loadTaskDetails,
-  }), [state.tasks, clients, assignableUsers, currentUser, demoMode, error, initialUpcomingContent, initialContentWorkItems, realtimeRevision, loadTaskDetails])
+  }), [state.tasks, clients, assignableUsers, currentUser, demoMode, error, deferredSummary, initialUpcomingContent, initialContentWorkItems, workflowDataReady, workflowDataLoading, ensureWorkflowData, realtimeRevision, loadTaskDetails])
 
   return <WorkflowContext.Provider value={value}>{children}</WorkflowContext.Provider>
 }

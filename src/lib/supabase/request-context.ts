@@ -5,6 +5,7 @@ import { cache } from "react"
 import { createClient } from "@/lib/supabase/server"
 
 type RoleRecord = { id: string; code: string; name: string }
+type MembershipRecord = { organization_id: string; role_id: string; role: RoleRecord | null }
 
 export type WorkspaceRequestContext = {
   supabase: Awaited<ReturnType<typeof createClient>>
@@ -35,23 +36,19 @@ export const getWorkspaceRequestContext = cache(async (): Promise<WorkspaceReque
     // RLS scopes this to the active user's organization; the profile read runs
     // alongside it rather than adding another serial database round trip.
     supabase.from("user_roles")
-      .select("organization_id,role_id")
+      .select("organization_id,role_id,role:roles!user_roles_organization_id_role_id_fkey(id,code,name)")
       .eq("user_id", authData.user.id),
   ])
   const { data: profile, error: profileError } = profileResult
   if (profileError || !profile || profile.status !== "active" || profile.deactivated_at) return null
 
   const { data: memberships, error: membershipsError } = membershipsResult
-  const roleIds = [...new Set((memberships ?? [])
+  if (membershipsError) return null
+  const roles = ((memberships ?? []) as unknown as MembershipRecord[])
     .filter(({ organization_id }) => organization_id === profile.organization_id)
-    .map(({ role_id }) => role_id))]
-  if (membershipsError || !roleIds.length) return null
-
-  const { data: roles, error: rolesError } = await supabase.from("roles")
-    .select("id,code,name")
-    .eq("organization_id", profile.organization_id)
-    .in("id", roleIds)
-  if (rolesError || !roles?.length) return null
+    .flatMap(({ role }) => role ? [role] : [])
+  const roleIds = [...new Set(roles.map(({ id }) => id))]
+  if (!roleIds.length) return null
 
   return {
     supabase,

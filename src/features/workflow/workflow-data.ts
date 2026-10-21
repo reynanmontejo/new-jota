@@ -17,8 +17,15 @@ type DbTask = {
   due_at: string | null
   completed_at: string | null
   created_by: string | null
+  linked_content: { title: string } | null
+  active_assignees: Array<{ user_id: string; is_primary: boolean }>
 }
-type DbAssignee = { task_id: string; user_id: string; is_primary: boolean }
+type DbClient = {
+  id: string
+  name: string
+  active_campaigns: Array<{ id: string; name: string }>
+  active_members: Array<{ user_id: string }>
+}
 type DbChecklist = { id: string; task_id: string; title: string; is_completed: boolean; position: number }
 type DbComment = { id: string; task_id: string; author_id: string; body: string; created_at: string }
 type DbActivity = { id: string; entity_id: string; actor_id: string | null; action: string; created_at: string }
@@ -49,15 +56,23 @@ export async function loadWorkflowData(): Promise<{ tasks: WorkflowTask[]; clien
   if (!context) throw new Error("Could not load the active workspace context.")
   const { supabase } = context
   const [taskResult, clientResult, contentWorkResult, profileResult] = await Promise.all([
-    supabase.from("tasks").select("id,title,description,client_id,campaign_id,content_item_id,status,priority,start_at,due_at,completed_at,created_by").is("deleted_at", null).is("archived_at", null).order("due_at", { ascending: true, nullsFirst: false }),
-    supabase.from("clients").select("id,name").is("deleted_at", null).order("name"),
+    supabase.from("tasks")
+      .select("id,title,description,client_id,campaign_id,content_item_id,status,priority,start_at,due_at,completed_at,created_by,linked_content:content_items(title),active_assignees:task_assignees(user_id,is_primary)")
+      .is("deleted_at", null).is("archived_at", null)
+      .is("active_assignees.removed_at", null)
+      .order("due_at", { ascending: true, nullsFirst: false }),
+    supabase.from("clients")
+      .select("id,name,active_campaigns:campaigns(id,name),active_members:client_members(user_id)")
+      .is("deleted_at", null)
+      .is("active_campaigns.deleted_at", null)
+      .is("active_members.removed_at", null)
+      .order("name"),
     supabase.from("content_items")
       .select("id,title,client_id,campaign_id,platform,content_type,status,publish_at,deadline_at,assigned_to")
       .in("status", ["idea", "planned", "in_production", "for_review", "revision_requested", "waiting_client", "scheduled"])
       .is("deleted_at", null)
       .order("publish_at", { ascending: true, nullsFirst: false }),
-    // Fetch small profile rows in this first wave so participant names do not
-    // require a third, serial round trip after assignment IDs are known.
+    // Names for embedded assignees and client members come from this parallel read.
     supabase.from("profiles").select("id,display_name,job_title,status,deactivated_at"),
   ])
   if (taskResult.error) throw new Error(`Could not load tasks: ${taskResult.error.message}`)
@@ -66,61 +81,26 @@ export async function loadWorkflowData(): Promise<{ tasks: WorkflowTask[]; clien
   if (profileResult.error) throw new Error(`Could not load workflow participants: ${profileResult.error.message}`)
 
   const rows = (taskResult.data ?? []) as unknown as DbTask[]
-  const clients = (clientResult.data ?? []) as unknown as WorkflowClient[]
+  const clients = (clientResult.data ?? []) as unknown as DbClient[]
   const contentWorkRows = (contentWorkResult.data ?? []) as unknown as Array<{
     id: string; title: string; client_id: string; campaign_id: string; platform: string; content_type: string
     status: string; publish_at: string | null; deadline_at: string | null; assigned_to: string | null
   }>
-  const taskIds = rows.map((row) => row.id)
-  const clientIds = clients.map((client) => client.id)
-  const contentIds = [...new Set(rows.flatMap((row) => row.content_item_id ? [row.content_item_id] : []))]
-
   // Only fetch the summary fields used by shared navigation, task boards, and insights.
   // Comments, activity, checklist, and version history are fetched only when a task is opened.
-  const [campaignResult, contentResult, assigneeResult, clientMemberResult] = await Promise.all([
-    clientIds.length ? supabase.from("campaigns").select("id,name,client_id").is("deleted_at", null).in("client_id", clientIds) : Promise.resolve({ data: [], error: null }),
-    contentIds.length ? supabase.from("content_items").select("id,title").in("id", contentIds) : Promise.resolve({ data: [], error: null }),
-    taskIds.length ? supabase.from("task_assignees").select("task_id,user_id,is_primary").is("removed_at", null).in("task_id", taskIds) : Promise.resolve({ data: [], error: null }),
-    clientIds.length ? supabase.from("client_members").select("client_id,user_id").is("removed_at", null).in("client_id", clientIds) : Promise.resolve({ data: [], error: null }),
-  ])
-  for (const result of [campaignResult, contentResult, assigneeResult, clientMemberResult]) {
-    if (result.error) throw new Error(`Could not load workflow summaries: ${result.error.message}`)
-  }
-
-  const campaignRows = (campaignResult.data ?? []) as unknown as { id: string; name: string; client_id: string }[]
-  const campaignById = new Map(campaignRows.map((row) => [row.id, row.name]))
-  const campaignsByClient = new Map<string, Array<{ id: string; name: string }>>()
-  for (const campaign of campaignRows) {
-    const items = campaignsByClient.get(campaign.client_id) ?? []
-    items.push({ id: campaign.id, name: campaign.name })
-    campaignsByClient.set(campaign.client_id, items)
-  }
-  const content = new Map(((contentResult.data ?? []) as unknown as { id: string; title: string }[]).map((row) => [row.id, row.title]))
-  const assignees = (assigneeResult.data ?? []) as unknown as DbAssignee[]
-  const assigneesByTask = new Map<string, DbAssignee[]>()
-  for (const assignee of assignees) {
-    const items = assigneesByTask.get(assignee.task_id) ?? []
-    items.push(assignee)
-    assigneesByTask.set(assignee.task_id, items)
-  }
-  const clientMembers = (clientMemberResult.data ?? []) as unknown as { client_id: string; user_id: string }[]
+  const campaignById = new Map(clients.flatMap((client) => client.active_campaigns.map((campaign) => [campaign.id, campaign.name] as const)))
   const profiles = new Map(((profileResult.data ?? []) as unknown as (DbProfile & { status?: string; deactivated_at?: string | null })[]).map((row) => [row.id, row]))
   const assignableUsers: WorkflowAssignableUser[] = [...profiles.values()]
     .filter((profile) => profile.status === "active" && !profile.deactivated_at)
     .map((profile) => ({ id: profile.id, name: profile.display_name, role: profile.job_title ?? "Employee" }))
-  const membersByClient = new Map<string, string[]>()
-  for (const member of clientMembers) {
-    const userIds = membersByClient.get(member.client_id) ?? []
-    userIds.push(member.user_id)
-    membersByClient.set(member.client_id, userIds)
-  }
   const clientsWithCampaigns = clients.map((client) => ({
-    ...client,
-    campaigns: campaignsByClient.get(client.id) ?? [],
-    members: (membersByClient.get(client.id) ?? []).flatMap((userId) => {
-      const profile = profiles.get(userId)
+    id: client.id,
+    name: client.name,
+    campaigns: client.active_campaigns,
+    members: client.active_members.flatMap(({ user_id }) => {
+      const profile = profiles.get(user_id)
       if (!profile || profile.status !== "active" || profile.deactivated_at) return []
-      return [{ id: userId, name: profile.display_name, role: profile.job_title ?? "Employee" }]
+      return [{ id: user_id, name: profile.display_name, role: profile.job_title ?? "Employee" }]
     }),
   }))
   const clientsById = new Map(clientsWithCampaigns.map((row) => [row.id, row.name]))
@@ -149,7 +129,7 @@ export async function loadWorkflowData(): Promise<{ tasks: WorkflowTask[]; clien
   })
 
   const tasks: WorkflowTask[] = rows.map((row) => {
-    const taskAssignees = assigneesByTask.get(row.id) ?? []
+    const taskAssignees = row.active_assignees
     const primary = taskAssignees.find((item) => item.is_primary) ?? taskAssignees[0]
     const primaryProfile = primary ? profiles.get(primary.user_id) : null
     const ownerName = primaryProfile?.display_name ?? "Unassigned"
@@ -160,7 +140,7 @@ export async function loadWorkflowData(): Promise<{ tasks: WorkflowTask[]; clien
       clientId: row.client_id ?? "",
       clientName: row.client_id ? clientsById.get(row.client_id) ?? "Client" : "No client",
       campaign: (row.campaign_id && campaignById.get(row.campaign_id)) ?? "General work",
-      contentItem: (row.content_item_id && content.get(row.content_item_id)) ?? "General campaign work",
+      contentItem: row.linked_content?.title ?? "General campaign work",
       contentItemId: row.content_item_id,
       createdById: row.created_by,
       priority: row.priority,

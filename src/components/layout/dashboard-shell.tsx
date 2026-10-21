@@ -42,7 +42,7 @@ export function DashboardShell({ children, compact = false }: DashboardShellProp
   const searchParams = useSearchParams()
   const searchKey = searchParams.toString()
   const { openNewTask, newTaskOpen, newTaskSeed, closeNewTask } = useTaskDrawer()
-  const { currentUser, switchDemoUser, demoMode, error: workflowError, clearError, tasks, clients } = useWorkflow()
+  const { currentUser, switchDemoUser, demoMode, error: workflowError, clearError, tasks, clients, workflowDataReady, workflowDataLoading, ensureWorkflowData } = useWorkflow()
   const navigationVariant = currentUser.role === "supervisor" ? "supervisor" : "account_manager"
   const isAdministrator = !demoMode && currentUser.title?.toLowerCase() === "administrator"
   const initials = currentUser.name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase()
@@ -62,6 +62,9 @@ export function DashboardShell({ children, compact = false }: DashboardShellProp
     const timeout = window.setTimeout(() => setNavigationPending(false), 15000)
     return () => window.clearTimeout(timeout)
   }, [navigationPending])
+  useEffect(() => {
+    if (!demoMode && !workflowDataReady && (searchOpen || newTaskOpen)) void ensureWorkflowData()
+  }, [demoMode, workflowDataReady, searchOpen, newTaskOpen, ensureWorkflowData])
 
   const handleNavigationClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
@@ -118,7 +121,8 @@ export function DashboardShell({ children, compact = false }: DashboardShellProp
               }}
             />
             {searchOpen && searchQuery.trim() && <div id="workspace-search-results" role="listbox" aria-label="Search results" className="absolute inset-x-0 top-[calc(100%+0.5rem)] z-50 max-h-96 overflow-auto rounded-lg border border-border bg-popover p-1.5 shadow-xl">
-              {searchResults.length ? searchResults.map((result) => <Link key={`${result.type}-${result.id}`} role="option" aria-selected="false" href={result.href} onClick={() => { setSearchOpen(false); setSearchQuery(""); setMobileSearchOpen(false) }} className="flex items-start gap-3 rounded-md px-3 py-2.5 text-left hover:bg-muted focus-visible:bg-muted focus-visible:outline-none">
+              {!workflowDataReady && !demoMode ? <div className="px-3 py-4 text-center text-xs text-muted-foreground" role="status">{workflowDataLoading || !workflowError ? "Loading workspace search…" : <button type="button" className="font-medium text-primary" onClick={() => void ensureWorkflowData()}>Retry workspace search</button>}</div>
+                : searchResults.length ? searchResults.map((result) => <Link key={`${result.type}-${result.id}`} role="option" aria-selected="false" href={result.href} onClick={() => { setSearchOpen(false); setSearchQuery(""); setMobileSearchOpen(false) }} className="flex items-start gap-3 rounded-md px-3 py-2.5 text-left hover:bg-muted focus-visible:bg-muted focus-visible:outline-none">
                 <span className="mt-0.5 w-16 shrink-0 text-[10px] font-semibold uppercase tracking-wide text-primary">{result.type}</span>
                 <span className="min-w-0"><span className="block truncate text-xs font-medium text-foreground">{result.title}</span><span className="mt-0.5 block truncate text-[10px] text-muted-foreground">{result.detail}</span></span>
               </Link>) : <p className="px-3 py-4 text-center text-xs text-muted-foreground">No tasks, clients, or campaigns found.</p>}
@@ -192,7 +196,9 @@ export function DashboardShell({ children, compact = false }: DashboardShellProp
         {workflowError && <div className="fixed right-4 top-[4.5rem] z-50 flex max-w-md items-center gap-3 border border-destructive/25 bg-background px-4 py-3 text-xs text-foreground shadow-lg" role="alert"><span>{workflowError}</span><button className="font-semibold text-primary" onClick={clearError}>Dismiss</button></div>}
         {children}
       </div>
-      {newTaskOpen && <NewTaskSheet open={newTaskOpen} seed={newTaskSeed} onOpenChange={(open) => { if (!open) closeNewTask() }} />}
+      {newTaskOpen && (workflowDataReady || demoMode)
+        ? <NewTaskSheet open={newTaskOpen} seed={newTaskSeed} onOpenChange={(open) => { if (!open) closeNewTask() }} />
+        : newTaskOpen && <div role="dialog" aria-modal="true" aria-label="Create task" className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4"><div className="w-full max-w-sm rounded-xl border bg-background p-5 text-sm shadow-xl"><p role="status">{workflowDataLoading || !workflowError ? "Loading task form…" : "Task form could not load."}</p><div className="mt-4 flex gap-2"><Button variant="outline" onClick={closeNewTask}>Cancel</Button>{!workflowDataLoading && workflowError && <Button onClick={() => void ensureWorkflowData()}>Retry</Button>}</div></div></div>}
     </div>
   )
 }
