@@ -2,13 +2,13 @@
 
 import { LoaderCircle, Plus, Search, Settings } from "lucide-react"
 import Link from "next/link"
+import dynamic from "next/dynamic"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useCallback, useEffect, useMemo, useState } from "react"
 
 import { AppSidebar } from "@/components/layout/app-sidebar"
 import { MobileNavigation } from "@/components/layout/mobile-navigation"
 import { ThemeModeToggle } from "@/components/layout/theme-mode-toggle"
-import { NewTaskSheet } from "@/features/tasks/new-task-sheet"
 import { useTaskDrawer } from "@/features/tasks/task-drawer"
 import { useWorkflow } from "@/features/workflow/workflow-provider"
 import { NotificationBell } from "@/features/notifications/notification-bell"
@@ -26,6 +26,10 @@ import {
 import { Separator } from "@/components/ui/separator"
 import { cn } from "@/lib/utils"
 import { createClient as createSupabaseClient } from "@/lib/supabase/client"
+
+const NewTaskSheet = dynamic(() => import("@/features/tasks/new-task-sheet").then((module) => module.NewTaskSheet), {
+  loading: () => <div role="status" className="sr-only">Opening task form</div>,
+})
 
 type DashboardShellProps = {
   children: React.ReactNode

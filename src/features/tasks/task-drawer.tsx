@@ -1,11 +1,15 @@
 "use client"
 
 import { createContext, useContext, useState, type ReactNode } from "react"
+import dynamic from "next/dynamic"
 
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
-import { TaskDetail } from "@/features/tasks/task-detail"
 import { canViewTask } from "@/features/workflow/task-permissions"
 import { useWorkflow } from "@/features/workflow/workflow-provider"
+
+const TaskDetail = dynamic(() => import("@/features/tasks/task-detail").then((module) => module.TaskDetail), {
+  loading: () => <div role="status" className="p-5 text-sm text-muted-foreground">Loading task…</div>,
+})
 
 export type ContentTaskSeed = {
   contentItemId: string
