@@ -58,8 +58,11 @@ export function NewTaskSheet({ open, seed, onOpenChange }: NewTaskSheetProps & {
   const { createTask, clients, assignableUsers, currentUser, demoMode } = useWorkflow()
   const [submitting, setSubmitting] = useState(false)
   const initialClientId = seed?.clientId ?? ""
+  const suggestedAssigneeId = currentUser.role === "supervisor" && seed?.assigneeId
+    && clients.find((client) => client.id === seed.clientId)?.members?.some((member) => member.id === seed.assigneeId)
+    ? seed.assigneeId : currentUser.id
   const [selectedClientId, setSelectedClientId] = useState(initialClientId)
-  const [assigneeId, setAssigneeId] = useState(currentUser.id)
+  const [assigneeId, setAssigneeId] = useState(suggestedAssigneeId)
   const [title, setTitle] = useState(seed?.title ?? "")
   const [campaignName, setCampaignName] = useState(seed?.campaignName ?? "")
   const [dueDate, setDueDate] = useState(seed ? contentDeadlineInput(seed.deadlineAt) : defaultDueDate())
@@ -161,9 +164,10 @@ export function NewTaskSheet({ open, seed, onOpenChange }: NewTaskSheetProps & {
 
             {currentUser.role === "supervisor" ? <label className="text-xs font-semibold">
               Assign to
-              <select className={fieldClassName} value={assigneeId} onChange={(event) => setAssigneeId(event.target.value)} required disabled={!assignableMembers.length}>
+              <select aria-label="Assign to" className={fieldClassName} value={assigneeId} onChange={(event) => setAssigneeId(event.target.value)} required disabled={!assignableMembers.length}>
                 {assignableMembers.map((member) => <option key={member.id} value={member.id}>{member.name} · {member.role}</option>)}
               </select>
+              {seed?.assigneeId === suggestedAssigneeId && suggestedAssigneeId !== currentUser.id && <span className="mt-1 block text-[11px] font-normal text-muted-foreground">Suggested from the content item. You can assign this task to another client team member.</span>}
               {!assignableMembers.length && <span className="mt-1 block text-[11px] font-normal text-muted-foreground">No active employees are available to assign.</span>}
             </label> : <p className="text-xs text-muted-foreground">Assigned to you</p>}
 

@@ -4,8 +4,9 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
 import { Archive, CalendarDays, ChevronDown, CircleAlert, Files, LayoutGrid, List, ListPlus, LoaderCircle, Plus, RotateCcw, Search } from "lucide-react"
 
-import { archiveContentItem, recordExternalClientDecision, restoreContentItem, saveContentItem } from "@/app/content/actions"
+import { archiveContentItem, recordExternalClientDecision, restoreContentItem, saveContentItem, sendApprovedContentToClient } from "@/app/content/actions"
 import { ClientFiles } from "@/features/clients/client-files"
+import { isVideoContentFormat, suggestedContentAssignee } from "@/features/content/content-assignment"
 import { ContentImport } from "@/features/content/content-import"
 import { ContentSubmitButton } from "@/features/content/content-submit-button"
 import { useTaskDrawer } from "@/features/tasks/task-drawer"
@@ -28,6 +29,9 @@ export type TrackerItem = {
   publish_at: string | null
   client_approval_status: string | null
   client_issues: string | null
+  client_handoff_version_id?: string | null
+  client_sent_at?: string | null
+  latest_approved_version_id?: string | null
   notes: string | null
   revision_count: number
   revision_notes: string | null
@@ -40,6 +44,8 @@ export type TrackerItem = {
 
 const statuses = ["idea", "planned", "in_production", "for_review", "revision_requested", "waiting_client", "scheduled", "published", "rejected", "cancelled"]
 const contentPageSize = 10
+const attentionStatuses = new Set(["for_review", "revision_requested", "waiting_client", "rejected"])
+const terminalStatuses = new Set(["published", "cancelled"])
 const statusLabels: Record<string, string> = {
   idea: "Idea", planned: "Planned", in_production: "In production", for_review: "For review", revision_requested: "Revision requested", waiting_client: "Waiting for client", scheduled: "Scheduled", published: "Published", rejected: "Rejected", cancelled: "Cancelled",
 }
@@ -48,6 +54,39 @@ const canReceiveNewContent = (campaign: TrackerCampaign) => campaign.status === 
 const fieldClass = "h-9 w-full rounded-md border border-input bg-background px-2.5 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
 const filterSelectClass = "h-9 w-full rounded-md border border-input bg-background px-2.5 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 sm:w-auto sm:min-w-32"
 const labelClass = "grid gap-1.5 text-[11px] font-medium text-muted-foreground"
+
+function localDateKey(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
+}
+
+function contentDateKey(value: string | null) {
+  if (!value) return null
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return Number.isNaN(Date.parse(`${value}T00:00:00Z`)) ? null : value
+  }
+
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? null : localDateKey(date)
+}
+
+export function getContentSummaryCounts(items: TrackerItem[], today = localDateKey(new Date())) {
+  const upcomingCount = items.filter((item) => {
+    if (item.status !== "planned" && item.status !== "scheduled") return false
+    const publishDate = contentDateKey(item.publish_at)
+    return publishDate !== null && publishDate >= today
+  }).length
+
+  const attentionCount = items.filter((item) => {
+    if (attentionStatuses.has(item.status)) return true
+    if (terminalStatuses.has(item.status)) return false
+    return [item.deadline_at, item.publish_at].some((value) => {
+      const date = contentDateKey(value)
+      return date !== null && date < today
+    })
+  }).length
+
+  return { upcomingCount, attentionCount }
+}
 
 function formatDate(value: string | null) {
   if (!value) return "Not scheduled"
@@ -83,8 +122,11 @@ function ContentFilesDisclosure({ clientId, contentItemId, canUpload }: { client
   </section>
 }
 
-function ContentForm({ clients, campaigns, assignees, item, canEdit, currentUserId }: { clients: TrackerClient[]; campaigns: TrackerCampaign[]; assignees: Record<string, TrackerAssignee[]>; item?: TrackerItem; canEdit: boolean; currentUserId: string }) {
+function ContentForm({ clients, campaigns, assignees, videoEditorByClient, item, canEdit, currentUserId }: { clients: TrackerClient[]; campaigns: TrackerCampaign[]; assignees: Record<string, TrackerAssignee[]>; videoEditorByClient: Record<string, string>; item?: TrackerItem; canEdit: boolean; currentUserId: string }) {
   const [clientId, setClientId] = useState(item?.client_id ?? clients[0]?.id ?? "")
+  const [format, setFormat] = useState(item?.content_type ?? "")
+  const [assignedTo, setAssignedTo] = useState(() => item ? item.assigned_to ?? "" : suggestedContentAssignee("", videoEditorByClient[clientId], currentUserId, assignees[clientId] ?? []))
+  const assigneeChangedByUser = useRef(false)
   const clientCampaigns = campaigns.filter((campaign) => campaign.client_id === clientId)
   const activeCampaigns = clientCampaigns.filter(canReceiveNewContent)
   const initialCampaignId = item?.campaign_id ?? activeCampaigns.find((campaign) => campaign.name.toLocaleLowerCase() === "general / ongoing")?.id ?? ""
@@ -93,6 +135,7 @@ function ContentForm({ clients, campaigns, assignees, item, canEdit, currentUser
 
   const showClient = clients.length > 1
   const showCampaign = activeCampaigns.length > 0 || Boolean(item && clientCampaigns.some((campaign) => campaign.id === item.campaign_id))
+  const clientVideoEditor = (assignees[clientId] ?? []).find((person) => person.id === videoEditorByClient[clientId])
 
   return <form action={saveContentItem} className="grid gap-3">
     {item && <input type="hidden" name="id" value={item.id} />}
@@ -102,22 +145,22 @@ function ContentForm({ clients, campaigns, assignees, item, canEdit, currentUser
     {!item && <input type="hidden" name="revisionNotes" value="" />}
     <p className="text-xs leading-5 text-muted-foreground">Create one tracker card for one post or creative piece. It records where and when it will be published. Add an optional linked task from the saved content card when assigned work needs separate tracking.</p>
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      {showClient && <label className={labelClass}>Client<select className={fieldClass} name="clientId" value={clientId} onChange={(event) => { setClientId(event.target.value); const next = campaigns.filter((campaign) => campaign.client_id === event.target.value && canReceiveNewContent(campaign)); setCampaignId(next.find((campaign) => campaign.name.toLocaleLowerCase() === "general / ongoing")?.id ?? "") }} required>{clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</select></label>}
+      {showClient && <label className={labelClass}>Client<select className={fieldClass} name="clientId" value={clientId} onChange={(event) => { const nextClientId = event.target.value; setClientId(nextClientId); const next = campaigns.filter((campaign) => campaign.client_id === nextClientId && canReceiveNewContent(campaign)); setCampaignId(next.find((campaign) => campaign.name.toLocaleLowerCase() === "general / ongoing")?.id ?? ""); if (!item) { assigneeChangedByUser.current = false; setAssignedTo(suggestedContentAssignee(format, videoEditorByClient[nextClientId], currentUserId, assignees[nextClientId] ?? [])) } }} required>{clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</select></label>}
       {showCampaign && <label className={labelClass}>Campaign <span className="font-normal">(optional)</span><select className={fieldClass} name="campaignId" value={selectedCampaign} onChange={(event) => setCampaignId(event.target.value)}><option value="">General / Ongoing (default)</option>{clientCampaigns.filter((campaign) => canReceiveNewContent(campaign) || campaign.id === item?.campaign_id).map((campaign) => <option key={campaign.id} value={campaign.id}>{campaign.name}{!canReceiveNewContent(campaign) ? " (closed · existing content)" : ""}</option>)}</select></label>}
       <label className={labelClass}>Content idea / title<input className={fieldClass} name="title" placeholder="e.g. What to expect on your first dive" defaultValue={item?.title ?? ""} required minLength={2} maxLength={200} /></label>
       <label className={labelClass}>Platform<input className={fieldClass} name="platform" placeholder="Instagram" defaultValue={item?.platform ?? ""} required minLength={2} maxLength={60} /></label>
-      <label className={labelClass}>Format<input className={fieldClass} name="contentType" placeholder="Reel, carousel, static" defaultValue={item?.content_type ?? ""} required minLength={2} maxLength={80} /></label>
+      <label className={labelClass}>Format<input className={fieldClass} name="contentType" placeholder="Reel, carousel, static" value={format} onChange={(event) => { const nextFormat = event.target.value; setFormat(nextFormat); if (!item && !assigneeChangedByUser.current) setAssignedTo(suggestedContentAssignee(nextFormat, videoEditorByClient[clientId], currentUserId, assignees[clientId] ?? [])) }} required minLength={2} maxLength={80} /></label>
+      <label className={labelClass}>Assigned creator / editor <span className="font-normal">(optional)</span><select aria-label="Assigned creator / editor" className={fieldClass} name="assignedTo" value={assignedTo} onChange={(event) => { assigneeChangedByUser.current = true; setAssignedTo(event.target.value) }}><option value="">Not assigned</option>{(assignees[clientId] ?? []).map((person) => <option key={person.id} value={person.id}>{person.display_name}</option>)}</select>{isVideoContentFormat(format) && <span className="text-[10px] font-normal text-muted-foreground">{clientVideoEditor ? `${clientVideoEditor.display_name} is this client's Video Editor. You can choose another member for this item.` : "No Video Editor is assigned to this client. Choose a creator/editor or leave it unassigned."}</span>}</label>
       <label className={labelClass}>Publish date <span className="font-normal">(optional)</span><input className={fieldClass} type="datetime-local" name="publishAt" defaultValue={dateInputValue(item?.publish_at ?? null)} /></label>
     </div>
     {!showCampaign && <p className="text-[11px] text-muted-foreground">New content is grouped under General / Ongoing automatically.</p>}
     <details className="rounded-md border border-border/70 bg-background/40 px-3 py-2" open={Boolean(item)}>
       <summary className="cursor-pointer text-xs font-medium text-muted-foreground">Optional details</summary>
       <div className="mt-3 grid gap-3 border-t pt-3 sm:grid-cols-2 lg:grid-cols-4">
-        {item && <label className={labelClass}>Status<select className={fieldClass} name="status" defaultValue={item.status}>{statuses.map((status) => <option key={status} value={status}>{statusLabels[status]}</option>)}</select></label>}
+        {item && <label className={labelClass}>Status<select className={fieldClass} name="status" defaultValue={item.status}>{statuses.filter((status) => status !== "waiting_client" || item.status === "waiting_client").map((status) => <option key={status} value={status}>{statusLabels[status]}</option>)}</select></label>}
         <label className={labelClass}>Work date<input className={fieldClass} type="date" name="workDate" defaultValue={item?.work_date ?? ""} /></label>
         <label className={labelClass}>Deadline<input className={fieldClass} type="date" name="deadlineAt" defaultValue={item?.deadline_at ?? ""} /></label>
         <label className={labelClass}>Next action<input className={fieldClass} name="nextAction" placeholder="Send draft for review" defaultValue={item?.next_action ?? ""} maxLength={500} /></label>
-        <label className={labelClass}>Assigned creator / editor<select className={fieldClass} name="assignedTo" defaultValue={item ? item.assigned_to ?? "" : currentUserId}><option value="">Not assigned</option>{(assignees[clientId] ?? []).map((person) => <option key={person.id} value={person.id}>{person.display_name}</option>)}</select></label>
         {item && <label className={labelClass}>Revision count<input className={`${fieldClass} bg-muted/50`} value={item.revision_count} readOnly aria-label="Revision count" /></label>}
         <label className={`${labelClass} sm:col-span-2`}>Brief / caption notes<textarea className="min-h-16 w-full rounded-md border border-input bg-background px-2.5 py-2 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/10" name="description" maxLength={5000} defaultValue={item?.description ?? ""} /></label>
         <label className={`${labelClass} sm:col-span-2`}>Notes / comments<textarea className="min-h-16 w-full rounded-md border border-input bg-background px-2.5 py-2 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/10" name="notes" maxLength={5000} defaultValue={item?.notes ?? ""} /></label>
@@ -130,8 +173,8 @@ function ContentForm({ clients, campaigns, assignees, item, canEdit, currentUser
   </form>
 }
 
-export function ContentTracker({ clients, campaigns, assignees, items, canCreate, canEdit, canCreateTask, currentUserId, canAssignContent, notice, importedCount, skippedCount, isArchivedView = false }: {
-    clients: TrackerClient[]; campaigns: TrackerCampaign[]; assignees: Record<string, TrackerAssignee[]>; items: TrackerItem[]; canCreate: boolean; canEdit: boolean; canCreateTask: boolean; currentUserId: string; canAssignContent: boolean; notice?: string; importedCount?: number; skippedCount?: number; isArchivedView?: boolean
+export function ContentTracker({ clients, campaigns, assignees, videoEditorByClient = {}, accountManagerClientIds = [], items, canCreate, canEdit, canCreateTask, currentUserId, canAssignContent, notice, importedCount, skippedCount, isArchivedView = false }: {
+    clients: TrackerClient[]; campaigns: TrackerCampaign[]; assignees: Record<string, TrackerAssignee[]>; videoEditorByClient?: Record<string, string>; accountManagerClientIds?: string[]; items: TrackerItem[]; canCreate: boolean; canEdit: boolean; canCreateTask: boolean; currentUserId: string; canAssignContent: boolean; notice?: string; importedCount?: number; skippedCount?: number; isArchivedView?: boolean
 }) {
   const { openNewTask } = useTaskDrawer()
   const [query, setQuery] = useState("")
@@ -156,9 +199,8 @@ export function ContentTracker({ clients, campaigns, assignees, items, canCreate
   const pageCount = Math.max(1, Math.ceil(visibleItems.length / contentPageSize))
   const activePage = Math.min(currentPage, pageCount)
   const displayedItems = useMemo(() => visibleItems.slice((activePage - 1) * contentPageSize, activePage * contentPageSize), [visibleItems, activePage])
-  const upcomingCount = availableItems.filter((item) => item.status === "planned" || item.status === "scheduled").length
-  const attentionCount = availableItems.filter((item) => ["for_review", "revision_requested", "waiting_client", "rejected"].includes(item.status)).length
-  const notices: Record<string, string> = { created: "Content added to the tracker.", updated: "Content updated.", archived: "Content moved out of the active tracker.", imported: `${importedCount ?? 0} content rows imported; ${skippedCount ?? 0} duplicates skipped.`, client_decision_updated: "External client response recorded. Jota does not contact the client.", client_decision_invalid: "Choose a valid client decision. Feedback is required when requesting revisions.", client_workflow_migration_missing: "Apply the client/editor workflow migration under supabase/migrations, then refresh.", content_not_found: "That content item is no longer available. Refresh and try again.", import_too_large: "CSV file exceeds the 1 MB limit.", invalid_import: "CSV import failed validation. Review the row preview and required columns.", content_migration_missing: "Apply the local content workflow alignment migration under supabase/migrations, then refresh.", campaign_paused: "The default campaign is paused or closed. Ask a supervisor or admin to reopen it, then try again.", invalid: "Check the required fields and try again.", failed: "The change could not be saved. Refresh and try again.", forbidden: "Your account does not have permission for that change." }
+  const { upcomingCount, attentionCount } = getContentSummaryCounts(availableItems)
+  const notices: Record<string, string> = { created: "Content added to the tracker.", updated: "Content updated.", archived: "Content moved out of the active tracker.", imported: `${importedCount ?? 0} content rows imported; ${skippedCount ?? 0} duplicates skipped.`, client_handoff_recorded: "Client handoff recorded. Send the approved content through your usual external channel; Jota does not send it.", client_handoff_not_ready: "This item needs a new internal approval before it can be sent to the client.", client_handoff_migration_missing: "Apply the explicit client handoff migration, then refresh.", client_decision_updated: "External client response recorded. Jota does not contact the client.", client_decision_invalid: "Send approved content to the client first, then choose its response. Feedback is required for revisions.", client_workflow_migration_missing: "Apply the client/editor workflow migration under supabase/migrations, then refresh.", content_not_found: "That content item is no longer available. Refresh and try again.", import_too_large: "CSV file exceeds the 1 MB limit.", invalid_import: "CSV import failed validation. Review the row preview and required columns.", content_migration_missing: "Apply the local content workflow alignment migration under supabase/migrations, then refresh.", campaign_paused: "The default campaign is paused or closed. Ask a supervisor or admin to reopen it, then try again.", invalid: "Check the required fields and try again.", failed: "The change could not be saved. Refresh and try again.", forbidden: "Your account does not have permission for that change." }
 
   useEffect(() => () => { if (undoTimer.current) clearTimeout(undoTimer.current) }, [])
 
@@ -281,7 +323,7 @@ export function ContentTracker({ clients, campaigns, assignees, items, canCreate
     </div>}
     {!isArchivedView && canCreate && <details className="group mt-4 rounded-lg border border-border bg-card/80 p-3">
       <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-semibold [&::-webkit-details-marker]:hidden"><span className="flex items-center gap-2"><Plus className="size-4 text-primary" />Add content</span><span className="text-[11px] font-normal text-muted-foreground">Create one planned post or creative item</span></summary>
-      <div className="mt-3 border-t pt-3">{clients.length ? <ContentForm clients={clients} campaigns={campaigns} assignees={assignees} canEdit={canCreate} currentUserId={currentUserId} /> : <p className="text-xs text-muted-foreground">Add an active client before adding tracked content.</p>}</div>
+      <div className="mt-3 border-t pt-3">{clients.length ? <ContentForm clients={clients} campaigns={campaigns} assignees={assignees} videoEditorByClient={videoEditorByClient} canEdit={canCreate} currentUserId={currentUserId} /> : <p className="text-xs text-muted-foreground">Add an active client before adding tracked content.</p>}</div>
     </details>}
     {!isArchivedView && canCreate && <ContentImport clients={clients} campaigns={campaigns} assignees={assignees} items={items} currentUserId={currentUserId} canAssignContent={canAssignContent} />}
     <section className="mt-4 overflow-hidden rounded-lg border border-border bg-card/75" aria-label="Tracked content">
@@ -295,7 +337,14 @@ export function ContentTracker({ clients, campaigns, assignees, items, canCreate
         </div>
       </div>
       {!visibleItems.length ? <div className="px-4 py-12 text-center"><p className="text-sm font-medium">{availableItems.length ? "No matching content" : isArchivedView ? "No archived content" : "No content tracked yet"}</p><p className="mt-1 text-xs text-muted-foreground">{availableItems.length ? "Try a different search or filter." : isArchivedView ? "Archived items will appear here and can be restored." : "Add the team’s upcoming posts and creative deliverables here."}</p></div> : <div className={viewMode === "cards" ? "grid gap-2 p-2 sm:grid-cols-2 2xl:grid-cols-3" : "divide-y divide-border/70"}>
-        {displayedItems.map((item) => <article id={`content-item-${item.id}`} key={item.id} className={`scroll-mt-24 min-w-0 transition hover:border-primary/25 hover:bg-background/90 ${viewMode === "cards" ? "rounded-lg border border-border/80 bg-background/70 p-2.5" : "grid gap-2 bg-background/40 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center"}`}>
+        {displayedItems.map((item) => {
+          const canSendToClient = canEdit && !isArchivedView && accountManagerClientIds.includes(item.client_id)
+            && Boolean(item.latest_approved_version_id)
+            && item.latest_approved_version_id !== item.client_handoff_version_id
+            && !["for_review", "revision_requested", "published", "cancelled", "rejected"].includes(item.status)
+            && !(item.client_approval_status === "pending" && item.client_handoff_version_id)
+          const awaitingClientResponse = item.status === "waiting_client" && item.client_approval_status === "pending" && Boolean(item.client_handoff_version_id)
+          return <article id={`content-item-${item.id}`} key={item.id} className={`scroll-mt-24 min-w-0 transition hover:border-primary/25 hover:bg-background/90 ${viewMode === "cards" ? "rounded-lg border border-border/80 bg-background/70 p-2.5" : "grid gap-2 bg-background/40 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center"}`}>
           <div className="flex min-w-0 items-start justify-between gap-2">
             <div className="min-w-0"><h2 className="truncate text-xs font-semibold">{item.title}</h2><p className="mt-0.5 truncate text-[10px] text-muted-foreground">{item.client_name} · {item.campaign_name}</p><p className="truncate text-[10px] text-muted-foreground">{item.platform} · {item.content_type}</p></div>
             <span className="flex shrink-0 flex-col items-end gap-1"><span className="rounded-md border border-primary/15 bg-primary/5 px-1.5 py-0.5 text-[9px] font-medium">{statusLabels[item.status] ?? item.status}</span>{item.client_approval_status && <span className="rounded-md border border-border/80 bg-muted/35 px-1.5 py-0.5 text-[9px] text-muted-foreground">Client: {approvalLabels[item.client_approval_status] ?? item.client_approval_status}</span>}</span>
@@ -305,7 +354,7 @@ export function ContentTracker({ clients, campaigns, assignees, items, canCreate
             <p><span className="font-medium">Deadline</span> <span className="text-muted-foreground">{formatDate(item.deadline_at)}</span></p>
           </div>
           <div className={`flex flex-wrap items-center gap-1.5 ${viewMode === "cards" ? "mt-1.5" : "sm:justify-end"}`}>
-            {!isArchivedView && canCreateTask && !["published", "cancelled", "rejected"].includes(item.status) && <button type="button" onClick={() => openNewTask({ contentItemId: item.id, contentItemTitle: item.title, title: `Create assets: ${item.title}`, clientId: item.client_id, clientName: item.client_name, campaignName: item.campaign_name, deadlineAt: item.deadline_at })} className="inline-flex h-7 items-center gap-1 rounded-md border border-primary/25 bg-background/70 px-2 text-[10px] font-medium text-primary transition hover:bg-primary/5"><ListPlus className="size-3" />Add task</button>}
+            {!isArchivedView && canCreateTask && !["published", "cancelled", "rejected"].includes(item.status) && <button type="button" onClick={() => openNewTask({ contentItemId: item.id, contentItemTitle: item.title, title: `Create assets: ${item.title}`, clientId: item.client_id, clientName: item.client_name, campaignName: item.campaign_name, deadlineAt: item.deadline_at, assigneeId: item.assigned_to })} className="inline-flex h-7 items-center gap-1 rounded-md border border-primary/25 bg-background/70 px-2 text-[10px] font-medium text-primary transition hover:bg-primary/5"><ListPlus className="size-3" />Add task</button>}
             {isArchivedView && canEdit && <button type="button" disabled={Boolean(pendingAction)} onClick={() => void restoreItem(item)} className="inline-flex h-7 items-center gap-1 rounded-md border border-primary/25 bg-background/70 px-2 text-[10px] font-medium text-primary transition hover:bg-primary/5 disabled:cursor-wait disabled:opacity-60">
               {pendingAction === `restore:${item.id}` ? <LoaderCircle className="size-3 animate-spin" /> : <RotateCcw className="size-3" />}
               {pendingAction === `restore:${item.id}` ? "Restoring…" : "Restore"}
@@ -317,17 +366,22 @@ export function ContentTracker({ clients, campaigns, assignees, items, canCreate
             <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-muted-foreground">
               {item.next_action && <p>Next: {item.next_action}</p>}{item.assignee_name && <p>Creator/editor: {item.assignee_name}</p>}{item.work_date && <p>Work date: {formatDate(item.work_date)}</p>}{item.revision_count > 0 && <p>{item.revision_count} revision{item.revision_count === 1 ? "" : "s"}</p>}
               {item.client_approval_status && <p>Client approval (external): <span className="font-medium text-foreground">{approvalLabels[item.client_approval_status] ?? item.client_approval_status}</span></p>}
+              {item.client_sent_at && <p>Client handoff recorded: {formatDate(item.client_sent_at)}</p>}
               {item.client_issues && <p>Client issues: {item.client_issues}</p>}{item.notes && <p>Notes: {item.notes}</p>}{item.revision_notes && <p><span className="font-medium text-foreground">Latest feedback:</span> {item.revision_notes}</p>}
-              {canEdit && !isArchivedView && <div className="mt-2 w-full border-t border-border/60 pt-2"><form action={recordExternalClientDecision} className="grid gap-2 sm:grid-cols-[minmax(150px,.7fr)_minmax(180px,1.3fr)_auto] sm:items-end">
+              {canSendToClient && <div className="mt-2 w-full border-t border-border/60 pt-2"><form action={sendApprovedContentToClient} className="flex flex-wrap items-center gap-2">
                 <input type="hidden" name="contentItemId" value={item.id} />
-                <label className={labelClass}>Record client response (external)<select className={fieldClass} name="decision" defaultValue={item.client_approval_status ?? "pending"}>{Object.entries(approvalLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+                <ContentSubmitButton pendingLabel="Recording…">Mark sent to client</ContentSubmitButton>
+              </form><p className="mt-1 text-[10px] text-muted-foreground">First send the approved content through your usual external channel. This button only records the handoff in Jota.</p></div>}
+              {canEdit && !isArchivedView && accountManagerClientIds.includes(item.client_id) && awaitingClientResponse && <div className="mt-2 w-full border-t border-border/60 pt-2"><form action={recordExternalClientDecision} className="grid gap-2 sm:grid-cols-[minmax(150px,.7fr)_minmax(180px,1.3fr)_auto] sm:items-end">
+                <input type="hidden" name="contentItemId" value={item.id} />
+                <label className={labelClass}>Record client response (external)<select className={fieldClass} name="decision" defaultValue="approved">{Object.entries(approvalLabels).filter(([value]) => value !== "pending").map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
                 <label className={labelClass}>Feedback <span className="font-normal">(required for revisions)</span><textarea className="min-h-9 w-full rounded-md border border-input bg-background px-2.5 py-2 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/10" name="feedback" maxLength={5000} defaultValue={item.client_issues ?? ""} placeholder="Record the client's requested changes, if any" /></label>
                 <ContentSubmitButton pendingLabel="Recording…">Record response</ContentSubmitButton>
               </form><p className="mt-1 text-[10px] text-muted-foreground">The client communicates outside Jota. This records their decision; it does not send a message or mark content as published.</p></div>}
             </div>
           </details>}
           <div className={viewMode === "list" ? "sm:col-span-3" : ""}><ContentFilesDisclosure clientId={item.client_id} contentItemId={item.id} canUpload={canEdit && !isArchivedView} /></div>
-        </article>)}
+        </article>})}
       </div>}
       {visibleItems.length > contentPageSize && <nav aria-label="Content pagination" className="flex flex-wrap items-center justify-between gap-2 border-t px-3 py-2.5">
         <p className="text-[10px] text-muted-foreground">Showing {(activePage - 1) * contentPageSize + 1}–{Math.min(activePage * contentPageSize, visibleItems.length)} of {visibleItems.length}</p>
@@ -344,7 +398,7 @@ export function ContentTracker({ clients, campaigns, assignees, items, canCreate
           </SheetHeader>
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
             {sheetError && <p role="alert" className="mb-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">{sheetError}</p>}
-            <ContentForm clients={clients.filter((client) => client.id === editingItem.client_id)} campaigns={campaigns.filter((campaign) => campaign.client_id === editingItem.client_id)} assignees={assignees} item={editingItem} canEdit={canEdit} currentUserId={currentUserId} />
+            <ContentForm clients={clients.filter((client) => client.id === editingItem.client_id)} campaigns={campaigns.filter((campaign) => campaign.client_id === editingItem.client_id)} assignees={assignees} videoEditorByClient={videoEditorByClient} item={editingItem} canEdit={canEdit} currentUserId={currentUserId} />
             <div className="mt-4 border-t pt-3">
               <button type="button" disabled={Boolean(pendingAction)} onClick={() => void archiveItem(editingItem)} className="inline-flex min-h-8 items-center gap-1.5 rounded-md px-1 text-xs text-destructive transition hover:underline disabled:cursor-wait disabled:opacity-60">
                 {pendingAction === `archive:${editingItem.id}` ? <LoaderCircle className="size-3.5 animate-spin" /> : <Archive className="size-3.5" />}

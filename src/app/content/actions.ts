@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/server"
 
 const statuses = ["idea", "planned", "in_production", "for_review", "revision_requested", "waiting_client", "scheduled", "published", "rejected", "cancelled"] as const
 const approvals = ["pending", "approved", "revision_requested", "rejected"] as const
+const clientResponses = ["approved", "revision_requested", "rejected"] as const
 const schema = z.object({
   id: z.string().uuid().optional(),
   clientId: z.string().uuid(),
@@ -138,10 +139,28 @@ export async function saveContentItem(formData: FormData) {
   redirect(`/content?notice=${parsed.data.id ? "updated" : "created"}`)
 }
 
+export async function sendApprovedContentToClient(formData: FormData) {
+  const parsed = z.string().uuid().safeParse(field(formData, "contentItemId"))
+  if (!parsed.success) redirect("/content?notice=invalid")
+
+  const supabase = await createClient()
+  const { error } = await supabase.rpc("send_approved_content_to_client", { p_content_item_id: parsed.data })
+  if (error?.code === "42501") redirect("/content?notice=forbidden")
+  if (error?.code === "P0002") redirect("/content?notice=content_not_found")
+  if (error?.code === "PGRST202") redirect("/content?notice=client_handoff_migration_missing")
+  if (error?.code === "22023") redirect("/content?notice=client_handoff_not_ready")
+  if (error) redirect("/content?notice=failed")
+
+  revalidatePath("/content")
+  revalidatePath("/calendar")
+  revalidatePath("/tasks")
+  redirect(`/content?notice=client_handoff_recorded#content-item-${encodeURIComponent(parsed.data)}`)
+}
+
 export async function recordExternalClientDecision(formData: FormData) {
   const parsed = z.object({
     contentItemId: z.string().uuid(),
-    decision: z.enum(approvals),
+    decision: z.enum(clientResponses),
     feedback: z.string().trim().max(5000),
   }).safeParse({
     contentItemId: field(formData, "contentItemId"),

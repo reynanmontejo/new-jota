@@ -11,6 +11,7 @@ import { isSupabaseConfigured } from "@/lib/env"
 import { createClient as createSupabaseClient } from "@/lib/supabase/client"
 
 type ReviewDecision = "approved" | "revision_requested"
+type RealtimeStatus = "connecting" | "connected" | "reconnecting"
 
 type NewTaskInputFields = {
   title: string
@@ -156,6 +157,8 @@ type WorkflowContextValue = {
   currentUser: DemoUser
   demoMode: boolean
   realtimeRevision: number
+  realtimeStatus: RealtimeStatus
+  refreshWorkflowNow: () => void
   error: string | null
   clearError: () => void
   switchDemoUser: (role: DemoUser["role"]) => void
@@ -216,12 +219,21 @@ export function WorkflowProvider({
   const [state, dispatch] = useReducer(workflowReducer, { tasks: initialTasks ?? (demoMode ? initialWorkflowState.tasks : []) })
   const [error, setError] = useState<string | null>(null)
   const [realtimeRevision, setRealtimeRevision] = useState(0)
+  const [realtimeStatus, setRealtimeStatus] = useState<RealtimeStatus>("connecting")
   const [deferredSummary, setDeferredSummary] = useState<WorkflowSummary | null>(null)
   const [workflowDataLoading, setWorkflowDataLoading] = useState(false)
   const summaryRequest = useRef<Promise<boolean> | null>(null)
   const lazyWorkflow = initialTasks === undefined
   const taskDetailsRequests = useRef(new Map<string, Promise<boolean>>())
   const router = useRouter()
+  const refreshWorkflowNow = useCallback(() => {
+    if (lazyWorkflow) {
+      setDeferredSummary(null)
+      dispatch({ type: "replace_tasks", tasks: [] })
+    }
+    setRealtimeRevision((revision) => revision + 1)
+    router.refresh()
+  }, [lazyWorkflow, router])
 
   useEffect(() => {
     if (demoMode || !initialUser?.id || !isSupabaseConfigured()) return
@@ -244,6 +256,7 @@ export function WorkflowProvider({
     ] as const
     let refreshTimer: number | undefined
     let reconnectTimer: number | undefined
+    let connectWatchdog: number | undefined
     let channel: ReturnType<typeof supabase.channel> | null = null
     let retryAttempt = 0
     let isSubscribed = false
@@ -253,14 +266,7 @@ export function WorkflowProvider({
       if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
       refreshTimer = window.setTimeout(() => {
         refreshTimer = undefined
-        // Light routes only load task data on demand. Invalidate that snapshot
-        // so the next search or task form gets current rows after realtime changes.
-        if (lazyWorkflow) {
-          setDeferredSummary(null)
-          dispatch({ type: "replace_tasks", tasks: [] })
-        }
-        setRealtimeRevision((revision) => revision + 1)
-        router.refresh()
+        refreshWorkflowNow()
       }, 200)
     }
 
@@ -281,18 +287,32 @@ export function WorkflowProvider({
       for (const table of trackedTables) {
         nextChannel.on("postgres_changes", { event: "*", schema: "public", table }, refreshWorkflow)
       }
+      connectWatchdog = window.setTimeout(() => {
+        connectWatchdog = undefined
+        if (disposed || channel !== nextChannel || isSubscribed) return
+        setRealtimeStatus("reconnecting")
+        channel = null
+        void supabase.removeChannel(nextChannel)
+        scheduleReconnect()
+      }, 12_000)
       nextChannel.subscribe((status) => {
         if (disposed || channel !== nextChannel) return
         if (status === "SUBSCRIBED") {
+          if (connectWatchdog !== undefined) window.clearTimeout(connectWatchdog)
+          connectWatchdog = undefined
           const isReconnect = hasSubscribed
           hasSubscribed = true
           isSubscribed = true
           retryAttempt = 0
+          setRealtimeStatus("connected")
           if (isReconnect) refreshWorkflow()
           return
         }
         if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+          if (connectWatchdog !== undefined) window.clearTimeout(connectWatchdog)
+          connectWatchdog = undefined
           isSubscribed = false
+          setRealtimeStatus("reconnecting")
           channel = null
           void supabase.removeChannel(nextChannel)
           scheduleReconnect()
@@ -303,7 +323,11 @@ export function WorkflowProvider({
     const refreshOnReturn = () => {
       if (document.visibilityState === "visible") {
         refreshWorkflow()
-        if (!isSubscribed && !channel) scheduleReconnect()
+        if (!isSubscribed && !channel) {
+          if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer)
+          reconnectTimer = undefined
+          connect()
+        }
       }
     }
 
@@ -312,16 +336,21 @@ export function WorkflowProvider({
       if (!isSubscribed && document.visibilityState === "visible") refreshWorkflow()
     }, 30_000)
     document.addEventListener("visibilitychange", refreshOnReturn)
+    window.addEventListener("focus", refreshOnReturn)
+    window.addEventListener("online", refreshOnReturn)
 
     return () => {
       disposed = true
       if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
       if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer)
+      if (connectWatchdog !== undefined) window.clearTimeout(connectWatchdog)
       if (fallbackTimer !== undefined) window.clearInterval(fallbackTimer)
       document.removeEventListener("visibilitychange", refreshOnReturn)
+      window.removeEventListener("focus", refreshOnReturn)
+      window.removeEventListener("online", refreshOnReturn)
       if (channel) void supabase.removeChannel(channel)
     }
-  }, [demoMode, initialUser?.id, lazyWorkflow, router])
+  }, [demoMode, initialUser?.id, refreshWorkflowNow])
 
   useEffect(() => {
     if (!demoMode && initialTasks) dispatch({ type: "replace_tasks", tasks: initialTasks })
@@ -390,6 +419,8 @@ export function WorkflowProvider({
     currentUser,
     demoMode,
     realtimeRevision,
+    realtimeStatus,
+    refreshWorkflowNow,
     error,
     clearError: () => setError(null),
     switchDemoUser: (role) => {
@@ -493,7 +524,7 @@ export function WorkflowProvider({
       return id
     },
     loadTaskDetails,
-  }), [state.tasks, clients, assignableUsers, currentUser, demoMode, error, deferredSummary, initialUpcomingContent, initialContentWorkItems, workflowDataReady, workflowDataLoading, ensureWorkflowData, realtimeRevision, loadTaskDetails])
+  }), [state.tasks, clients, assignableUsers, currentUser, demoMode, error, deferredSummary, initialUpcomingContent, initialContentWorkItems, workflowDataReady, workflowDataLoading, ensureWorkflowData, realtimeRevision, realtimeStatus, refreshWorkflowNow, loadTaskDetails])
 
   return <WorkflowContext.Provider value={value}>{children}</WorkflowContext.Provider>
 }

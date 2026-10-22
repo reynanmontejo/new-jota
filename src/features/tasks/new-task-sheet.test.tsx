@@ -21,6 +21,16 @@ afterEach(() => {
 })
 
 describe("new task sheet for supervisors and administrators", () => {
+  it("suggests the linked content creator while allowing a task-level override", () => {
+    render(<NewTaskSheet open seed={{ contentItemId: "content-1", contentItemTitle: "Product reel", title: "Edit product reel", clientId: "client-1", clientName: "Northwind", campaignName: "General / Ongoing", deadlineAt: null, assigneeId: "employee-1" }} onOpenChange={vi.fn()} />)
+
+    const assignee = screen.getByLabelText(/Assign to/) as HTMLSelectElement
+    expect(assignee.value).toBe("employee-1")
+    expect(screen.getByText(/Suggested from the content item/)).toBeInTheDocument()
+    fireEvent.change(assignee, { target: { value: "admin-1" } })
+    expect(assignee.value).toBe("admin-1")
+  })
+
   it("allows a supervisor/admin to assign an active employee without choosing a client", async () => {
     mocks.createTask.mockResolvedValue("task-1")
     const onOpenChange = vi.fn()

@@ -19,6 +19,7 @@ export type ContentTaskSeed = {
   clientName: string
   campaignName: string
   deadlineAt: string | null
+  assigneeId?: string | null
 }
 
 type TaskDrawerContextValue = {

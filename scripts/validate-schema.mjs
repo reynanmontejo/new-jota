@@ -37,6 +37,7 @@ const notificationPushDispatchMigrationPath = "supabase/migrations/202610290001_
 const notificationEmailDeliveryMigrationPath = "supabase/migrations/202610300001_email_notification_delivery.sql"
 const optionalClientTasksMigrationPath = "supabase/migrations/202610300002_optional_client_tasks.sql"
 const clientEditorExternalApprovalMigrationPath = "supabase/migrations/202610300003_client_editor_external_approval.sql"
+const explicitClientHandoffMigrationPath = "supabase/migrations/202610300004_explicit_client_handoff.sql"
 const seedPath = "supabase/seed.sql"
 
 const database = new PGlite()
@@ -1261,6 +1262,141 @@ if (clientApprovedResubmission.rows[0]?.task_status !== "for_review"
   || clientApprovedResubmission.rows[0]?.version_count !== 2) {
   throw new Error("External client approval incorrectly completed or rewrote the task's internal review workflow")
 }
+
+// The new migration is applied after the legacy-data checks above so the
+// upgrade path also verifies that existing content remains readable.
+await database.exec(await fs.readFile(explicitClientHandoffMigrationPath, "utf8"))
+let unreviewedHandoffRejected = false
+try {
+  await asUser(employeeOne, () => database.query(`select public.send_approved_content_to_client('${workflowContentId}')`))
+} catch (error) { unreviewedHandoffRejected = error?.code === "22023" }
+if (!unreviewedHandoffRejected) throw new Error("Content without internal approval could be sent to the client")
+
+let newWaitingClientRejected = false
+try {
+  await asUser(employeeOne, () => database.query(`select public.create_content_tracker_item_for_current_user(
+    '30000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001',
+    'Premature client handoff', 'Instagram', 'Static', null, 'waiting_client', null, null,
+    null, null, null, null, null, '${employeeOne}'
+  )`))
+} catch (error) { newWaitingClientRejected = error?.code === "22023" }
+if (!newWaitingClientRejected) throw new Error("New content could start in Waiting for client without review")
+
+const historicalImport = await asUser(employeeOne, async () => (await database.query(
+  "select public.import_content_items_for_current_user($1::jsonb) as result",
+  [JSON.stringify([{ ...importRow, title: "Historical waiting-client import", status: "waiting_client", client_approval_status: "pending" }])],
+)).rows[0]?.result)
+if (historicalImport?.created !== 1) throw new Error("Historical CSV import could not preserve Waiting for client status")
+
+let manualWaitingClientRejected = false
+try {
+  await asUser(employeeOne, () => database.query(`select public.update_content_tracker_item_for_current_user(
+    '50000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001',
+    '40000000-0000-0000-0000-000000000001', 'Review content', 'Instagram', 'Reel', null,
+    'waiting_client', null, null, null, 'approved', null, null, null, null, '${employeeOne}'
+  )`))
+} catch (error) { manualWaitingClientRejected = error?.code === "42501" }
+if (!manualWaitingClientRejected) throw new Error("Waiting for client could be set without a handoff")
+
+let nonManagerHandoffRejected = false
+try {
+  await asUser(supervisor, () => database.query(`select public.send_approved_content_to_client('50000000-0000-0000-0000-000000000001')`))
+} catch (error) { nonManagerHandoffRejected = error?.code === "42501" }
+if (!nonManagerHandoffRejected) throw new Error("A non-Account Manager could record the client handoff")
+
+let prematureClientResponseRejected = false
+try {
+  await asUser(employeeOne, () => database.query(`select public.record_external_client_decision('${workflowContentId}', 'approved', null)`))
+} catch (error) { prematureClientResponseRejected = error?.code === "22023" }
+if (!prematureClientResponseRejected) throw new Error("A client response was recorded without a handoff")
+
+await asUser(employeeOne, () => database.query(`select public.send_approved_content_to_client('50000000-0000-0000-0000-000000000001')`))
+const handedOffContent = await database.query(`select status::text as status, client_approval_status,
+  client_handoff_version_id, client_sent_by, client_sent_at from public.content_items
+  where id = '50000000-0000-0000-0000-000000000001'`)
+if (handedOffContent.rows[0]?.status !== "waiting_client"
+  || handedOffContent.rows[0]?.client_approval_status !== "pending"
+  || handedOffContent.rows[0]?.client_handoff_version_id !== submittedVersionTwo
+  || handedOffContent.rows[0]?.client_sent_by !== employeeOne
+  || !handedOffContent.rows[0]?.client_sent_at) {
+  throw new Error(`Client handoff state was not recorded: ${JSON.stringify(handedOffContent.rows[0])}`)
+}
+let pendingStatusChangeRejected = false
+try {
+  await asUser(employeeOne, () => database.query(`select public.update_content_tracker_item_for_current_user(
+    '50000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001',
+    '40000000-0000-0000-0000-000000000001', 'Review content', 'Instagram', 'Reel', null,
+    'scheduled', null, null, null, 'pending', null, null, null, null, '${employeeOne}'
+  )`))
+} catch (error) { pendingStatusChangeRejected = error?.code === "42501" }
+if (!pendingStatusChangeRejected) throw new Error("A pending client handoff could leave Waiting for client without a response")
+let nonManagerResponseRejected = false
+try {
+  await asUser(supervisor, () => database.query(`select public.record_external_client_decision(
+    '50000000-0000-0000-0000-000000000001', 'approved', null
+  )`))
+} catch (error) { nonManagerResponseRejected = error?.code === "42501" }
+if (!nonManagerResponseRejected) throw new Error("A non-Account Manager could record the client response")
+let duplicateHandoffRejected = false
+try {
+  await asUser(employeeOne, () => database.query(`select public.send_approved_content_to_client('50000000-0000-0000-0000-000000000001')`))
+} catch (error) { duplicateHandoffRejected = error?.code === "22023" }
+if (!duplicateHandoffRejected) throw new Error("The same approved version was handed to the client twice")
+
+await asUser(employeeOne, () => database.query(`select public.record_external_client_decision(
+  '50000000-0000-0000-0000-000000000001', 'revision_requested', 'Client requested a new opening'
+)`))
+const clientRevisionContent = await database.query(`select ci.status::text as content_status,
+  ci.client_approval_status, t.status::text as task_status
+  from public.content_items ci join public.tasks t on t.content_item_id = ci.id
+  where ci.id = '50000000-0000-0000-0000-000000000001' and t.id = '${linkedContentTaskId}'`)
+if (clientRevisionContent.rows[0]?.content_status !== "revision_requested"
+  || clientRevisionContent.rows[0]?.client_approval_status !== "revision_requested"
+  || clientRevisionContent.rows[0]?.task_status !== "todo") {
+  throw new Error(`Client revision did not reopen content and linked work: ${JSON.stringify(clientRevisionContent.rows[0])}`)
+}
+let sameVersionResendRejected = false
+try {
+  await asUser(employeeOne, () => database.query(`select public.send_approved_content_to_client('50000000-0000-0000-0000-000000000001')`))
+} catch (error) { sameVersionResendRejected = error?.code === "22023" }
+if (!sameVersionResendRejected) throw new Error("Client revision could be resent without new internal approval")
+
+const revisedContentFile = "90000000-0000-0000-0000-000000000009"
+await database.exec(`insert into public.attachments (
+  id, organization_id, client_id, campaign_id, content_item_id, provider_file_id,
+  file_name, mime_type, size_bytes, uploaded_by
+) values (
+  '${revisedContentFile}', '10000000-0000-0000-0000-000000000001',
+  '30000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001',
+  '50000000-0000-0000-0000-000000000001', 'drive-client-revision',
+  'creative-client-revision.png', 'image/png', 2100, '${employeeOne}'
+)`)
+const revisedContentVersion = await asUser(employeeOne, async () => (await database.query(`
+  select public.submit_content_for_review(
+    '50000000-0000-0000-0000-000000000001', array['${revisedContentFile}'::uuid],
+    'Updated after client feedback'
+  ) as version_id
+`)).rows[0]?.version_id)
+await asUser(supervisor, () => database.query(`select public.review_content_submission('${revisedContentVersion}', 'approved', null)`))
+await asUser(employeeOne, () => database.query(`select public.send_approved_content_to_client('50000000-0000-0000-0000-000000000001')`))
+await asUser(employeeOne, () => database.query(`select public.record_external_client_decision('50000000-0000-0000-0000-000000000001', 'approved', null)`))
+const clientApprovedAfterResend = await database.query(`select ci.status::text as content_status,
+  ci.client_approval_status, ci.client_handoff_version_id, t.status::text as task_status
+  from public.content_items ci join public.tasks t on t.content_item_id = ci.id
+  where ci.id = '50000000-0000-0000-0000-000000000001' and t.id = '${linkedContentTaskId}'`)
+if (!revisedContentVersion || revisedContentVersion === submittedVersionTwo
+  || clientApprovedAfterResend.rows[0]?.content_status !== "waiting_client"
+  || clientApprovedAfterResend.rows[0]?.client_approval_status !== "approved"
+  || clientApprovedAfterResend.rows[0]?.client_handoff_version_id !== revisedContentVersion
+  || clientApprovedAfterResend.rows[0]?.task_status !== "todo") {
+  throw new Error(`Client approval after a revised handoff changed completion state: ${JSON.stringify(clientApprovedAfterResend.rows[0])}`)
+}
+let repeatedClientResponseRejected = false
+try {
+  await asUser(employeeOne, () => database.query(`select public.record_external_client_decision('50000000-0000-0000-0000-000000000001', 'approved', null)`))
+} catch (error) { repeatedClientResponseRejected = error?.code === "22023" }
+if (!repeatedClientResponseRejected) throw new Error("The same client response could be recorded twice")
+
 await asUser(employeeOne, () => database.query(`select public.register_notification_push_subscription_for_current_user(
   'https://fcm.googleapis.com/employee-one', repeat('p', 50), repeat('a', 24)
 )`))

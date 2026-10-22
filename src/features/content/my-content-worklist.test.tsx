@@ -1,14 +1,14 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-const actionMocks = vi.hoisted(() => ({ archiveContentItem: vi.fn(), recordExternalClientDecision: vi.fn(), restoreContentItem: vi.fn() }))
+const actionMocks = vi.hoisted(() => ({ archiveContentItem: vi.fn(), recordExternalClientDecision: vi.fn(), restoreContentItem: vi.fn(), sendApprovedContentToClient: vi.fn() }))
 vi.mock("@/app/content/actions", () => ({ ...actionMocks, saveContentItem: vi.fn() }))
 vi.mock("@/features/clients/client-files", () => ({ ClientFiles: () => <div>Loaded file workspace</div> }))
 vi.mock("@/features/content/content-import", () => ({ ContentImport: () => null }))
 vi.mock("@/features/tasks/task-drawer", () => ({ useTaskDrawer: () => ({ openNewTask: vi.fn(), openTask: vi.fn() }) }))
 vi.mock("next/link", () => ({ default: ({ href, children, ...props }: React.ComponentProps<"a"> & { href: string }) => <a href={href} {...props}>{children}</a> }))
 
-import { ContentTracker, type TrackerItem } from "@/features/content/content-tracker"
+import { ContentTracker, getContentSummaryCounts, type TrackerItem } from "@/features/content/content-tracker"
 
 afterEach(cleanup)
 
@@ -28,6 +28,22 @@ const items: TrackerItem[] = [
 ]
 
 describe("unified content tracker", () => {
+  it("counts future planned posts as upcoming and flags unresolved overdue content", () => {
+    const summary = getContentSummaryCounts([
+      { ...items[0], id: "future-planned", status: "planned", publish_at: "2026-10-21T12:00:00", deadline_at: null },
+      { ...items[0], id: "today-scheduled", status: "scheduled", publish_at: "2026-10-20T12:00:00", deadline_at: null },
+      { ...items[0], id: "unscheduled", status: "planned", publish_at: null, deadline_at: null },
+      { ...items[0], id: "missed-publish", status: "planned", publish_at: "2026-10-19T12:00:00", deadline_at: null },
+      { ...items[0], id: "overdue-production", status: "in_production", publish_at: "2026-10-21T12:00:00", deadline_at: "2026-10-19" },
+      { ...items[0], id: "awaiting-review", status: "for_review", publish_at: null, deadline_at: "2026-10-22" },
+      { ...items[0], id: "due-today", status: "in_production", publish_at: null, deadline_at: "2026-10-20" },
+      { ...items[0], id: "published", status: "published", publish_at: "2026-10-19T12:00:00", deadline_at: "2026-10-18" },
+      { ...items[0], id: "cancelled", status: "cancelled", publish_at: "2026-10-19T12:00:00", deadline_at: "2026-10-18" },
+    ], "2026-10-20")
+
+    expect(summary).toEqual({ upcomingCount: 2, attentionCount: 3 })
+  })
+
   it("shows content, owner and workflow details, and can search it", () => {
     render(<ContentTracker clients={[{ id: "client-1", name: "Northwind" }, { id: "client-2", name: "Contoso" }]} campaigns={[]} assignees={{}} items={items} canCreate={false} canEdit={false} canCreateTask={false} currentUserId="user-1" canAssignContent={false} />)
 
@@ -43,6 +59,27 @@ describe("unified content tracker", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Search content" }), { target: { value: "contoso" } })
     expect(screen.getByText("November announcement")).toBeInTheDocument()
     expect(screen.queryByText("October product reel")).not.toBeInTheDocument()
+  })
+
+  it("offers a client handoff only to the assigned Account Manager after internal approval", () => {
+    const approvedItem: TrackerItem = { ...items[0], latest_approved_version_id: "version-2", client_handoff_version_id: null }
+    const renderTracker = (accountManagerClientIds: string[], item = approvedItem) => render(<ContentTracker
+      clients={[]} campaigns={[]} assignees={{}} items={[item]} canCreate={false} canEdit canCreateTask={false}
+      currentUserId="manager-1" canAssignContent={false} accountManagerClientIds={accountManagerClientIds}
+    />)
+
+    const outsideManager = renderTracker([])
+    expect(screen.queryByRole("button", { name: "Mark sent to client" })).not.toBeInTheDocument()
+    outsideManager.unmount()
+
+    const assignedManager = renderTracker(["client-1"])
+    expect(screen.getByRole("button", { name: "Mark sent to client" })).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Record response" })).not.toBeInTheDocument()
+    assignedManager.unmount()
+
+    renderTracker(["client-1"], { ...approvedItem, status: "waiting_client", client_approval_status: "pending", client_handoff_version_id: "version-2" })
+    expect(screen.queryByRole("button", { name: "Mark sent to client" })).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Record response" })).toBeInTheDocument()
   })
 
   it("does not load file workspaces until a content disclosure is opened", () => {

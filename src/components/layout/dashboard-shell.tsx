@@ -42,7 +42,7 @@ export function DashboardShell({ children, compact = false }: DashboardShellProp
   const searchParams = useSearchParams()
   const searchKey = searchParams.toString()
   const { openNewTask, newTaskOpen, newTaskSeed, closeNewTask } = useTaskDrawer()
-  const { currentUser, switchDemoUser, demoMode, error: workflowError, clearError, tasks, clients, workflowDataReady, workflowDataLoading, ensureWorkflowData } = useWorkflow()
+  const { currentUser, switchDemoUser, demoMode, realtimeStatus, refreshWorkflowNow, error: workflowError, clearError, tasks, clients, workflowDataReady, workflowDataLoading, ensureWorkflowData } = useWorkflow()
   const navigationVariant = currentUser.role === "supervisor" ? "supervisor" : "account_manager"
   const isAdministrator = !demoMode && currentUser.title?.toLowerCase() === "administrator"
   const initials = currentUser.name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase()
@@ -193,6 +193,7 @@ export function DashboardShell({ children, compact = false }: DashboardShellProp
           </div>
         </header>
 
+        {!demoMode && realtimeStatus === "reconnecting" && <div role="status" className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-500/25 bg-amber-50/80 px-4 py-2 text-xs text-amber-950 dark:bg-amber-950/30 dark:text-amber-100 sm:px-6 lg:px-8"><span>Live updates are interrupted. Jota is reconnecting and refreshes work every 30 seconds while this tab is visible.</span><button type="button" className="font-semibold underline underline-offset-2" onClick={refreshWorkflowNow}>Refresh data now</button></div>}
         {workflowError && <div className="fixed right-4 top-[4.5rem] z-50 flex max-w-md items-center gap-3 border border-destructive/25 bg-background px-4 py-3 text-xs text-foreground shadow-lg" role="alert"><span>{workflowError}</span><button className="font-semibold text-primary" onClick={clearError}>Dismiss</button></div>}
         {children}
       </div>
