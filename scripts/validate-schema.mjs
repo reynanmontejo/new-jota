@@ -38,6 +38,7 @@ const notificationEmailDeliveryMigrationPath = "supabase/migrations/202610300001
 const optionalClientTasksMigrationPath = "supabase/migrations/202610300002_optional_client_tasks.sql"
 const clientEditorExternalApprovalMigrationPath = "supabase/migrations/202610300003_client_editor_external_approval.sql"
 const explicitClientHandoffMigrationPath = "supabase/migrations/202610300004_explicit_client_handoff.sql"
+const contentReportingCategoriesMigrationPath = "supabase/migrations/202610310001_content_reporting_categories.sql"
 const seedPath = "supabase/seed.sql"
 
 const database = new PGlite()
@@ -1602,6 +1603,45 @@ const unconfiguredQueueEntry = await database.query(`select count(*)::int as cou
 if (unconfiguredDispatchCallCount.rows[0]?.count !== dispatchCallCountBeforeUnconfiguredTest.rows[0]?.count || unconfiguredQueueEntry.rows[0]?.count !== 1) {
   throw new Error(`Missing Vault configuration should skip background push without blocking in-app notifications: ${JSON.stringify({ calls: unconfiguredDispatchCallCount.rows[0], queue: unconfiguredQueueEntry.rows[0] })}`)
 }
+
+// Apply the additive reporting migration against populated legacy content.
+await database.exec(await fs.readFile(contentReportingCategoriesMigrationPath, "utf8"))
+const categoryBackfill = await database.query(`select id, content_category from public.content_items
+  where id in ('50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000003')`)
+const categoryById = new Map(categoryBackfill.rows.map((row) => [row.id, row.content_category]))
+if (categoryById.get("50000000-0000-0000-0000-000000000001") !== "static"
+  || categoryById.get("50000000-0000-0000-0000-000000000003") !== "video") {
+  throw new Error(`Known historical formats were not backfilled conservatively: ${JSON.stringify(categoryBackfill.rows)}`)
+}
+const ambiguousContentId = await asUser(supervisor, async () => (await database.query(`
+  select public.create_content_tracker_item_for_current_user(
+    '30000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001',
+    'Ambiguous story format', 'Instagram', 'Story', null, 'planned', null, null, null,
+    null, null, null, null, null
+  ) as id
+`)).rows[0]?.id)
+const ambiguousCategory = await database.query(`select content_category from public.content_items where id = '${ambiguousContentId}'`)
+if (ambiguousCategory.rows[0]?.content_category !== "other") throw new Error("Ambiguous Story format was guessed as static or video")
+await asUser(supervisor, () => database.query(`select public.set_content_category_for_current_user('${ambiguousContentId}', 'video')`))
+const correctedCategory = await database.query(`select content_category, content_category_manual from public.content_items where id = '${ambiguousContentId}'`)
+if (correctedCategory.rows[0]?.content_category !== "video" || correctedCategory.rows[0]?.content_category_manual !== true) {
+  throw new Error("Manual content category correction was not retained")
+}
+await database.query(`update public.content_items set content_type = 'Carousel' where id = '${ambiguousContentId}'`)
+const resetCategory = await database.query(`select content_category, content_category_manual from public.content_items where id = '${ambiguousContentId}'`)
+if (resetCategory.rows[0]?.content_category !== "static" || resetCategory.rows[0]?.content_category_manual !== false) {
+  throw new Error("Changing the format did not reset manual classification")
+}
+let invalidCategoryRejected = false
+try {
+  await asUser(supervisor, () => database.query(`select public.set_content_category_for_current_user('${ambiguousContentId}', 'imaginary')`))
+} catch (error) { invalidCategoryRejected = error?.code === "22023" }
+if (!invalidCategoryRejected) throw new Error("Invalid reporting category was accepted")
+let crossWorkspaceCategoryRejected = false
+try {
+  await asUser(firstAdministrator, () => database.query(`select public.set_content_category_for_current_user('${ambiguousContentId}', 'video')`))
+} catch (error) { crossWorkspaceCategoryRejected = error?.code === "P0002" || error?.code === "42501" }
+if (!crossWorkspaceCategoryRejected) throw new Error("A user from another workspace changed a content category")
 
 const tableResult = await database.query(
   "select count(*)::int as count from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE'",

@@ -41,12 +41,16 @@ Supabase project, completed-task archive/restore works, and the workflow smoke
 test passed. This is a historical checkpoint; older phase notes below may
 describe earlier implementation states.
 
-### Current status — 2026-10-19
+### Current status — 2026-10-20
 
 - The owner confirms opted-in email notifications are sending and Brevo logs
   show them. Email is a regression check, not an open defect.
-- Local validation most recently passed typecheck, lint, 61 Vitest tests,
+- Local validation most recently passed typecheck, lint, 69 Vitest tests,
   schema validation (40 tables / 37 policies), and production build.
+- The Content Tracker summary cards now use date-aware Upcoming and overdue
+  Needs attention rules. Regression tests cover upcoming dates, review states,
+  overdue deadlines, and terminal statuses. Local validation now passes 69
+  tests; this UI change has not been deployed.
 - Dependency remediation is in progress: Next.js has been updated to 16.3.8;
   the full audit still reports a `braces` advisory in development tooling, with
   no upstream patch listed at this checkpoint.

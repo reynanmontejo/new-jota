@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { getHelpGuide, helpGuideSections, helpGuides } from "@/features/help/help-guides"
+import { getHelpGuide, helpGuideSections, helpGuides, recommendedHelpGuideSlugs } from "@/features/help/help-guides"
 
 describe("Help guide catalog", () => {
   it("keeps guide slugs unique and related links valid", () => {
@@ -26,8 +26,34 @@ describe("Help guide catalog", () => {
 
   it("documents the client-to-task workflow and external client approval boundary", () => {
     const guide = getHelpGuide("create-work-from-client-to-task")
-    expect(guide?.steps.map((step) => step.title)).toContain("Choose Content or New task")
-    expect(guide?.steps.map((step) => step.title)).toContain("Keep review and client decisions distinct")
-    expect(guide?.remember).toContain("does not publish content")
+    expect(recommendedHelpGuideSlugs).toContain(guide?.slug)
+    expect(guide?.steps.map((step) => step.title)).toEqual([
+      "Create or open the client",
+      "Choose the client's Video Editor",
+      "Decide whether a campaign is needed",
+      "Plan a static or video content item",
+      "Link a production task when useful",
+      "Submit the right files for internal review",
+      "Send approved content to the client externally",
+      "Record the client's decision",
+      "Schedule, publish, and finish separately",
+      "Know who owns each handoff",
+    ])
+    const text = guide?.steps.map((step) => step.body).join(" ") ?? ""
+    expect(text).toContain("Add client")
+    expect(text).toContain("General / Ongoing")
+    expect(text).toContain("More details")
+    expect(text).toContain("Waiting for client")
+    expect(text).toContain("To do")
+    expect(text).toContain("Published")
+    expect(text).toContain("Supervisor or Administrator")
+    expect(text).toContain("Account Manager owns client communication")
+    expect(text).toContain("assigned creator or editor")
+    expect(guide?.remember).toContain("separate records")
+  })
+
+  it("does not tell employee task owners to self-complete approved work", () => {
+    expect(getHelpGuide("task-board-basics")?.remember).toContain("Supervisor or Administrator")
+    expect(getHelpGuide("publish-content")?.steps.at(-1)?.body).toContain("Supervisor or Administrator")
   })
 })

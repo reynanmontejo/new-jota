@@ -27,10 +27,26 @@ export function getServerSupabaseEnv() {
 export function isSupabaseConfigured() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+  const isAllowedUrl = (() => {
+    if (!url) return false
+
+    try {
+      const parsedUrl = new URL(url)
+      return (
+        parsedUrl.protocol === "https:" ||
+        (process.env.NODE_ENV !== "production" &&
+          parsedUrl.protocol === "http:" &&
+          ["localhost", "127.0.0.1", "::1", "[::1]"].includes(parsedUrl.hostname))
+      )
+    } catch {
+      return false
+    }
+  })()
+
   return Boolean(
     url &&
+      isAllowedUrl &&
       publishableKey &&
-      url.startsWith("https://") &&
       !url.includes("your-project") &&
       !publishableKey.includes("your-publishable-key"),
   )

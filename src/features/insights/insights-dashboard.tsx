@@ -1,10 +1,11 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { ArrowRight, CalendarClock, CheckCircle2, CircleAlert, ClipboardCheck, ListTodo, Users } from "lucide-react"
 
 import { useTaskDrawer } from "@/features/tasks/task-drawer"
+import { filterInsightsContent, getContentCategoryCounts, getContentFormatBreakdown, getPublishedContentTrend, type ContentDateRange, type InsightsContentItem } from "@/features/insights/insights-content"
 import { useWorkflow } from "@/features/workflow/workflow-provider"
 import { getStatusLabel } from "@/features/workflow/status-badge"
 import type { TaskStatus, WorkflowContentWorkItem, WorkflowTask } from "@/features/workflow/types"
@@ -51,18 +52,6 @@ export function filterInsightsByUser(tasks: WorkflowTask[], content: WorkflowCon
   }
 }
 
-export function getContentFormatCounts(content: WorkflowContentWorkItem[]) {
-  return content.reduce((counts, item) => {
-    const format = item.format.trim().toLocaleLowerCase()
-    const isVideo = /(^|[^a-z0-9])(video|reels?|shorts?|stor(y|ies)|tiktok|clips?|animations?|motion)([^a-z0-9]|$)/.test(format)
-    const isStatic = /(^|[^a-z0-9])(static|images?|photos?|graphics?|carousels?|infographics?|posters?)([^a-z0-9]|$)/.test(format)
-    if (isVideo) counts.video += 1
-    else if (isStatic) counts.static += 1
-    else counts.other += 1
-    return counts
-  }, { total: content.length, static: 0, video: 0, other: 0 })
-}
-
 export function getCompletionTrend(tasks: WorkflowTask[], now: Date, grouping: TrendGrouping = "weekly") {
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
   const intervals = Array.from({ length: grouping === "daily" ? 7 : 6 }, (_, index) => {
@@ -94,7 +83,7 @@ export function getCompletionTrend(tasks: WorkflowTask[], now: Date, grouping: T
 }
 
 export function InsightsDashboard() {
-  const { tasks, contentWorkItems, clients, currentUser } = useWorkflow()
+  const { tasks, contentWorkItems, clients, assignableUsers, currentUser, demoMode } = useWorkflow()
   const { openTask } = useTaskDrawer()
   const router = useRouter()
   const isSupervisor = currentUser.role === "supervisor"
@@ -102,21 +91,44 @@ export function InsightsDashboard() {
   const [selectedUserId, setSelectedUserId] = useState("all")
   const [completionRange, setCompletionRange] = useState<CompletionRange>("30")
   const [trendGrouping, setTrendGrouping] = useState<TrendGrouping>("weekly")
+  const [contentDateRange, setContentDateRange] = useState<ContentDateRange>("all")
+  const [selectedClientId, setSelectedClientId] = useState("all")
+  const [reportingContent, setReportingContent] = useState<InsightsContentItem[] | null>(null)
+  const [reportingError, setReportingError] = useState<string | null>(null)
   const today = new Date()
+
+  useEffect(() => {
+    if (demoMode) return
+    const controller = new AbortController()
+    void (async () => {
+      try {
+        const response = await fetch("/api/insights-content", { cache: "no-store", signal: controller.signal })
+        const payload = await response.json() as { items?: InsightsContentItem[]; error?: string }
+        if (!response.ok || !payload.items) throw new Error(payload.error ?? "Content reporting could not be loaded.")
+        setReportingContent(payload.items)
+        setReportingError(null)
+      } catch (cause) {
+        if (controller.signal.aborted) return
+        setReportingError(cause instanceof Error ? cause.message : "Content reporting could not be loaded.")
+      }
+    })()
+    return () => controller.abort()
+  }, [demoMode])
 
   const insightUsers = useMemo(() => {
     const users = new Map<string, string>([[currentUser.id, currentUser.name]])
+    for (const user of assignableUsers) users.set(user.id, user.name)
     for (const client of clients) for (const member of client.members ?? []) users.set(member.id, member.name)
     for (const task of tasks) users.set(task.primaryOwner.id, task.primaryOwner.name)
     for (const item of contentWorkItems) if (item.assigneeId && item.assigneeName) users.set(item.assigneeId, item.assigneeName)
     return [...users].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name))
-  }, [clients, contentWorkItems, currentUser.id, currentUser.name, tasks])
+  }, [assignableUsers, clients, contentWorkItems, currentUser.id, currentUser.name, tasks])
 
   const scoped = useMemo(() => {
     if (!isSupervisor || scope === "mine") {
       return {
         tasks: tasks.filter((task) => task.primaryOwner.id === currentUser.id),
-        content: contentWorkItems.filter((item) => item.assigneeId === currentUser.id || !item.assigneeId),
+        content: contentWorkItems.filter((item) => item.assigneeId === currentUser.id),
       }
     }
     return filterInsightsByUser(tasks, contentWorkItems, selectedUserId)
@@ -137,7 +149,10 @@ export function InsightsDashboard() {
     const days = dayDistance(item.deadlineAt ?? item.publishAt, today)
     return days !== null && days >= 0 && days <= 7 ? [{ ...item, days }] : []
   }).sort((a, b) => a.days - b.days)
-  const contentFormatCounts = getContentFormatCounts(scoped.content)
+  const reportOwnerId = isSupervisor && scope === "team" ? selectedUserId : currentUser.id
+  const filteredReportingContent = reportingContent ? filterInsightsContent(reportingContent, {
+    ownerId: reportOwnerId, clientId: selectedClientId, range: contentDateRange, now: today,
+  }) : []
   const statusCounts = statusOrder.map((status) => ({ status, count: scoped.tasks.filter((task) => task.status === status).length }))
   const maxStatusCount = Math.max(1, ...statusCounts.map((entry) => entry.count))
   const completionTrend = getCompletionTrend(scoped.tasks, today, trendGrouping)
@@ -184,7 +199,18 @@ export function InsightsDashboard() {
         <MetricCard label="Completed" value={completedTasks.length} detail="Tasks marked complete" icon={<CheckCircle2 className="size-4" />} />
       </section>
 
-      <ContentFormatSummary counts={contentFormatCounts} />
+      <ContentReportingSummary
+        items={filteredReportingContent}
+        loading={!demoMode && !reportingContent && !reportingError}
+        error={reportingError}
+        demoMode={demoMode}
+        range={contentDateRange}
+        onRangeChange={setContentDateRange}
+        clientId={selectedClientId}
+        onClientChange={setSelectedClientId}
+        clients={clients}
+        now={today}
+      />
 
       <div className="mt-4 grid gap-4 xl:grid-cols-[1.1fr_.9fr]">
         <section className="overview-panel rounded-xl border p-4 sm:p-5" aria-labelledby="task-flow-heading">
@@ -224,27 +250,59 @@ export function InsightsDashboard() {
   )
 }
 
-function ContentFormatSummary({ counts }: { counts: ReturnType<typeof getContentFormatCounts> }) {
+function ContentReportingSummary({ items, loading, error, demoMode, range, onRangeChange, clientId, onClientChange, clients, now }: {
+  items: InsightsContentItem[]
+  loading: boolean
+  error: string | null
+  demoMode: boolean
+  range: ContentDateRange
+  onRangeChange: (range: ContentDateRange) => void
+  clientId: string
+  onClientChange: (clientId: string) => void
+  clients: Array<{ id: string; name: string }>
+  now: Date
+}) {
+  const counts = getContentCategoryCounts(items)
+  const formats = getContentFormatBreakdown(items)
+  const trend = getPublishedContentTrend(items, now)
+  const maxTrend = Math.max(1, ...trend.map((period) => period.count))
   const staticEnd = counts.total ? counts.static / counts.total * 100 : 0
   const videoEnd = counts.total ? (counts.static + counts.video) / counts.total * 100 : 0
   const background = counts.total
     ? `conic-gradient(var(--chart-1) 0% ${staticEnd}%, var(--chart-2) ${staticEnd}% ${videoEnd}%, var(--chart-3) ${videoEnd}% 100%)`
     : "var(--secondary)"
-  const formatSummary = `${counts.static} static posts, ${counts.video} video posts, ${counts.other} other or unclassified formats`
 
-  return <section className="overview-panel mt-4 rounded-xl border p-4 sm:p-5" aria-labelledby="content-format-heading">
-    <div className="flex flex-wrap items-start justify-between gap-2">
-      <div><h2 id="content-format-heading" className="text-sm font-semibold">Content by format</h2><p className="mt-1 text-xs text-muted-foreground">Distribution from the saved content format field.</p></div>
-      <p className="text-xs text-muted-foreground"><span className="font-semibold tabular-nums text-foreground">{counts.total}</span> total content items in this view</p>
+  return <section className="overview-panel mt-4 rounded-xl border p-4 sm:p-5" aria-labelledby="content-reporting-heading">
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div><h2 id="content-reporting-heading" className="text-sm font-semibold">Content output</h2><p className="mt-1 text-xs text-muted-foreground">All non-archived tracker records, including published, rejected, and cancelled items.</p></div>
+      <div className="flex flex-wrap gap-2">
+        <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">Client<select aria-label="Filter content insights by client" value={clientId} onChange={(event) => onClientChange(event.target.value)} className="h-8 max-w-44 rounded-md border bg-background px-2 text-xs text-foreground"><option value="all">All clients</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</select></label>
+        <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">Publish date<select aria-label="Filter content insights by publish date" value={range} onChange={(event) => onRangeChange(event.target.value as ContentDateRange)} className="h-8 rounded-md border bg-background px-2 text-xs text-foreground"><option value="all">All dates</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option><option value="365">Last 365 days</option></select></label>
+      </div>
     </div>
-    <div className="mt-4 grid items-center gap-4 sm:grid-cols-[auto_minmax(0,1fr)]">
-      <div role="img" aria-label={formatSummary} className="mx-auto size-32 rounded-full border border-border/50" style={{ background }} />
-      <dl className="grid gap-2 sm:grid-cols-2">
-        <div className="flex items-center gap-2 rounded-md border border-border/70 px-3 py-2"><span aria-hidden="true" className="size-2.5 rounded-sm" style={{ backgroundColor: "var(--chart-1)" }} /><dt className="min-w-0 flex-1 text-xs text-muted-foreground">Static posts</dt><dd className="text-sm font-semibold tabular-nums">{counts.static}</dd></div>
-        <div className="flex items-center gap-2 rounded-md border border-border/70 px-3 py-2"><span aria-hidden="true" className="size-2.5 rounded-sm" style={{ backgroundColor: "var(--chart-2)" }} /><dt className="min-w-0 flex-1 text-xs text-muted-foreground">Video posts</dt><dd className="text-sm font-semibold tabular-nums">{counts.video}</dd></div>
-        <div className="flex items-center gap-2 rounded-md border border-border/70 px-3 py-2 sm:col-span-2"><span aria-hidden="true" className="size-2.5 rounded-sm" style={{ backgroundColor: "var(--chart-3)" }} /><dt className="min-w-0 flex-1 text-xs text-muted-foreground">Other / unclassified formats</dt><dd className="text-sm font-semibold tabular-nums">{counts.other}</dd></div>
-      </dl>
-    </div>
+    {loading ? <p role="status" className="mt-4 text-xs text-muted-foreground">Loading content reporting…</p>
+      : error ? <p role="alert" className="mt-4 rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-3 text-xs text-destructive">{error}</p>
+      : demoMode ? <p className="mt-4 rounded-lg border border-dashed px-3 py-5 text-center text-xs text-muted-foreground">Content reporting is available in a connected workspace.</p>
+      : <>
+        <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4" aria-label="Content counts">
+          <MetricCard label="Total content" value={counts.total} detail="All categories" icon={<ListTodo className="size-4" />} />
+          <MetricCard label="Static" value={counts.static} detail="Images, carousels and graphics" icon={<CheckCircle2 className="size-4" />} />
+          <MetricCard label="Video" value={counts.video} detail="Reels and video formats" icon={<CheckCircle2 className="size-4" />} />
+          <MetricCard label="Other" value={counts.other} detail="Ambiguous or manually classified" icon={<CircleAlert className="size-4" />} />
+        </div>
+        <p className="mt-2 text-[11px] text-muted-foreground">All dates includes undated and future-scheduled content. A date range uses the saved publish date; content without one is excluded from that range. User scope uses the assigned creator, or the creator of an unassigned item.</p>
+        {counts.total ? <div className="mt-4 grid gap-4 lg:grid-cols-[.8fr_1.2fr]">
+          <div className="rounded-lg border border-border/70 p-3">
+            <h3 className="text-xs font-semibold">Category split</h3>
+            <div className="mt-3 flex flex-wrap items-center gap-4">
+              <div role="img" aria-label={`${counts.static} static, ${counts.video} video, ${counts.other} other; ${counts.total} total`} className="size-32 shrink-0 rounded-full border border-border/50" style={{ background }}><div aria-hidden="true" className="m-[22%] size-[56%] rounded-full bg-card" /></div>
+              <dl className="grid min-w-32 flex-1 gap-2 text-xs">{([ ["Static", counts.static, "var(--chart-1)"], ["Video", counts.video, "var(--chart-2)"], ["Other", counts.other, "var(--chart-3)"] ] as const).map(([label, count, color]) => <div key={label} className="flex items-center gap-2"><span aria-hidden="true" className="size-2.5 rounded-sm" style={{ backgroundColor: color }} /><dt className="flex-1">{label}</dt><dd className="font-semibold tabular-nums">{count}</dd></div>)}</dl>
+            </div>
+          </div>
+          <div className="rounded-lg border border-border/70 p-3"><h3 className="text-xs font-semibold">Saved formats</h3><p className="mt-1 text-[11px] text-muted-foreground">The original subtype remains visible alongside the reporting category.</p><dl className="mt-2 grid gap-1.5 sm:grid-cols-2">{formats.slice(0, 8).map((entry) => <div key={entry.label} className="flex justify-between gap-2 rounded bg-secondary/25 px-2 py-1.5 text-xs"><dt className="truncate">{entry.label}</dt><dd className="font-semibold tabular-nums">{entry.count}</dd></div>)}{formats.length > 8 && <div className="flex justify-between gap-2 rounded bg-secondary/25 px-2 py-1.5 text-xs"><dt>Remaining formats</dt><dd className="font-semibold tabular-nums">{formats.slice(8).reduce((sum, entry) => sum + entry.count, 0)}</dd></div>}</dl></div>
+        </div> : <p className="mt-4 rounded-lg border border-dashed px-3 py-5 text-center text-xs text-muted-foreground">No content matches this user, client, and publish-date view.</p>}
+        <div className="mt-4 rounded-lg border border-border/70 p-3"><h3 className="text-xs font-semibold">Published output</h3><p className="mt-1 text-[11px] text-muted-foreground">Published items by their saved publish date, last six calendar months. A missing publish date cannot appear in this trend.</p>{trend.some((period) => period.count > 0) ? <div className="mt-3 grid h-32 grid-cols-6 items-end gap-2" role="img" aria-label={`Published content trend: ${trend.map((period) => `${period.label} ${period.count}`).join(", ")}`}>{trend.map((period) => <div key={period.key} className="flex h-full min-w-0 flex-col items-center justify-end gap-1" aria-hidden="true"><span className="text-[10px] tabular-nums">{period.count}</span><div className="flex h-20 w-full items-end rounded-t bg-secondary/25"><div className="w-full rounded-t bg-primary/75" style={{ height: `${period.count ? Math.max(8, period.count / maxTrend * 100) : 0}%` }} /></div><span className="truncate text-[9px] text-muted-foreground">{period.label}</span></div>)}</div> : <p className="mt-3 text-xs text-muted-foreground">No dated published items in the last six months for this view.</p>}</div>
+      </>}
   </section>
 }
 

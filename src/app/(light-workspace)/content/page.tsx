@@ -30,7 +30,7 @@ export default async function ContentPage({ searchParams }: { searchParams: Prom
   if (clientsError) return <DashboardShell><main className="mx-auto max-w-6xl px-4 py-6"><ContentState variant="error" title="Clients couldn’t be loaded for the tracker" description="Check your client access, then refresh. No records were changed." /></main></DashboardShell>
   const clients = (clientsData ?? []) as TrackerClient[]
   const clientIds = clients.map((client) => client.id)
-  let contentQuery = supabase.from("content_items").select("id,client_id,campaign_id,title,platform,content_type,description,status,work_date,deadline_at,publish_at,client_approval_status,client_issues,client_handoff_version_id,client_sent_at,notes,revision_count,revision_notes,next_action,assigned_to").in("client_id", clientIds).order("publish_at", { ascending: true, nullsFirst: false })
+  let contentQuery = supabase.from("content_items").select("id,client_id,campaign_id,title,platform,content_type,content_category,content_category_manual,description,status,work_date,deadline_at,publish_at,client_approval_status,client_issues,client_handoff_version_id,client_sent_at,notes,revision_count,revision_notes,next_action,assigned_to").in("client_id", clientIds).order("publish_at", { ascending: true, nullsFirst: false })
   contentQuery = isArchivedView ? contentQuery.not("deleted_at", "is", null) : contentQuery.is("deleted_at", null)
   const [campaignResult, contentResult, membersResult] = clientIds.length ? await Promise.all([
     supabase.from("campaigns").select("id,client_id,name,status").is("deleted_at", null).in("client_id", clientIds).order("name"),
@@ -42,7 +42,7 @@ export default async function ContentPage({ searchParams }: { searchParams: Prom
   if (membersResult.error) return <DashboardShell><main className="mx-auto max-w-6xl px-4 py-6"><ContentState variant="error" title="Client collaborators couldn’t be loaded" description="Refresh the page. Content records have not been changed." /></main></DashboardShell>
   if (contentResult.error) {
     const errorText = contentResult.error.message.toLowerCase()
-    const migrationMissing = ["revision_count", "next_action", "assigned_to", "revision_notes", "work_date", "deadline_at", "client_approval_status", "client_issues", "client_handoff_version_id", "client_sent_at", "notes"].some((field) => errorText.includes(field))
+    const migrationMissing = ["revision_count", "next_action", "assigned_to", "revision_notes", "work_date", "deadline_at", "client_approval_status", "client_issues", "client_handoff_version_id", "client_sent_at", "content_category", "notes"].some((field) => errorText.includes(field))
     return <DashboardShell><main className="mx-auto max-w-6xl px-4 py-6"><ContentState variant="error" title={migrationMissing ? "Content tracker setup is not complete" : "Content items couldn’t be loaded"} description={migrationMissing ? "Apply pending content migrations under supabase/migrations, then refresh this page." : "Refresh the page. No content was changed."} /></main></DashboardShell>
   }
 

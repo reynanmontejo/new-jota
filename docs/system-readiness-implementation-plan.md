@@ -10,19 +10,33 @@ accounts and non-sensitive data.
 This plan is for application and workflow readiness. It does not authorize a
 production deployment, production data changes, or replaying migrations.
 
-## Current baseline — refreshed 2026-10-19
+## Current baseline — refreshed 2026-10-20
 
 At the time this plan was written, local checks pass:
 
 - `npm run typecheck`
 - `npm run lint`
-- `npm test` — 61 tests
+- `npm test` — 69 tests
 - `npm run test:schema` — 40 tables and 37 policies
 - `npm run build`
 
 These checks validate the local code and schema test harness. They do not prove
 that hosted authorization, Google Drive, role-specific screens, or full browser
 workflows work against real accounts.
+
+### Local content-metrics checkpoint — 2026-10-20
+
+The Content Tracker summary cards now count only Planned/Scheduled content with
+a publish date today or later as Upcoming. Needs attention includes the
+existing review/action statuses and active overdue deadlines or publish dates;
+items due today are not overdue, and Published/Cancelled items are excluded from
+overdue counts. Regression tests cover these boundaries. Typecheck, lint, all
+69 tests, schema validation (40 tables / 37 policies), and the production build
+pass locally. This is not a deployment or a hosted write-workflow verification.
+
+Phase 0 remains open until a non-production test environment and separate role
+accounts are available for the write and authorization matrix. Read-only checks
+in the hosted app do not close that gate.
 
 The owner confirms opted-in email notifications send successfully and Brevo
 logs show them. Treat email as a regression check, not an open blocker. The

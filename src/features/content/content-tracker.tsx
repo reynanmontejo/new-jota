@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
 import { Archive, CalendarDays, ChevronDown, CircleAlert, Files, LayoutGrid, List, ListPlus, LoaderCircle, Plus, RotateCcw, Search } from "lucide-react"
 
-import { archiveContentItem, recordExternalClientDecision, restoreContentItem, saveContentItem, sendApprovedContentToClient } from "@/app/content/actions"
+import { archiveContentItem, recordExternalClientDecision, restoreContentItem, saveContentItem, sendApprovedContentToClient, setContentCategory } from "@/app/content/actions"
 import { ClientFiles } from "@/features/clients/client-files"
 import { isVideoContentFormat, suggestedContentAssignee } from "@/features/content/content-assignment"
 import { ContentImport } from "@/features/content/content-import"
@@ -22,6 +22,8 @@ export type TrackerItem = {
   title: string
   platform: string
   content_type: string
+  content_category: "static" | "video" | "other"
+  content_category_manual: boolean
   description: string | null
   status: string
   work_date: string | null
@@ -144,7 +146,7 @@ function ContentForm({ clients, campaigns, assignees, videoEditorByClient, item,
     {!item && <input type="hidden" name="status" value="planned" />}
     {!item && <input type="hidden" name="revisionNotes" value="" />}
     <p className="text-xs leading-5 text-muted-foreground">Create one tracker card for one post or creative piece. It records where and when it will be published. Add an optional linked task from the saved content card when assigned work needs separate tracking.</p>
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       {showClient && <label className={labelClass}>Client<select className={fieldClass} name="clientId" value={clientId} onChange={(event) => { const nextClientId = event.target.value; setClientId(nextClientId); const next = campaigns.filter((campaign) => campaign.client_id === nextClientId && canReceiveNewContent(campaign)); setCampaignId(next.find((campaign) => campaign.name.toLocaleLowerCase() === "general / ongoing")?.id ?? ""); if (!item) { assigneeChangedByUser.current = false; setAssignedTo(suggestedContentAssignee(format, videoEditorByClient[nextClientId], currentUserId, assignees[nextClientId] ?? [])) } }} required>{clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</select></label>}
       {showCampaign && <label className={labelClass}>Campaign <span className="font-normal">(optional)</span><select className={fieldClass} name="campaignId" value={selectedCampaign} onChange={(event) => setCampaignId(event.target.value)}><option value="">General / Ongoing (default)</option>{clientCampaigns.filter((campaign) => canReceiveNewContent(campaign) || campaign.id === item?.campaign_id).map((campaign) => <option key={campaign.id} value={campaign.id}>{campaign.name}{!canReceiveNewContent(campaign) ? " (closed · existing content)" : ""}</option>)}</select></label>}
       <label className={labelClass}>Content idea / title<input className={fieldClass} name="title" placeholder="e.g. What to expect on your first dive" defaultValue={item?.title ?? ""} required minLength={2} maxLength={200} /></label>
@@ -156,7 +158,7 @@ function ContentForm({ clients, campaigns, assignees, videoEditorByClient, item,
     {!showCampaign && <p className="text-[11px] text-muted-foreground">New content is grouped under General / Ongoing automatically.</p>}
     <details className="rounded-md border border-border/70 bg-background/40 px-3 py-2" open={Boolean(item)}>
       <summary className="cursor-pointer text-xs font-medium text-muted-foreground">Optional details</summary>
-      <div className="mt-3 grid gap-3 border-t pt-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mt-3 grid gap-3 border-t pt-3 sm:grid-cols-2 xl:grid-cols-4">
         {item && <label className={labelClass}>Status<select className={fieldClass} name="status" defaultValue={item.status}>{statuses.filter((status) => status !== "waiting_client" || item.status === "waiting_client").map((status) => <option key={status} value={status}>{statusLabels[status]}</option>)}</select></label>}
         <label className={labelClass}>Work date<input className={fieldClass} type="date" name="workDate" defaultValue={item?.work_date ?? ""} /></label>
         <label className={labelClass}>Deadline<input className={fieldClass} type="date" name="deadlineAt" defaultValue={item?.deadline_at ?? ""} /></label>
@@ -200,7 +202,7 @@ export function ContentTracker({ clients, campaigns, assignees, videoEditorByCli
   const activePage = Math.min(currentPage, pageCount)
   const displayedItems = useMemo(() => visibleItems.slice((activePage - 1) * contentPageSize, activePage * contentPageSize), [visibleItems, activePage])
   const { upcomingCount, attentionCount } = getContentSummaryCounts(availableItems)
-  const notices: Record<string, string> = { created: "Content added to the tracker.", updated: "Content updated.", archived: "Content moved out of the active tracker.", imported: `${importedCount ?? 0} content rows imported; ${skippedCount ?? 0} duplicates skipped.`, client_handoff_recorded: "Client handoff recorded. Send the approved content through your usual external channel; Jota does not send it.", client_handoff_not_ready: "This item needs a new internal approval before it can be sent to the client.", client_handoff_migration_missing: "Apply the explicit client handoff migration, then refresh.", client_decision_updated: "External client response recorded. Jota does not contact the client.", client_decision_invalid: "Send approved content to the client first, then choose its response. Feedback is required for revisions.", client_workflow_migration_missing: "Apply the client/editor workflow migration under supabase/migrations, then refresh.", content_not_found: "That content item is no longer available. Refresh and try again.", import_too_large: "CSV file exceeds the 1 MB limit.", invalid_import: "CSV import failed validation. Review the row preview and required columns.", content_migration_missing: "Apply the local content workflow alignment migration under supabase/migrations, then refresh.", campaign_paused: "The default campaign is paused or closed. Ask a supervisor or admin to reopen it, then try again.", invalid: "Check the required fields and try again.", failed: "The change could not be saved. Refresh and try again.", forbidden: "Your account does not have permission for that change." }
+  const notices: Record<string, string> = { created: "Content added to the tracker.", updated: "Content updated.", category_updated: "Reporting category updated.", content_reporting_migration_missing: "Apply the content reporting categories migration under supabase/migrations, then refresh.", archived: "Content moved out of the active tracker.", imported: `${importedCount ?? 0} content rows imported; ${skippedCount ?? 0} duplicates skipped.`, client_handoff_recorded: "Client handoff recorded. Send the approved content through your usual external channel; Jota does not send it.", client_handoff_not_ready: "This item needs a new internal approval before it can be sent to the client.", client_handoff_migration_missing: "Apply the explicit client handoff migration, then refresh.", client_decision_updated: "External client response recorded. Jota does not contact the client.", client_decision_invalid: "Send approved content to the client first, then choose its response. Feedback is required for revisions.", client_workflow_migration_missing: "Apply the client/editor workflow migration under supabase/migrations, then refresh.", content_not_found: "That content item is no longer available. Refresh and try again.", import_too_large: "CSV file exceeds the 1 MB limit.", invalid_import: "CSV import failed validation. Review the row preview and required columns.", content_migration_missing: "Apply the local content workflow alignment migration under supabase/migrations, then refresh.", campaign_paused: "The default campaign is paused or closed. Ask a supervisor or admin to reopen it, then try again.", invalid: "Check the required fields and try again.", failed: "The change could not be saved. Refresh and try again.", forbidden: "Your account does not have permission for that change." }
 
   useEffect(() => () => { if (undoTimer.current) clearTimeout(undoTimer.current) }, [])
 
@@ -346,7 +348,7 @@ export function ContentTracker({ clients, campaigns, assignees, videoEditorByCli
           const awaitingClientResponse = item.status === "waiting_client" && item.client_approval_status === "pending" && Boolean(item.client_handoff_version_id)
           return <article id={`content-item-${item.id}`} key={item.id} className={`scroll-mt-24 min-w-0 transition hover:border-primary/25 hover:bg-background/90 ${viewMode === "cards" ? "rounded-lg border border-border/80 bg-background/70 p-2.5" : "grid gap-2 bg-background/40 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center"}`}>
           <div className="flex min-w-0 items-start justify-between gap-2">
-            <div className="min-w-0"><h2 className="truncate text-xs font-semibold">{item.title}</h2><p className="mt-0.5 truncate text-[10px] text-muted-foreground">{item.client_name} · {item.campaign_name}</p><p className="truncate text-[10px] text-muted-foreground">{item.platform} · {item.content_type}</p></div>
+            <div className="min-w-0"><h2 className="truncate text-xs font-semibold">{item.title}</h2><p className="mt-0.5 truncate text-[10px] text-muted-foreground">{item.client_name} · {item.campaign_name}</p><p className="truncate text-[10px] text-muted-foreground">{item.platform} · {item.content_type} · {item.content_category.charAt(0).toUpperCase() + item.content_category.slice(1)}</p></div>
             <span className="flex shrink-0 flex-col items-end gap-1"><span className="rounded-md border border-primary/15 bg-primary/5 px-1.5 py-0.5 text-[9px] font-medium">{statusLabels[item.status] ?? item.status}</span>{item.client_approval_status && <span className="rounded-md border border-border/80 bg-muted/35 px-1.5 py-0.5 text-[9px] text-muted-foreground">Client: {approvalLabels[item.client_approval_status] ?? item.client_approval_status}</span>}</span>
           </div>
           <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] ${viewMode === "cards" ? "mt-1.5 border-t border-border/60 pt-1.5" : "sm:justify-end"}`}>
@@ -390,15 +392,21 @@ export function ContentTracker({ clients, campaigns, assignees, videoEditorByCli
     </section>
     <p className="mt-3 text-[10px] text-muted-foreground">This is the shared content list for account managers and supervisors. Posts stay here and on Calendar; use Add task when a separate assigned work item is useful.</p>
     <Sheet open={Boolean(editingItem)} onOpenChange={(open) => { if (!open) { setEditingItemId(null); setSheetError(null) } }}>
-      <SheetContent className="!w-screen !max-w-none gap-0 overflow-y-auto p-0 sm:!w-[min(92vw,900px)] sm:!max-w-[min(92vw,900px)]">
+      <SheetContent className="!w-screen !max-w-none gap-0 !overflow-hidden p-0 sm:!w-[min(92vw,900px)] sm:!max-w-[min(92vw,900px)] lg:!right-4 lg:!top-20 lg:!bottom-4 lg:!h-auto lg:!w-[52rem] lg:!max-w-[calc(100vw-18rem)] lg:!rounded-xl lg:!border">
         {editingItem && <>
-          <SheetHeader className="border-b px-4 py-4 pr-12 sm:px-6">
+          <SheetHeader className="shrink-0 border-b px-4 py-4 pr-12 sm:px-6">
             <SheetTitle>Edit content</SheetTitle>
             <SheetDescription className="truncate">{editingItem.title} · {editingItem.client_name}</SheetDescription>
           </SheetHeader>
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
+          <div className="min-h-0 flex-1 overscroll-contain overflow-y-auto px-4 py-4 sm:px-6">
             {sheetError && <p role="alert" className="mb-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">{sheetError}</p>}
             <ContentForm clients={clients.filter((client) => client.id === editingItem.client_id)} campaigns={campaigns.filter((campaign) => campaign.client_id === editingItem.client_id)} assignees={assignees} videoEditorByClient={videoEditorByClient} item={editingItem} canEdit={canEdit} currentUserId={currentUserId} />
+            <form action={setContentCategory} className="mt-4 flex flex-wrap items-end gap-2 rounded-md border border-border/70 p-3">
+              <input type="hidden" name="contentItemId" value={editingItem.id} />
+              <label className={labelClass}>Reporting category<select className={fieldClass} name="category" defaultValue={editingItem.content_category_manual ? editingItem.content_category : "auto"}><option value="auto">Auto from format</option><option value="static">Static</option><option value="video">Video</option><option value="other">Other</option></select></label>
+              <ContentSubmitButton pendingLabel="Saving…">Save category</ContentSubmitButton>
+              <p className="w-full text-[10px] text-muted-foreground">Format stays as the subtype. Choose a category manually when the format is ambiguous; changing the format later resets it to automatic classification.</p>
+            </form>
             <div className="mt-4 border-t pt-3">
               <button type="button" disabled={Boolean(pendingAction)} onClick={() => void archiveItem(editingItem)} className="inline-flex min-h-8 items-center gap-1.5 rounded-md px-1 text-xs text-destructive transition hover:underline disabled:cursor-wait disabled:opacity-60">
                 {pendingAction === `archive:${editingItem.id}` ? <LoaderCircle className="size-3.5 animate-spin" /> : <Archive className="size-3.5" />}

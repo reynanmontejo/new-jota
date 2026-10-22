@@ -3,7 +3,7 @@ import { ArrowRight, BookOpenText, Clock3, Compass, LifeBuoy } from "lucide-reac
 
 import { DashboardShell } from "@/components/layout/dashboard-shell"
 import { getAuthenticatedAppUser } from "@/lib/supabase/profile"
-import { helpGuideSections, helpGuides } from "@/features/help/help-guides"
+import { helpGuideSections, helpGuides, recommendedHelpGuideSlugs } from "@/features/help/help-guides"
 
 const sectionDescriptions: Record<(typeof helpGuideSections)[number], string> = {
   "Start here": "Learn the basic pieces before following a workflow.",
@@ -22,13 +22,13 @@ export default async function HelpPage() {
     <main className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
       <header className="flex flex-col gap-4 rounded-2xl border border-primary/15 bg-card/75 p-5 sm:flex-row sm:items-center sm:p-6">
         <span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary"><LifeBuoy className="size-6" /></span>
-        <div className="min-w-0 flex-1"><h1 className="text-2xl font-semibold tracking-tight">Help center</h1></div>
+        <div className="min-w-0 flex-1"><h1 className="text-2xl font-semibold tracking-tight">Help center</h1><p className="mt-1 text-xs leading-5 text-muted-foreground">New to Jota? Follow the client-to-published-content guide, then explore the shorter guides for each part of the workflow.</p></div>
       </header>
 
       <section className="mt-5 rounded-2xl border border-primary/15 bg-secondary/12 p-4 sm:p-5" aria-labelledby="learning-path-heading">
         <div className="flex items-center gap-2"><Compass className="size-4 text-primary" /><h2 id="learning-path-heading" className="text-sm font-semibold">Recommended learning path</h2></div>
         <div className="mt-3 grid gap-2 sm:grid-cols-3">
-          {["how-jota-fits-together", "manage-content-calendar", "task-board-basics"].map((slug, index) => {
+          {recommendedHelpGuideSlugs.map((slug, index) => {
             const guide = helpGuides.find((item) => item.slug === slug)!
             return <Link key={slug} href={`/help/${guide.slug}`} className="group flex min-w-0 items-center gap-3 rounded-xl border border-primary/12 bg-background/75 p-3 transition hover:border-primary/35 hover:bg-background">
               <span className="grid size-7 shrink-0 place-items-center rounded-full bg-primary/10 text-xs font-bold text-primary">{index + 1}</span>

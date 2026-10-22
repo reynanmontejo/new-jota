@@ -167,7 +167,7 @@ export function ContentCalendar({ contentPosts, contentError = false, clientId }
                     const style = event.urgency ? deadlineStyles[event.urgency] : null
                     return <button key={event.key} type="button" onClick={() => event.taskId ? openTask(event.taskId) : selectDate(date)} title={event.detail} className={`pointer-events-auto block w-full truncate rounded border px-1.5 py-1 text-left text-[10px] font-medium ${style ? style.className : "border-primary/15 bg-primary/12 text-primary"}`}>{style ? `${style.label}: ` : ""}{event.title}</button>
                   })}
-                  {remainingCount > 0 && <button type="button" onClick={() => selectDate(date)} aria-label={`View ${remainingCount} more items for ${date}`} className="pointer-events-auto block w-full truncate rounded px-1.5 py-1 text-left text-[10px] font-semibold text-primary hover:bg-primary/10">View {remainingCount} more</button>}
+                  {remainingCount > 0 && <button type="button" onClick={() => selectDate(date)} aria-label={`View ${remainingCount} more items for ${date}`} className="pointer-events-auto block w-full truncate rounded px-1.5 py-1 text-left text-[10px] font-semibold text-primary hover:bg-primary/10">+{remainingCount} more</button>}
                 </div>
               </div>
             })}
@@ -196,7 +196,7 @@ export function ContentCalendar({ contentPosts, contentError = false, clientId }
           {selectedPosts.map((post) => {
             const urgency = post.eventType === "deadline" ? getDeadlineUrgency(post.date) : null
             return <article key={post.id} className={`space-y-1.5 border-l-2 p-3 ${urgency ? deadlineStyles[urgency].className : ""}`}>
-            <div className="flex flex-wrap items-center gap-2"><h3 className="text-sm font-medium">{post.title}</h3><span className={`rounded-full px-2 py-0.5 text-[10px] ${urgency ? deadlineStyles[urgency].className : "bg-secondary/45"}`}>{urgency ? deadlineStyles[urgency].label : "Publish"}</span>{post.status && <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] capitalize text-primary">{post.status.replaceAll("_", " ")}</span>}</div>
+            <div className="flex flex-wrap items-center gap-2"><h3 className="min-w-0 break-words text-sm font-medium">{post.title}</h3><span className={`rounded-full px-2 py-0.5 text-[10px] ${urgency ? deadlineStyles[urgency].className : "bg-secondary/45"}`}>{urgency ? deadlineStyles[urgency].label : "Publish"}</span>{post.status && <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] capitalize text-primary">{post.status.replaceAll("_", " ")}</span>}</div>
             <p className="text-xs text-muted-foreground">{post.client} · {post.channel}{post.contentType ? ` · ${post.contentType}` : ""}</p>
             {post.description && <p className="whitespace-pre-wrap text-xs leading-relaxed">{post.description}</p>}
             {post.nextAction && <p className="text-xs"><span className="font-medium">Next action:</span> {post.nextAction}</p>}

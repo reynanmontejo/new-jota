@@ -84,12 +84,13 @@ describe("ContentCalendar", () => {
     const date = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`
     const dateLabel = new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" }).format(new Date(`${date}T12:00:00`))
     const post = (id: string, title: string) => ({ id, date, title, clientId: "client", client: "Client", channel: "Instagram" })
+    const longTitle = `Fourth post ${"VeryLongUnbrokenTitle".repeat(8)}`
 
     render(<ContentCalendar contentPosts={[
       post("post-1", "First post"),
       post("post-2", "Second post"),
       post("post-3", "Third post"),
-      post("post-4", "Fourth post"),
+      post("post-4", longTitle),
     ]} />)
 
     expect(screen.getByRole("button", { name: `View 2 more items for ${date}` })).toBeInTheDocument()
@@ -99,7 +100,8 @@ describe("ContentCalendar", () => {
     expect(details).toHaveTextContent("First post")
     expect(details).toHaveTextContent("Second post")
     expect(details).toHaveTextContent("Third post")
-    expect(details).toHaveTextContent("Fourth post")
+    expect(details).toHaveTextContent(longTitle)
+    expect(screen.getByRole("heading", { name: longTitle })).toHaveClass("break-words")
 
     fireEvent.click(screen.getByRole("button", { name: "Minimize" }))
     expect(details).toHaveClass("flex", "items-center")

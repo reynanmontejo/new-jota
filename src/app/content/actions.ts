@@ -139,6 +139,26 @@ export async function saveContentItem(formData: FormData) {
   redirect(`/content?notice=${parsed.data.id ? "updated" : "created"}`)
 }
 
+export async function setContentCategory(formData: FormData) {
+  const contentId = z.string().uuid().safeParse(field(formData, "contentItemId"))
+  const category = z.enum(["auto", "static", "video", "other"]).safeParse(field(formData, "category"))
+  if (!contentId.success || !category.success) redirect("/content?notice=invalid")
+
+  const supabase = await createClient()
+  const { error } = await supabase.rpc("set_content_category_for_current_user", {
+    p_content_id: contentId.data,
+    p_category: category.data,
+  })
+  if (error?.code === "42501") redirect("/content?notice=forbidden")
+  if (error?.code === "PGRST202") redirect("/content?notice=content_reporting_migration_missing")
+  if (error?.code === "P0002") redirect("/content?notice=content_not_found")
+  if (error) redirect("/content?notice=failed")
+
+  revalidatePath("/content")
+  revalidatePath("/insights")
+  redirect(`/content?notice=category_updated#content-item-${contentId.data}`)
+}
+
 export async function sendApprovedContentToClient(formData: FormData) {
   const parsed = z.string().uuid().safeParse(field(formData, "contentItemId"))
   if (!parsed.success) redirect("/content?notice=invalid")

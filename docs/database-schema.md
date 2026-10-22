@@ -128,6 +128,31 @@ self-review blocking. The migration must be applied before the local review UI
 can be used with a hosted database. Google Drive upload code is local and
 requires the new storage migration plus OAuth configuration before it is usable.
 
+`202610310001_content_reporting_categories.sql` adds a reporting category
+(`static`, `video`, or `other`) while keeping `content_type` as the original
+subtype. The migration backfills only unambiguous format names; ambiguous names
+such as `Story` remain `other`. New content and CSV imports are categorized by
+the same database trigger. Authorized content editors can correct a category in
+the content editor; changing its format resets that correction to automatic.
+Apply this migration before deploying the updated Content and Insights pages.
+The migration has been validated locally, but the hosted project's actual format
+values have not been inspected. After applying it, review the `other` group:
+
+```sql
+select content_type, count(*) as items
+from public.content_items
+where deleted_at is null and content_category = 'other'
+group by content_type
+order by items desc, content_type;
+```
+
+Insights counts all non-archived content visible through the current user's
+access rules. For employees, the owner is the assigned creator or, when
+unassigned, the person who created the item. A selected publish-date range
+excludes unscheduled and future items; All dates includes them. The published
+trend uses the saved publish date for records marked `published` in the last
+six calendar months, not the date the status was changed.
+
 The app uses Supabase Auth password sign-in, refreshed cookie sessions, and an
 active `profiles`/`user_roles` membership check. Public sign-up stays disabled.
 Without real Supabase environment values, local development uses the existing

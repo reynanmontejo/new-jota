@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:local-qa": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev-local-qa.ps1",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
