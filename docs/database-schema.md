@@ -134,9 +134,12 @@ subtype. The migration backfills only unambiguous format names; ambiguous names
 such as `Story` remain `other`. New content and CSV imports are categorized by
 the same database trigger. Authorized content editors can correct a category in
 the content editor; changing its format resets that correction to automatic.
-Apply this migration before deploying the updated Content and Insights pages.
-The migration has been validated locally, but the hosted project's actual format
-values have not been inspected. After applying it, review the `other` group:
+Apply this migration before deploying the updated Content and Insights pages in
+any new environment. In the Jota production project, the migration objects,
+trigger, function ACL, and backfill were verified on 2026-10-23. The migration
+ledger was then reconciled without replaying SQL; it contains all 38 committed
+versions through `202610310001`. Review the `other` group after future imports
+or when a new format is introduced:
 
 ```sql
 select content_type, count(*) as items

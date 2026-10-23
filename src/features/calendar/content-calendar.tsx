@@ -143,7 +143,7 @@ export function ContentCalendar({ contentPosts, contentError = false, clientId }
         <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-sm bg-primary/55" />Scheduled content</span>
         {(Object.entries(deadlineStyles) as [DeadlineUrgency, typeof deadlineStyles[DeadlineUrgency]][]).map(([urgency, style]) => <span key={urgency} className="inline-flex items-center gap-1.5"><span className={`size-2 rounded-sm ${style.dateClassName}`} />{style.legendLabel}</span>)}
       </div>
-      <div className={`mt-4 grid min-w-0 items-start gap-3 ${selectedDate ? detailsMinimized ? "lg:grid-cols-[minmax(0,1fr)_4rem]" : "lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]" : ""}`}>
+      <div className={`mt-4 grid min-w-0 grid-cols-1 items-start gap-3 ${selectedDate ? detailsMinimized ? "lg:grid-cols-[minmax(0,1fr)_4rem]" : "lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]" : ""}`}>
         <section aria-label={`${monthLabel} calendar`} className="overview-panel hidden min-w-0 overflow-hidden rounded-lg border md:block">
           <div className="grid grid-cols-7 border-b bg-secondary/15 text-center text-[11px] font-semibold text-muted-foreground">{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <div key={day} className="py-2">{day}</div>)}</div>
           <div className="grid grid-cols-7">

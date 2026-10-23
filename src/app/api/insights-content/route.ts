@@ -4,6 +4,7 @@ import type { InsightsContentItem } from "@/features/insights/insights-content"
 import { getWorkspaceRequestContext } from "@/lib/supabase/request-context"
 
 const pageSize = 500
+const maxItems = 10_000
 
 export async function GET() {
   const context = await getWorkspaceRequestContext()
@@ -27,7 +28,13 @@ export async function GET() {
     if (error) {
       return NextResponse.json({ error: "Content reporting is unavailable. Check the content reporting migration and try again." }, { status: 503 })
     }
-    items.push(...(data ?? []).map((row) => ({
+    const page = data ?? []
+    if (items.length + page.length > maxItems) {
+      return NextResponse.json({
+        error: "Content reporting is temporarily limited to 10,000 accessible items. Archive old content or contact an administrator before retrying.",
+      }, { status: 413 })
+    }
+    items.push(...page.map((row) => ({
       id: row.id,
       clientId: row.client_id,
       ownerId: row.assigned_to ?? row.created_by,
@@ -36,7 +43,7 @@ export async function GET() {
       status: row.status,
       publishAt: row.publish_at,
     })))
-    if (!data || data.length < pageSize) break
+    if (page.length < pageSize) break
   }
 
   return NextResponse.json({ items }, { headers: { "cache-control": "private, no-store" } })

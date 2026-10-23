@@ -200,8 +200,14 @@ npm run test:schema
 npm run build
 ```
 
-`npm run test:schema` runs the local database/schema validation suite; it does
-not verify that a hosted Supabase project has the same migrations applied.
+`npm run test:schema` discovers every committed migration, applies all 38 files
+in filename order to a clean PGlite database, and then runs the populated
+workflow/RLS regression suite. Hosted-only Auth, Storage, Realtime, Cron, Vault,
+and `pg_net` behavior is mocked or excluded, so this check still does not prove
+that a hosted Supabase project matches the repository.
+
+The same lint, typecheck, unit, schema, and production-build commands run in the
+GitHub Actions release gate for pushes to `master` and pull requests.
 
 ## Security notes
 

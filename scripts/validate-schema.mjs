@@ -41,17 +41,21 @@ const explicitClientHandoffMigrationPath = "supabase/migrations/202610300004_exp
 const contentReportingCategoriesMigrationPath = "supabase/migrations/202610310001_content_reporting_categories.sql"
 const seedPath = "supabase/seed.sql"
 
-const database = new PGlite()
-let migration = await fs.readFile(migrationPath, "utf8")
-
-// PGlite validates PostgreSQL DDL locally but does not bundle Supabase's citext
-// extension. Supabase applies the unchanged migration with citext enabled.
-migration = migration
+function normalizeMigrationForPGlite(migration) {
+  // PGlite validates PostgreSQL DDL locally but does not bundle Supabase's
+  // hosted extensions/publications. Supabase applies the unchanged files.
+  return migration
   .replace(/create extension if not exists pgcrypto;\s*/i, "")
   .replace(/create extension if not exists citext;\s*/i, "")
+  .replace(/create extension if not exists pg_cron with schema pg_catalog;\s*/i, "")
+  .replace(/create extension if not exists pg_net with schema net;\s*/i, "")
+  .replace(/-- PGLITE_SKIP_START[\s\S]*?-- PGLITE_SKIP_END\s*/gi, "")
   .replace(/\bcitext\b/gi, "text")
+}
 
-await database.exec(`
+async function createTestDatabase() {
+  const instance = new PGlite()
+  await instance.exec(`
   create role anon;
   create role authenticated;
   create role service_role bypassrls;
@@ -72,11 +76,6 @@ await database.exec(`
   create function auth.uid() returns uuid language sql stable as $$
     select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
   $$;
-`)
-await database.exec(migration)
-await database.exec(await fs.readFile(authMigrationPath, "utf8"))
-await database.exec(await fs.readFile(profileMigrationPath, "utf8"))
-await database.exec(`
   create schema cron;
   create table cron.job (jobid bigint generated always as identity primary key, jobname text not null);
   create function cron.unschedule(p_jobid bigint) returns boolean language plpgsql as $$
@@ -100,6 +99,35 @@ await database.exec(`
     ('jota_notification_dispatch_url', 'https://jota-test.vercel.app/api/notifications/dispatch'),
     ('jota_notification_dispatch_secret', 'test-notification-dispatch-secret-123456');
 `)
+  return instance
+}
+
+const migrationFiles = (await fs.readdir("supabase/migrations"))
+  .filter((file) => /^\d+_.+\.sql$/.test(file))
+  .sort((left, right) => left.localeCompare(right))
+const migrationVersions = migrationFiles.map((file) => file.slice(0, file.indexOf("_")))
+if (new Set(migrationVersions).size !== migrationVersions.length) {
+  throw new Error("Migration versions must be unique")
+}
+
+// A clean deployment must apply every committed migration in the exact order
+// used by the Supabase CLI. Keep this database separate from the populated
+// behavior fixture below, which deliberately exercises additive backfills.
+const orderedDatabase = await createTestDatabase()
+try {
+  for (const file of migrationFiles) {
+    const sql = normalizeMigrationForPGlite(await fs.readFile(`supabase/migrations/${file}`, "utf8"))
+    await orderedDatabase.exec(sql)
+  }
+} finally {
+  await orderedDatabase.close()
+}
+
+const database = await createTestDatabase()
+let migration = normalizeMigrationForPGlite(await fs.readFile(migrationPath, "utf8"))
+await database.exec(migration)
+await database.exec(normalizeMigrationForPGlite(await fs.readFile(authMigrationPath, "utf8")))
+await database.exec(normalizeMigrationForPGlite(await fs.readFile(profileMigrationPath, "utf8")))
 
 const firstAdministrator = "80000000-0000-0000-0000-000000000010"
 await database.exec(`insert into auth.users (id, email) values ('${firstAdministrator}', 'first-admin@example.test')`)
@@ -1643,6 +1671,53 @@ try {
 } catch (error) { crossWorkspaceCategoryRejected = error?.code === "P0002" || error?.code === "42501" }
 if (!crossWorkspaceCategoryRejected) throw new Error("A user from another workspace changed a content category")
 
+let unassignedClientCategoryRejected = false
+try {
+  await asUser(employeeTwo, () => database.query(`select public.set_content_category_for_current_user('${ambiguousContentId}', 'video')`))
+} catch (error) { unassignedClientCategoryRejected = error?.code === "42501" || error?.code === "P0002" }
+if (!unassignedClientCategoryRejected) throw new Error("A same-workspace user changed content outside their client access")
+
+await database.exec(`update public.profiles set status = 'inactive', deactivated_at = now() where id = '${employeeTwo}'`)
+let inactiveCategoryMutationRejected = false
+try {
+  await asUser(employeeTwo, () => database.query(`select public.set_content_category_for_current_user(
+    '50000000-0000-0000-0000-000000000002', 'video'
+  )`))
+} catch (error) { inactiveCategoryMutationRejected = error?.code === "42501" }
+await database.exec(`update public.profiles set status = 'active', deactivated_at = null where id = '${employeeTwo}'`)
+if (!inactiveCategoryMutationRejected) throw new Error("An inactive user changed a content reporting category")
+
+let anonymousCategoryMutationRejected = false
+await database.query("select set_config('request.jwt.claim.sub', '', false)")
+await database.exec("set role anon")
+try {
+  await database.query(`select public.set_content_category_for_current_user('${ambiguousContentId}', 'video')`)
+} catch (error) { anonymousCategoryMutationRejected = error?.code === "42501" }
+finally { await database.exec("reset role") }
+if (!anonymousCategoryMutationRejected) throw new Error("Anonymous access reached the content reporting category RPC")
+
+let directCategoryUpdateRejected = false
+try {
+  await asUser(supervisor, () => database.query(`update public.content_items
+    set content_category = 'video' where id = '${ambiguousContentId}'`))
+} catch (error) { directCategoryUpdateRejected = error?.code === "42501" }
+if (!directCategoryUpdateRejected) throw new Error("Authenticated users can bypass the content reporting category RPC")
+
+const categoryFunctionAccess = await database.query(`
+  select p.prosecdef as security_definer, p.proconfig,
+    has_function_privilege('anon', p.oid, 'execute') as anon_can_execute,
+    has_function_privilege('authenticated', p.oid, 'execute') as authenticated_can_execute
+  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public' and p.proname = 'set_content_category_for_current_user'
+`)
+const categoryFunction = categoryFunctionAccess.rows[0]
+if (!categoryFunction?.security_definer
+  || !categoryFunction.proconfig?.some((setting) => setting === 'search_path=""')
+  || categoryFunction.anon_can_execute !== false
+  || categoryFunction.authenticated_can_execute !== true) {
+  throw new Error(`Content reporting category RPC grants or search path are unsafe: ${JSON.stringify(categoryFunction)}`)
+}
+
 const tableResult = await database.query(
   "select count(*)::int as count from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE'",
 )
@@ -1678,5 +1753,5 @@ if (policyCount !== 37 || postMutationCount !== 3) {
   throw new Error(`Unexpected policy or task mutation coverage: ${policyCount} policies, employee sees ${postMutationCount} tasks`)
 }
 
-console.log(`Schema validated: ${tableCount} tables, task assignment/review/comment/due notifications, password-change notifications, opt-in email notification queue and service-only claim RPC, private push subscriptions and service-only delivery queue, authenticated push-dispatch access denied, queue-triggered dispatch and five-minute recovery cron, missing dispatch configuration does not block in-app notifications, notification RLS/RPCs/triggers, content workflow/import/campaign/content-review/archive/restore RLS and RPCs, immutable task/content versions and decisions, private Drive token/folder tables, client platforms, multi-manager ownership, client status and recoverable Trash, employee provisioning and Trash, profile photo storage policies, service-only password-change requests, first-admin bootstrap, profile updates, and ${policyCount} policies.`)
+console.log(`Schema validated: ${migrationFiles.length} migrations applied in filename order, ${tableCount} tables, task assignment/review/comment/due notifications, password-change notifications, opt-in email notification queue and service-only claim RPC, private push subscriptions and service-only delivery queue, authenticated push-dispatch access denied, queue-triggered dispatch and five-minute recovery cron, missing dispatch configuration does not block in-app notifications, notification RLS/RPCs/triggers, content workflow/import/campaign/content-review/archive/restore RLS and RPCs, immutable task/content versions and decisions, private Drive token/folder tables, client platforms, multi-manager ownership, client status and recoverable Trash, employee provisioning and Trash, profile photo storage policies, service-only password-change requests, first-admin bootstrap, profile updates, reporting-category ACL/client/inactive-user checks, and ${policyCount} policies.`)
 await database.close()

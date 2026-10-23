@@ -212,7 +212,7 @@ export function InsightsDashboard() {
         now={today}
       />
 
-      <div className="mt-4 grid gap-4 xl:grid-cols-[1.1fr_.9fr]">
+      <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[1.1fr_.9fr]">
         <section className="overview-panel rounded-xl border p-4 sm:p-5" aria-labelledby="task-flow-heading">
           <div className="flex items-start justify-between gap-3"><div><h2 id="task-flow-heading" className="text-sm font-semibold">Task flow</h2><p className="mt-1 text-xs text-muted-foreground">Tasks by their current stage.</p></div><button type="button" onClick={() => router.push("/tasks")} className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">Open tasks <ArrowRight className="size-3.5" /></button></div>
           <div className="mt-4 space-y-3">{statusCounts.map(({ status, count }) => <div key={status} className="grid grid-cols-[7.5rem_1fr_2rem] items-center gap-2 text-xs"><span className="truncate text-muted-foreground">{getStatusLabel(status)}</span><div className="h-2 overflow-hidden rounded-full bg-secondary/35"><div className="h-full rounded-full bg-primary/75 transition-[width]" style={{ width: `${count ? Math.max(5, count / maxStatusCount * 100) : 0}%` }} /></div><span className="text-right font-medium tabular-nums">{count}</span></div>)}</div>
@@ -224,7 +224,7 @@ export function InsightsDashboard() {
         </section>
       </div>
 
-      <div className="mt-4 grid gap-4 xl:grid-cols-2">
+      <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
         <section className="overview-panel rounded-xl border p-4 sm:p-5" aria-labelledby="content-dates-heading">
           <div className="flex items-start justify-between gap-3"><div><h2 id="content-dates-heading" className="text-sm font-semibold">Content deadlines</h2><p className="mt-1 text-xs text-muted-foreground">Due or scheduled in the next 7 days.</p></div><button type="button" onClick={() => router.push("/calendar")} className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">Calendar <ArrowRight className="size-3.5" /></button></div>
           {upcomingContent.length ? <div className="mt-3 divide-y">{upcomingContent.slice(0, 5).map((item) => <ContentRow key={item.id} item={item} />)}</div> : <p className="mt-4 rounded-lg border border-dashed px-3 py-5 text-center text-xs text-muted-foreground">No content deadlines coming up this week.</p>}
@@ -241,7 +241,7 @@ export function InsightsDashboard() {
       </div>
 
       <section className="overview-panel mt-4 rounded-xl border p-4 sm:p-5" aria-labelledby="completed-activity-heading">
-        <div className="mt-4 grid gap-5 lg:grid-cols-[1fr_1.2fr]">
+        <div className="mt-4 grid grid-cols-1 gap-5 lg:grid-cols-[1fr_1.2fr]">
           <div><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-xs font-medium">Completion trend</p><p className="mt-0.5 text-[10px] text-muted-foreground">{trendGrouping === "daily" ? "Last 7 days" : trendGrouping === "weekly" ? "Last 6 weeks" : "Last 6 months"}</p></div><label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">Group<select aria-label="Group completion trend" value={trendGrouping} onChange={(event) => setTrendGrouping(event.target.value as TrendGrouping)} className="h-8 rounded-md border bg-background px-2 text-xs text-foreground"><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select></label></div>{completedTasks.some((task) => Boolean(asDate(task.completedAt))) ? <div className={`mt-3 grid h-28 items-end gap-2 ${trendGrouping === "daily" ? "grid-cols-7" : "grid-cols-6"}`} aria-label={`${trendGrouping} completed task trend`}>{completionTrend.map((period) => <div key={period.key} className="flex h-full min-w-0 flex-col items-center justify-end gap-1" aria-label={`${period.label}: ${period.count} completed`}><span className="text-[10px] tabular-nums text-muted-foreground">{period.count}</span><div className="flex h-16 w-full items-end rounded-t bg-secondary/25"><div className="w-full rounded-t bg-primary/75 transition-[height]" style={{ height: `${period.count ? Math.max(8, period.count / maxTrendCompletions * 100) : 0}%` }} /></div><span className="truncate text-[9px] text-muted-foreground">{period.label}</span></div>)}</div> : <p className="mt-3 rounded-lg border border-dashed px-3 py-5 text-center text-xs text-muted-foreground">Completion trend will appear as dated tasks are completed.</p>}</div>
           <div className="min-w-0"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-medium">Completed tasks <span className="text-muted-foreground">({filteredCompletedTasks.length})</span></p><div className="flex items-center gap-2"><label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">Date range<select aria-label="Filter completed tasks by date range" value={completionRange} onChange={(event) => setCompletionRange(event.target.value as CompletionRange)} className="h-8 rounded-md border bg-background px-2 text-xs text-foreground"><option value="7">7 days</option><option value="30">30 days</option><option value="90">90 days</option><option value="all">All</option></select></label><button type="button" onClick={() => router.push("/tasks")} className="text-[11px] font-medium text-primary hover:underline">Open task list</button></div></div>{filteredCompletedTasks.length ? <div className="mt-2 divide-y">{filteredCompletedTasks.slice(0, 6).map((task) => <TaskRow key={task.id} task={task} onClick={() => openTask(task.id)} completed />)}</div> : <p className="mt-3 rounded-lg border border-dashed px-3 py-5 text-center text-xs text-muted-foreground">No completed tasks in this date range.</p>}</div>
         </div>
@@ -291,7 +291,7 @@ function ContentReportingSummary({ items, loading, error, demoMode, range, onRan
           <MetricCard label="Other" value={counts.other} detail="Ambiguous or manually classified" icon={<CircleAlert className="size-4" />} />
         </div>
         <p className="mt-2 text-[11px] text-muted-foreground">All dates includes undated and future-scheduled content. A date range uses the saved publish date; content without one is excluded from that range. User scope uses the assigned creator, or the creator of an unassigned item.</p>
-        {counts.total ? <div className="mt-4 grid gap-4 lg:grid-cols-[.8fr_1.2fr]">
+        {counts.total ? <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[.8fr_1.2fr]">
           <div className="rounded-lg border border-border/70 p-3">
             <h3 className="text-xs font-semibold">Category split</h3>
             <div className="mt-3 flex flex-wrap items-center gap-4">
