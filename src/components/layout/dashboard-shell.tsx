@@ -4,7 +4,7 @@ import { LoaderCircle, Plus, Search, Settings } from "lucide-react"
 import Link from "next/link"
 import dynamic from "next/dynamic"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
 
 import { AppSidebar } from "@/components/layout/app-sidebar"
 import { MobileNavigation } from "@/components/layout/mobile-navigation"
@@ -37,6 +37,25 @@ type DashboardShellProps = {
 }
 
 export function DashboardShell({ children, compact = false }: DashboardShellProps) {
+  return (
+    <Suspense fallback={<DashboardShellFallback compact={compact}>{children}</DashboardShellFallback>}>
+      <DashboardShellContent compact={compact}>{children}</DashboardShellContent>
+    </Suspense>
+  )
+}
+
+function DashboardShellFallback({ children, compact = false }: DashboardShellProps) {
+  return (
+    <div className={cn("dashboard-canvas min-h-screen text-foreground", compact && "dashboard-canvas--compact")}>
+      <div role="status" className="border-b bg-background/90 px-4 py-3 text-xs text-muted-foreground sm:px-6 lg:px-8">
+        Loading workspace...
+      </div>
+      {children}
+    </div>
+  )
+}
+
+function DashboardShellContent({ children, compact = false }: DashboardShellProps) {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
