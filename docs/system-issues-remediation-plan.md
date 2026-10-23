@@ -65,6 +65,25 @@ plans, replacing stale local test/table/policy counts and recording the owner's
 email-delivery confirmation. Older detailed checkpoints remain as historical
 notes; hosted deployment and push state are still explicitly unverified.
 
+### Phases 4–5 — Release hardening checkpoint — 2026-10-23
+
+- Verified the committed hosted migration objects and reconciled the Supabase
+  migration ledger through `202610310001`; all 38 committed versions are now
+  recorded. No application rows were changed and no migration body was replayed.
+- Added an ordered clean-schema gate for all 38 migrations and expanded the
+  reporting authorization checks. The current suite passes 98 unit tests plus
+  schema validation for 40 tables and 37 policies.
+- Added a GitHub Actions release gate and fixed two clean-runner-only defects:
+  missing Next route type generation and a Help guide Suspense/prerender issue.
+- Upgraded Next and `eslint-config-next` to patched `16.4.2`, Vitest to `4.1.12`,
+  Vite to `8.3.5`, and shadcn to `4.22.1`. The production dependency audit is
+  clean. Remaining audit findings are development-only transitive dependencies
+  in ESLint/shadcn tooling with no non-breaking upstream fix available.
+- Deployed and verified the Insights and Calendar mobile overflow corrections
+  at a 390 px viewport. Final acceptance is still open for separate-role,
+  two-session realtime, disposable hosted-service testing, and the upload-limit
+  architecture decision.
+
 ## Phase 0 — Establish current environment state
 
 **Goal:** Record a trustworthy baseline before changing dependencies or hosted

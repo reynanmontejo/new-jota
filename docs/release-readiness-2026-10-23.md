@@ -29,27 +29,36 @@ upload limit is made truthful.
   route tests for authentication, pagination, employee scope, database failure,
   and the upper limit.
 - Added a GitHub Actions release gate for lint, typecheck, unit tests, ordered
-  schema validation, and the production build.
+  schema validation, and the production build. The gate now generates Next
+  route types explicitly and runs on Node 22, so it is independent of local
+  build caches and aligned with the installed Supabase packages.
+- Fixed the clean-environment Help guide prerender by placing the shared
+  dashboard shell's URL-dependent client tree behind a Suspense boundary.
+- Upgraded Next and `eslint-config-next` from `16.3.8` to the patched `16.4.2`
+  release. `npm audit --omit=dev` now reports zero production vulnerabilities.
+  Vitest and its Vite dependency were also moved to patched compatible
+  versions; remaining findings are confined to development-only ESLint/shadcn
+  transitive dependencies without a currently available fix.
 - Checked core routes at a 390 × 844 viewport. Content, Tasks, and Help did not
   overflow. Insights and Calendar exposed implicit CSS-grid overflow; both were
-  corrected locally with explicit zero-minimum single-column tracks.
+  corrected with explicit zero-minimum single-column tracks. The deployed
+  Insights and Calendar pages were then rechecked at 390 × 844 and no longer
+  overflow horizontally.
 - Basic accessible-name checks found no visible unlabeled buttons or form
   controls and no duplicate element IDs on the inspected core routes.
 
 ## Still required before closing final acceptance
 
-1. Deploy the current QA fixes and repeat the 390 px Insights/Calendar overflow
-   checks against production.
-2. Run the live workflow with separate Administrator, Supervisor, Account
+1. Run the live workflow with separate Administrator, Supervisor, Account
    Manager, Video Editor/Designer, and Employee sessions. Include an unassigned
    same-organization user and a deactivated user for denial checks.
-3. In two simultaneous sessions, verify task/content changes, comments, reviews,
+2. In two simultaneous sessions, verify task/content changes, comments, reviews,
    client handoff decisions, notification badges, and calendar changes update
    without a reload and do not duplicate records.
-4. Run `supabase db reset` against a disposable local/staging Supabase instance.
+3. Run `supabase db reset` against a disposable local/staging Supabase instance.
    PGlite proves PostgreSQL ordering and application rules, but it mocks hosted
    Auth, Storage, Realtime, Cron, Vault, and `pg_net` behavior.
-5. Resolve the upload architecture mismatch. The app advertises and buffers
+4. Resolve the upload architecture mismatch. The app advertises and buffers
    files up to 100 MB, while Vercel Functions currently limit request and
    response bodies to 4.5 MB. Choose either direct/resumable browser-to-storage
    uploads or a truthful application limit below the platform ceiling. See the
