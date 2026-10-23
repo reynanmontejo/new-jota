@@ -199,19 +199,26 @@ export async function ensureClientFolder(organizationId: string, clientId: strin
 }
 
 export async function uploadDriveFile(connection: Connection, folderId: string, file: File) {
-  const accessToken = await getAccessToken(connection)
-  const start = await fetch(`${DRIVE_API.replace("/drive/v3", "/upload/drive/v3")}/files?uploadType=resumable&fields=id,name,mimeType,size`, {
-    method: "POST",
-    headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json", "x-upload-content-type": file.type || "application/octet-stream", "x-upload-content-length": String(file.size) },
-    body: JSON.stringify({ name: file.name, mimeType: file.type || "application/octet-stream", parents: [folderId] }),
-    cache: "no-store",
-  })
-  const sessionUrl = start.headers.get("location")
-  if (!start.ok || !sessionUrl) throw new Error("Google Drive could not start the upload")
+  const sessionUrl = await startDriveUpload(connection, folderId, file.name, file.type || "application/octet-stream", file.size)
   const result = await fetch(sessionUrl, { method: "PUT", headers: { "content-type": file.type || "application/octet-stream" }, body: await file.arrayBuffer(), cache: "no-store" })
   const metadata = await result.json() as { id?: string; name?: string; mimeType?: string; size?: string }
   if (!result.ok || !metadata.id) throw new Error("Google Drive upload failed")
   return { id: metadata.id, name: metadata.name ?? file.name, mimeType: metadata.mimeType ?? file.type ?? "application/octet-stream", size: Number(metadata.size ?? file.size) }
+}
+
+export async function startDriveUpload(connection: Connection, folderId: string, fileName: string, mimeType: string, size: number) {
+  const accessToken = await getAccessToken(connection)
+  const start = await fetch(`${DRIVE_API.replace("/drive/v3", "/upload/drive/v3")}/files?uploadType=resumable&fields=id,name,mimeType,size`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json", "x-upload-content-type": mimeType, "x-upload-content-length": String(size) },
+    body: JSON.stringify({ name: fileName, mimeType, parents: [folderId] }),
+    cache: "no-store",
+  })
+  const sessionUrl = start.headers.get("location")
+  if (!start.ok || !sessionUrl) throw new Error("Google Drive could not start the upload")
+  const url = new URL(sessionUrl)
+  if (url.protocol !== "https:" || url.hostname !== "www.googleapis.com" || url.pathname !== "/upload/drive/v3/files") throw new Error("Google Drive returned an unsafe upload location")
+  return sessionUrl
 }
 
 export async function downloadDriveFile(organizationId: string, fileId: string, range?: string) {

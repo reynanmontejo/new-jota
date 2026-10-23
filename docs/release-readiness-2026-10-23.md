@@ -4,8 +4,8 @@
 
 The current production deployment is operational, and its database migration
 history now matches the committed schema. The final release phase remains open
-until the live cross-role/realtime matrix is exercised and the production file
-upload limit is made truthful.
+until the live cross-role/realtime matrix and large-file transfer are exercised
+on the production deployment.
 
 ## Completed in this checkpoint
 
@@ -46,6 +46,11 @@ upload limit is made truthful.
   overflow horizontally.
 - Basic accessible-name checks found no visible unlabeled buttons or form
   controls and no duplicate element IDs on the inspected core routes.
+- Implemented a server-mediated Google Drive resumable upload path: the browser
+  sends 4 MiB chunks, the Drive session capability is encrypted and bound to
+  the active user and organization, interrupted uploads can query the accepted
+  byte range, and the existing 100 MB limit remains. Focused route/token tests
+  and the production build pass; a live >4.5 MB transfer is still required.
 
 ## Still required before closing final acceptance
 
@@ -58,10 +63,12 @@ upload limit is made truthful.
 3. Run `supabase db reset` against a disposable local/staging Supabase instance.
    PGlite proves PostgreSQL ordering and application rules, but it mocks hosted
    Auth, Storage, Realtime, Cron, Vault, and `pg_net` behavior.
-4. Resolve the upload architecture mismatch. The app advertises and buffers
-   files up to 100 MB, while Vercel Functions currently limit request and
-   response bodies to 4.5 MB. Choose either direct/resumable browser-to-storage
-   uploads or a truthful application limit below the platform ceiling. See the
+4. On the deployed revision, upload and then preview/download a private video
+   larger than 4.5 MB through each relevant role. Confirm chunk progress,
+   interrupted-transfer recovery, attachment registration, and review linking.
+   Vercel limits ordinary Function request/response payloads to 4.5 MB; the new
+   upload path stays below that per request, while the existing streaming
+   download route still needs a live large-file check. See the
    [Vercel Functions limits](https://vercel.com/docs/functions/limitations).
 
 Notification sound reliability remains an explicitly deferred item outside

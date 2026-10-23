@@ -131,9 +131,11 @@ encryption key belong in the server-only `.env.local` variables documented in
 editing environment variables. Apply the Drive storage migration before
 connecting the account to a hosted database.
 
-The app currently accepts common image, video, document, CSV, and presentation
-files up to 100 MB. A deployment host may impose a smaller upload request
-limit, so verify that limit before relying on large video uploads in production.
+The app accepts common image, video, document, CSV, and presentation files up
+to 100 MB. Browser uploads use private 4 MiB resumable chunks so each request
+stays below Vercel's request limit; Google Drive session URLs remain encrypted
+on the server. Verify an end-to-end upload and download of a file larger than
+4.5 MB on the target deployment before relying on large videos in production.
 Uploads are private and are not automatically deleted from Drive when metadata
 is archived in Jota.
 

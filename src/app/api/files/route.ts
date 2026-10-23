@@ -1,20 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 
 import { getStorageActor, hasStoragePermission } from "@/lib/storage/authorization"
-import { deleteDriveFile, ensureClientFolder, ensureOrganizationFolder, getGoogleDriveStatus, uploadDriveFile } from "@/lib/storage/google-drive"
-import { createServiceClient } from "@/lib/supabase/service"
+import { ensureClientFolder, ensureOrganizationFolder, getGoogleDriveStatus, uploadDriveFile } from "@/lib/storage/google-drive"
 import { MAX_UPLOAD_SIZE_BYTES, MAX_UPLOAD_SIZE_LABEL } from "@/lib/storage/upload-limits"
-
-const acceptedExtensions = new Map<string, Set<string>>([
-  [".jpg", new Set(["image/jpeg"])], [".jpeg", new Set(["image/jpeg"])],
-  [".png", new Set(["image/png"])], [".webp", new Set(["image/webp"])], [".gif", new Set(["image/gif"])],
-  [".mp4", new Set(["video/mp4"])], [".mov", new Set(["video/quicktime"])],
-  [".pdf", new Set(["application/pdf"])], [".txt", new Set(["text/plain"])],
-  [".csv", new Set(["text/csv", "application/csv", "application/vnd.ms-excel"])],
-  [".docx", new Set(["application/vnd.openxmlformats-officedocument.wordprocessingml.document"])],
-  [".xlsx", new Set(["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"])],
-  [".pptx", new Set(["application/vnd.openxmlformats-officedocument.presentationml.presentation"])],
-])
+import { authorizeUpload } from "@/lib/storage/upload-authorization"
+import { registerDriveUpload } from "@/lib/storage/register-upload"
 
 async function readBoundedForm(request: NextRequest, byteLimit: number) {
   const reader = request.body?.getReader()
@@ -83,40 +73,11 @@ export async function POST(request: NextRequest) {
   const contentItemId = String(form.get("contentItemId") ?? "") || null
   let campaignId = String(form.get("campaignId") ?? "") || null
   const file = form.get("file")
-  if (taskId && contentItemId) return NextResponse.json({ error: "Choose a task or a content item, not both." }, { status: 400 })
   if ((!clientId && !taskId) || !(file instanceof File)) return NextResponse.json({ error: "Choose a task or client and file." }, { status: 400 })
-  if (file.size < 1 || file.size > MAX_UPLOAD_SIZE_BYTES) return NextResponse.json({ error: `File must be between 1 byte and ${MAX_UPLOAD_SIZE_LABEL}.` }, { status: 413 })
-  if (file.name.length > 255 || /[\u0000-\u001f]/.test(file.name)) return NextResponse.json({ error: "File name must be 255 characters or fewer and contain no control characters." }, { status: 400 })
-  const extension = file.name.slice(file.name.lastIndexOf(".")).toLowerCase()
-  if (!acceptedExtensions.get(extension)?.has(file.type)) return NextResponse.json({ error: "This file type or file extension is not supported." }, { status: 415 })
-
-  const permissionCodes = taskId ? ["tasks.create", "tasks.update"] : ["content.create", "content.update"]
-  if (!await hasStoragePermission(actor, permissionCodes)) return NextResponse.json({ error: "You do not have permission to upload files here." }, { status: 403 })
-  let client: { id: string; name: string; organization_id: string } | null = null
-  if (taskId) {
-    const { data: task } = await actor.supabase.from("tasks").select("id,client_id,organization_id").eq("id", taskId).is("deleted_at", null).maybeSingle()
-    if (!task || task.client_id !== (clientId || null)) return NextResponse.json({ error: "Task files are unavailable." }, { status: 404 })
-    if (task.organization_id !== actor.organizationId) return NextResponse.json({ error: "Task files are unavailable." }, { status: 404 })
-    if (task.client_id) {
-      const result = await actor.supabase.from("clients").select("id,name,organization_id").eq("id", task.client_id).is("deleted_at", null).maybeSingle()
-      if (result.error || !result.data || result.data.organization_id !== actor.organizationId) return NextResponse.json({ error: "Client files are unavailable." }, { status: 404 })
-      client = result.data
-    }
-  } else {
-    const result = await actor.supabase.from("clients").select("id,name,organization_id").eq("id", clientId).is("deleted_at", null).maybeSingle()
-    if (result.error || !result.data || result.data.organization_id !== actor.organizationId) return NextResponse.json({ error: "Client files are unavailable." }, { status: 404 })
-    client = result.data
-  }
-  if (contentItemId) {
-    const { data: contentItem } = await actor.supabase.from("content_items").select("id,client_id,campaign_id").eq("id", contentItemId).eq("client_id", clientId).is("deleted_at", null).maybeSingle()
-    if (!contentItem) return NextResponse.json({ error: "Content files are unavailable." }, { status: 404 })
-    if (campaignId && campaignId !== contentItem.campaign_id) return NextResponse.json({ error: "The content item does not belong to the selected campaign." }, { status: 400 })
-    campaignId = contentItem.campaign_id
-  }
-  if (campaignId) {
-    const { data: campaign } = await actor.supabase.from("campaigns").select("id,client_id").eq("id", campaignId).is("deleted_at", null).maybeSingle()
-    if (!campaign || campaign.client_id !== clientId) return NextResponse.json({ error: "Campaign files are unavailable." }, { status: 404 })
-  }
+  const authorized = await authorizeUpload(actor, { clientId, taskId, contentItemId, campaignId, fileName: file.name, mimeType: file.type, size: file.size })
+  if (authorized.error) return authorized.error
+  const { client } = authorized
+  campaignId = authorized.campaignId
 
   let uploadStage = "preparing the private client folder"
   try {
@@ -126,39 +87,7 @@ export async function POST(request: NextRequest) {
     uploadStage = "uploading the file to Google Drive"
     const uploaded = await uploadDriveFile(connection, folderId, file)
     uploadStage = "saving the file record"
-    const service = createServiceClient()
-    const { data: attachment, error } = await service.from("attachments").insert({
-      organization_id: actor.organizationId,
-      client_id: client?.id ?? null,
-      campaign_id: campaignId,
-      task_id: taskId,
-      content_item_id: contentItemId,
-      provider_file_id: uploaded.id,
-      provider_folder_id: folderId,
-      file_name: uploaded.name,
-      mime_type: uploaded.mimeType,
-      size_bytes: uploaded.size,
-      uploaded_by: actor.userId,
-    }).select("id,file_name,mime_type,size_bytes,uploaded_by,created_at,task_id,content_item_id").single()
-    if (error || !attachment) {
-      try { await deleteDriveFile(connection, uploaded.id) } catch { /* Avoid returning provider details to the browser. */ }
-      return NextResponse.json({ error: "The file could not be registered by the app. Contact an administrator." }, { status: 503 })
-    }
-    uploadStage = "recording the upload activity"
-    const { error: activityError } = await service.from("activity_logs").insert({
-      organization_id: actor.organizationId,
-      actor_id: actor.userId,
-      entity_type: taskId ? "task" : contentItemId ? "content_item" : "client",
-      entity_id: taskId ?? contentItemId ?? clientId,
-      action: "FILE_UPLOADED",
-      metadata: { attachment_id: attachment.id, file_name: attachment.file_name, mime_type: attachment.mime_type, size_bytes: attachment.size_bytes },
-    })
-    if (activityError) {
-      await service.from("attachments").delete().eq("id", attachment.id).eq("organization_id", actor.organizationId)
-      try { await deleteDriveFile(connection, uploaded.id) } catch { /* Do not expose provider details. */ }
-      return NextResponse.json({ error: "The app could not record this upload. Try again or contact an administrator." }, { status: 503 })
-    }
-    return NextResponse.json({ file: attachment }, { status: 201, headers: { "cache-control": "private, no-store" } })
+    return await registerDriveUpload({ actor, clientId: client?.id ?? null, campaignId, taskId, contentItemId, folderId, uploaded })
   } catch (error) {
     console.error("[Google Drive upload failed]", {
       stage: uploadStage,

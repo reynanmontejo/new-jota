@@ -8,7 +8,7 @@ import { ClipboardPaste, Download, FileText, UploadCloud, X } from "lucide-react
 
 import { UploadProgress } from "@/components/states/content-state"
 import { Button } from "@/components/ui/button"
-import { MAX_UPLOAD_SIZE_LABEL } from "@/lib/storage/upload-limits"
+import { MAX_UPLOAD_SIZE_BYTES, MAX_UPLOAD_SIZE_LABEL } from "@/lib/storage/upload-limits"
 import { fileCategoryLabels, getFileCategory, type FileTypeFilter } from "@/lib/storage/file-types"
 import { getPreviewMimeType } from "@/lib/storage/preview-types"
 
@@ -37,6 +37,7 @@ export function ClientFiles({ clientId, taskId, contentItemId, canUpload = true,
   const [fileFilter, setFileFilter] = useState<FileTypeFilter>("all")
   const picker = useRef<HTMLInputElement>(null)
   const activeUpload = useRef<XMLHttpRequest | null>(null)
+  const uploadAbort = useRef<AbortController | null>(null)
   const initialSelectionApplied = useRef(false)
   const visibleFiles = files.filter((file) => fileFilter === "all" || getFileCategory(file.mime_type) === fileFilter)
 
@@ -87,39 +88,82 @@ export function ClientFiles({ clientId, taskId, contentItemId, canUpload = true,
 
   async function uploadFile(file?: File) {
     if (!file) return
+    const chosenFile = file
+    if (file.size < 1 || file.size > MAX_UPLOAD_SIZE_BYTES) {
+      setMessage(`File must be between 1 byte and ${MAX_UPLOAD_SIZE_LABEL}.`)
+      if (picker.current) picker.current.value = ""
+      return
+    }
     setBusy(true)
     setMessage("")
     setUploadState({ fileName: file.name, progress: 0, status: "uploading" })
-    const form = new FormData()
-    if (clientId) form.set("clientId", clientId)
-    if (taskId) form.set("taskId", taskId)
-    if (contentItemId) form.set("contentItemId", contentItemId)
-    form.set("file", file)
+    const controller = new AbortController()
+    uploadAbort.current = controller
     try {
-      const uploadedFileId = await new Promise<string>((resolve, reject) => {
-        const xhr = new XMLHttpRequest()
-        activeUpload.current = xhr
-        xhr.open("POST", "/api/files")
-        xhr.upload.onprogress = (event) => {
-          if (event.lengthComputable) setUploadState({ fileName: file.name, progress: Math.min(99, Math.round(event.loaded / event.total * 100)), status: "uploading" })
-        }
-        xhr.onerror = () => reject(new Error("Network error during upload."))
-        xhr.onabort = () => reject(new Error("Upload canceled."))
-        xhr.onload = () => {
-          let payload: { error?: string; file?: { id?: string } } = {}
-          try { payload = JSON.parse(xhr.responseText) as { error?: string; file?: { id?: string } } } catch { /* Use the generic fallback below. */ }
-          if (xhr.status < 200 || xhr.status >= 300) reject(new Error(payload.error ?? "Upload failed."))
-          else resolve(payload.file?.id ?? "")
-        }
-        xhr.send(form)
+      const start = await fetch("/api/files/resumable", {
+        method: "POST", headers: { "content-type": "application/json" }, signal: controller.signal,
+        body: JSON.stringify({ clientId, taskId, contentItemId, fileName: file.name, mimeType: file.type, size: file.size }),
       })
+      const started = await start.json() as { session?: string; chunkBytes?: number; error?: string }
+      if (!start.ok || !started.session || !started.chunkBytes) throw new Error(started.error ?? "Upload could not start.")
+      const session = started.session
+      const chunkBytes = started.chunkBytes
+      async function checkProgress() {
+        const response = await fetch("/api/files/resumable", { headers: { "x-upload-session": session }, signal: controller.signal, cache: "no-store" })
+        const payload = await response.json() as { nextOffset?: number; file?: { id?: string }; error?: string }
+        if (!response.ok) throw new Error(payload.error ?? "Could not check upload progress.")
+        return payload
+      }
+      function sendChunk(offset: number) {
+        return new Promise<{ nextOffset?: number; file?: { id?: string } }>((resolve, reject) => {
+          const xhr = new XMLHttpRequest()
+          activeUpload.current = xhr
+          xhr.open("PUT", "/api/files/resumable")
+          xhr.setRequestHeader("x-upload-session", session)
+          xhr.setRequestHeader("x-upload-offset", String(offset))
+          xhr.upload.onprogress = (event) => {
+            if (event.lengthComputable) setUploadState({ fileName: chosenFile.name, progress: Math.min(99, Math.round((offset + event.loaded) / chosenFile.size * 100)), status: "uploading" })
+          }
+          xhr.onerror = () => reject(new Error("Network error during upload."))
+          xhr.onabort = () => reject(new Error("Upload canceled."))
+          xhr.onload = () => {
+            let payload: { nextOffset?: number; file?: { id?: string }; error?: string } = {}
+            try { payload = JSON.parse(xhr.responseText) as typeof payload } catch { /* Use the generic fallback below. */ }
+            if (xhr.status < 200 || xhr.status >= 300) reject(new Error(payload.error ?? "Upload failed."))
+            else resolve(payload)
+          }
+          xhr.send(chosenFile.slice(offset, Math.min(offset + chunkBytes, chosenFile.size), chosenFile.type))
+        })
+      }
+      let offset = 0
+      let uploadedFileId = ""
+      let interruptions = 0
+      while (offset < file.size && !uploadedFileId) {
+        if (controller.signal.aborted) throw new Error("Upload canceled.")
+        try {
+          const result = await sendChunk(offset)
+          if (result.file?.id) uploadedFileId = result.file.id
+          else if (Number.isSafeInteger(result.nextOffset) && result.nextOffset! > offset && result.nextOffset! <= file.size) offset = result.nextOffset!
+          else throw new Error("Google Drive did not confirm the upload position.")
+          interruptions = 0
+        } catch (error) {
+          if (controller.signal.aborted) throw new Error("Upload canceled.")
+          if (++interruptions > 3) throw error
+          const progress = await checkProgress()
+          if (progress.file?.id) uploadedFileId = progress.file.id
+          else if (Number.isSafeInteger(progress.nextOffset) && progress.nextOffset! >= 0 && progress.nextOffset! < file.size) offset = progress.nextOffset!
+          else throw error
+        }
+      }
+      if (!uploadedFileId) throw new Error("Google Drive did not confirm the uploaded file.")
       if (uploadedFileId && (taskId || contentItemId)) setSelectedFileIds((current) => [...new Set([...current, uploadedFileId])])
       setUploadState({ fileName: file.name, progress: 100, status: "complete" })
       await refresh()
     } catch (error) {
-      setUploadState({ fileName: file.name, progress: 0, status: "error", error: error instanceof Error ? error.message : "Upload failed. Check the Drive connection and try again." })
+      setUploadState({ fileName: file.name, progress: 0, status: "error", error: controller.signal.aborted ? "Upload canceled." : error instanceof Error ? error.message : "Upload failed. Check the Drive connection and try again." })
     } finally {
       activeUpload.current = null
+      uploadAbort.current = null
       setBusy(false)
       if (picker.current) picker.current.value = ""
     }
@@ -190,7 +234,7 @@ export function ClientFiles({ clientId, taskId, contentItemId, canUpload = true,
       </div>}
     </div>
     {message && <p role="status" className="mt-3 rounded-md border border-border bg-background/60 px-3 py-2 text-xs text-muted-foreground">{message}</p>}
-    {uploadState && <div className="mt-3"><UploadProgress fileName={uploadState.fileName} progress={uploadState.progress} status={uploadState.status} errorMessage={uploadState.error} onCancel={uploadState.status === "uploading" && uploadState.progress < 99 ? () => activeUpload.current?.abort() : undefined} onRetry={uploadState.status === "error" ? () => { setUploadState(null); picker.current?.click() } : undefined} /></div>}
+    {uploadState && <div className="mt-3"><UploadProgress fileName={uploadState.fileName} progress={uploadState.progress} status={uploadState.status} errorMessage={uploadState.error} onCancel={uploadState.status === "uploading" ? () => { uploadAbort.current?.abort(); activeUpload.current?.abort() } : undefined} onRetry={uploadState.status === "error" ? () => { setUploadState(null); picker.current?.click() } : undefined} /></div>}
     {!loading && !storageConnected && <p className="mt-3 text-xs text-muted-foreground">Google Drive isn’t ready yet. Ask an Administrator to connect it under File storage settings.</p>}
     {!compact && !loading && files.length > 0 && <div className="mt-4 flex flex-wrap items-center justify-between gap-2"><label className="text-[11px] font-medium text-muted-foreground" htmlFor={`${headingId}-file-filter`}>Filter files</label><select id={`${headingId}-file-filter`} value={fileFilter} onChange={(event) => setFileFilter(event.target.value as FileTypeFilter)} className="h-8 rounded-md border bg-background px-2 text-xs"><option value="all">All types ({files.length})</option>{Object.entries(fileCategoryLabels).map(([category, label]) => <option key={category} value={category}>{label} ({files.filter((file) => getFileCategory(file.mime_type) === category).length})</option>)}</select></div>}
     {loading ? <p className="mt-3 rounded-md border border-dashed p-4 text-center text-xs text-muted-foreground">Loading files…</p> : visibleFiles.length ? <ul className={compact ? "mt-3 grid grid-cols-1 gap-2" : "mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3"}>{visibleFiles.map((file) => {
