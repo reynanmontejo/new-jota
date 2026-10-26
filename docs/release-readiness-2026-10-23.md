@@ -52,6 +52,23 @@ on the production deployment.
   byte range, and the existing 100 MB limit remains. Focused route/token tests
   and the production build pass; a live >4.5 MB transfer is still required.
 
+## Navigation and Insights checkpoint — 2026-10-26
+
+Commit `402d455` moves the authenticated workspace shell into a shared layout so
+sidebar navigation keeps the header and sidebar mounted while page content
+changes. A regression test checks that only one sidebar is rendered and its
+collapsed state survives a page-content change. The route build, lint, and
+typecheck passed; the full suite passed 123 tests, and ordered schema
+validation passed 39 migrations, 40 tables, and 37 policies. The commit was
+pushed to `origin/master`; the GitHub release gate and Vercel deployment passed.
+An authenticated Administrator browser check confirmed the collapsed sidebar
+stays collapsed when navigating from Content to Clients on the deployed site.
+
+Insights now has a Today filter for content publish dates and completed tasks,
+using the Asia/Manila calendar day. Boundary tests cover midnight and future
+times. This follow-up is local only; lint, typecheck, 125 tests, ordered schema
+validation, and the production build pass. Live role-based checks remain open.
+
 ## Still required before closing final acceptance
 
 1. Run the live workflow with separate Administrator, Supervisor, Account

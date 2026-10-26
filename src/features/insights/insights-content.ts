@@ -8,13 +8,24 @@ export type InsightsContentItem = {
   publishAt: string | null
 }
 
-export type ContentDateRange = "30" | "90" | "365" | "all"
+export type ContentDateRange = "today" | "30" | "90" | "365" | "all"
+
+const manilaDate = new Intl.DateTimeFormat("en-US", {
+  timeZone: "Asia/Manila",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+})
+
+export function isSameManilaDay(first: Date, second: Date) {
+  return manilaDate.format(first) === manilaDate.format(second)
+}
 
 export function filterInsightsContent(
   items: InsightsContentItem[],
   filters: { ownerId: string; clientId: string; range: ContentDateRange; now: Date },
 ) {
-  const cutoff = filters.range === "all" ? null : new Date(filters.now)
+  const cutoff = filters.range === "all" || filters.range === "today" ? null : new Date(filters.now)
   if (cutoff) {
     cutoff.setDate(cutoff.getDate() - Number(filters.range) + 1)
     cutoff.setHours(0, 0, 0, 0)
@@ -23,10 +34,12 @@ export function filterInsightsContent(
   return items.filter((item) => {
     if (filters.ownerId !== "all" && item.ownerId !== filters.ownerId) return false
     if (filters.clientId !== "all" && item.clientId !== filters.clientId) return false
-    if (!cutoff) return true
+    if (filters.range === "all") return true
     if (!item.publishAt) return false
     const published = new Date(item.publishAt)
-    return !Number.isNaN(published.getTime()) && published >= cutoff && published <= filters.now
+    if (Number.isNaN(published.getTime())) return false
+    if (filters.range === "today") return isSameManilaDay(published, filters.now)
+    return cutoff !== null && published >= cutoff && published <= filters.now
   })
 }
 

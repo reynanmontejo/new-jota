@@ -22,6 +22,18 @@ describe("insights completion metrics", () => {
     expect(filterCompletedTasks(tasks, "all", now).map(({ id }) => id)).toEqual(["recent", "older", "undated"])
   })
 
+  it("counts today's task completions in Manila, excluding future completions", () => {
+    const now = new Date("2026-10-21T17:00:00.000Z") // Oct 22, 1 AM in Manila
+    const tasks = [
+      task("yesterday", "completed", "2026-10-21T15:59:59.000Z"),
+      task("today", "completed", "2026-10-21T16:30:00.000Z"),
+      task("future", "completed", "2026-10-21T18:00:00.000Z"),
+      task("undated", "completed", null),
+    ]
+
+    expect(filterCompletedTasks(tasks, "today", now).map(({ id }) => id)).toEqual(["today"])
+  })
+
   it("counts dated completions in six non-overlapping weeks", () => {
     const trend = getCompletionTrend([
       task("this-week", "completed", "2026-10-13T08:00:00.000Z"),

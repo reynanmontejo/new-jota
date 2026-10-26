@@ -5,13 +5,13 @@ import { useRouter } from "next/navigation"
 import { ArrowRight, CalendarClock, CheckCircle2, CircleAlert, ClipboardCheck, ListTodo, Users } from "lucide-react"
 
 import { useTaskDrawer } from "@/features/tasks/task-drawer"
-import { filterInsightsContent, getContentCategoryCounts, getContentFormatBreakdown, getPublishedContentTrend, type ContentDateRange, type InsightsContentItem } from "@/features/insights/insights-content"
+import { filterInsightsContent, getContentCategoryCounts, getContentFormatBreakdown, getPublishedContentTrend, isSameManilaDay, type ContentDateRange, type InsightsContentItem } from "@/features/insights/insights-content"
 import { useWorkflow } from "@/features/workflow/workflow-provider"
 import { getStatusLabel } from "@/features/workflow/status-badge"
 import type { TaskStatus, WorkflowContentWorkItem, WorkflowTask } from "@/features/workflow/types"
 
 type Scope = "team" | "mine"
-type CompletionRange = "7" | "30" | "90" | "all"
+type CompletionRange = "today" | "7" | "30" | "90" | "all"
 type TrendGrouping = "daily" | "weekly" | "monthly"
 
 const terminalStatuses = new Set<TaskStatus>(["completed", "cancelled"])
@@ -37,6 +37,10 @@ function dayDistance(value: string | null | undefined, today: Date) {
 export function filterCompletedTasks(tasks: WorkflowTask[], range: CompletionRange, now: Date) {
   const completed = tasks.filter((task) => task.status === "completed")
   if (range === "all") return completed.sort((a, b) => (asDate(b.completedAt)?.getTime() ?? 0) - (asDate(a.completedAt)?.getTime() ?? 0))
+  if (range === "today") return completed.filter((task) => {
+    const completedAt = asDate(task.completedAt)
+    return completedAt !== null && completedAt <= now && isSameManilaDay(completedAt, now)
+  }).sort((a, b) => (asDate(b.completedAt)?.getTime() ?? 0) - (asDate(a.completedAt)?.getTime() ?? 0))
   const cutoff = new Date(now.getTime() - Number(range) * 86_400_000)
   return completed.filter((task) => {
     const completedAt = asDate(task.completedAt)
@@ -243,7 +247,7 @@ export function InsightsDashboard() {
       <section className="overview-panel mt-4 rounded-xl border p-4 sm:p-5" aria-labelledby="completed-activity-heading">
         <div className="mt-4 grid grid-cols-1 gap-5 lg:grid-cols-[1fr_1.2fr]">
           <div><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-xs font-medium">Completion trend</p><p className="mt-0.5 text-[10px] text-muted-foreground">{trendGrouping === "daily" ? "Last 7 days" : trendGrouping === "weekly" ? "Last 6 weeks" : "Last 6 months"}</p></div><label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">Group<select aria-label="Group completion trend" value={trendGrouping} onChange={(event) => setTrendGrouping(event.target.value as TrendGrouping)} className="h-8 rounded-md border bg-background px-2 text-xs text-foreground"><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select></label></div>{completedTasks.some((task) => Boolean(asDate(task.completedAt))) ? <div className={`mt-3 grid h-28 items-end gap-2 ${trendGrouping === "daily" ? "grid-cols-7" : "grid-cols-6"}`} aria-label={`${trendGrouping} completed task trend`}>{completionTrend.map((period) => <div key={period.key} className="flex h-full min-w-0 flex-col items-center justify-end gap-1" aria-label={`${period.label}: ${period.count} completed`}><span className="text-[10px] tabular-nums text-muted-foreground">{period.count}</span><div className="flex h-16 w-full items-end rounded-t bg-secondary/25"><div className="w-full rounded-t bg-primary/75 transition-[height]" style={{ height: `${period.count ? Math.max(8, period.count / maxTrendCompletions * 100) : 0}%` }} /></div><span className="truncate text-[9px] text-muted-foreground">{period.label}</span></div>)}</div> : <p className="mt-3 rounded-lg border border-dashed px-3 py-5 text-center text-xs text-muted-foreground">Completion trend will appear as dated tasks are completed.</p>}</div>
-          <div className="min-w-0"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-medium">Completed tasks <span className="text-muted-foreground">({filteredCompletedTasks.length})</span></p><div className="flex items-center gap-2"><label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">Date range<select aria-label="Filter completed tasks by date range" value={completionRange} onChange={(event) => setCompletionRange(event.target.value as CompletionRange)} className="h-8 rounded-md border bg-background px-2 text-xs text-foreground"><option value="7">7 days</option><option value="30">30 days</option><option value="90">90 days</option><option value="all">All</option></select></label><button type="button" onClick={() => router.push("/tasks")} className="text-[11px] font-medium text-primary hover:underline">Open task list</button></div></div>{filteredCompletedTasks.length ? <div className="mt-2 divide-y">{filteredCompletedTasks.slice(0, 6).map((task) => <TaskRow key={task.id} task={task} onClick={() => openTask(task.id)} completed />)}</div> : <p className="mt-3 rounded-lg border border-dashed px-3 py-5 text-center text-xs text-muted-foreground">No completed tasks in this date range.</p>}</div>
+          <div className="min-w-0"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-medium">Completed tasks <span className="text-muted-foreground">({filteredCompletedTasks.length})</span></p><div className="flex items-center gap-2"><label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">Date range<select aria-label="Filter completed tasks by date range" value={completionRange} onChange={(event) => setCompletionRange(event.target.value as CompletionRange)} className="h-8 rounded-md border bg-background px-2 text-xs text-foreground"><option value="today">Today</option><option value="7">7 days</option><option value="30">30 days</option><option value="90">90 days</option><option value="all">All</option></select></label><button type="button" onClick={() => router.push("/tasks")} className="text-[11px] font-medium text-primary hover:underline">Open task list</button></div></div>{filteredCompletedTasks.length ? <div className="mt-2 divide-y">{filteredCompletedTasks.slice(0, 6).map((task) => <TaskRow key={task.id} task={task} onClick={() => openTask(task.id)} completed />)}</div> : <p className="mt-3 rounded-lg border border-dashed px-3 py-5 text-center text-xs text-muted-foreground">No completed tasks in this date range.</p>}</div>
         </div>
       </section>
     </main>
@@ -277,7 +281,7 @@ function ContentReportingSummary({ items, loading, error, demoMode, range, onRan
       <div><h2 id="content-reporting-heading" className="text-sm font-semibold">Content output</h2><p className="mt-1 text-xs text-muted-foreground">All non-archived tracker records, including published, rejected, and cancelled items.</p></div>
       <div className="flex flex-wrap gap-2">
         <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">Client<select aria-label="Filter content insights by client" value={clientId} onChange={(event) => onClientChange(event.target.value)} className="h-8 max-w-44 rounded-md border bg-background px-2 text-xs text-foreground"><option value="all">All clients</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</select></label>
-        <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">Publish date<select aria-label="Filter content insights by publish date" value={range} onChange={(event) => onRangeChange(event.target.value as ContentDateRange)} className="h-8 rounded-md border bg-background px-2 text-xs text-foreground"><option value="all">All dates</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option><option value="365">Last 365 days</option></select></label>
+        <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">Publish date<select aria-label="Filter content insights by publish date" value={range} onChange={(event) => onRangeChange(event.target.value as ContentDateRange)} className="h-8 rounded-md border bg-background px-2 text-xs text-foreground"><option value="all">All dates</option><option value="today">Today</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option><option value="365">Last 365 days</option></select></label>
       </div>
     </div>
     {loading ? <p role="status" className="mt-4 text-xs text-muted-foreground">Loading content reporting…</p>

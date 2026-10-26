@@ -28,6 +28,20 @@ describe("content reporting", () => {
       .toEqual({ total: 1, static: 0, video: 1, other: 0 })
   })
 
+  it("includes the full current publish day in the workspace timezone", () => {
+    const now = new Date("2026-10-21T17:00:00.000Z") // Oct 22, 1 AM in Manila
+    const dated = [
+      { ...items[0], id: "before", publishAt: "2026-10-21T15:59:59.000Z" },
+      { ...items[0], id: "start", publishAt: "2026-10-21T16:00:00.000Z" },
+      { ...items[0], id: "later-today", publishAt: "2026-10-22T15:59:59.000Z" },
+      { ...items[0], id: "tomorrow", publishAt: "2026-10-22T16:00:00.000Z" },
+      { ...items[0], id: "undated", publishAt: null },
+    ]
+
+    expect(filterInsightsContent(dated, { ownerId: "all", clientId: "all", range: "today", now }).map((item) => item.id))
+      .toEqual(["start", "later-today"])
+  })
+
   it("charts published output only when a publish date exists", () => {
     const trend = getPublishedContentTrend(items, now)
     expect(trend).toHaveLength(6)
