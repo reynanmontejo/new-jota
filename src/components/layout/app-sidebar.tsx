@@ -169,7 +169,7 @@ export function AppSidebar({ className, collapsed = false, onToggle, onNavigate,
       {onToggle && (
         <button
           onClick={onToggle}
-          className="absolute -right-3 top-20 z-10 grid size-7 place-items-center rounded-full border border-primary/30 bg-background text-primary shadow-[0_8px_18px_-10px_rgb(94_70_41/70%)] transition hover:scale-105 hover:border-primary hover:text-foreground"
+          className="absolute -right-3 top-[18px] z-10 grid size-7 place-items-center rounded-full border border-primary/30 bg-background text-primary shadow-[0_8px_18px_-10px_rgb(94_70_41/70%)] transition hover:scale-105 hover:border-primary hover:text-foreground"
           aria-label={collapsed ? "Expand sidebar" : "Minimize sidebar"}
           title={collapsed ? "Expand sidebar" : "Minimize sidebar"}
         >

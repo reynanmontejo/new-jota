@@ -27,6 +27,7 @@ it("keeps one sidebar mounted while the page content changes", () => {
   )
 
   const view = render(page("First page"))
+  expect(screen.getByRole("button", { name: "Minimize sidebar" })).toHaveClass("top-[18px]")
   fireEvent.click(screen.getByRole("button", { name: "Minimize sidebar" }))
   view.rerender(page("Second page"))
 
