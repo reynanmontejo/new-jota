@@ -16,8 +16,11 @@ when that post needs separately assigned work in My Work.
   campaigns. Paused or closed campaigns are unavailable for new content.
   The app creates the default campaign on the first import if needed.
 - An Account Manager import defaults the creator/editor to that manager.
-  A Supervisor/Admin should choose a creator/editor for the selected client;
-  multi-client files should include an `Assigned creator / editor` column.
+  A Supervisor/Admin should choose a creator/editor for the selected client.
+  Keep one client per file when using the simple template.
+- The simple template and sample file do not assign a separate account manager
+  to each content item. Bulk import also does not select the client's video
+  editor. After import, edit each video item to choose its editor.
 - The titles start with `TEST -` so the sample rows are easy to find and avoid
   collisions with ordinary posts.
 

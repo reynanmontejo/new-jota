@@ -198,15 +198,16 @@ export function ContentImport({ clients, campaigns, assignees, items, currentUse
       <div className="rounded-md border border-primary/15 bg-primary/5 px-3 py-2.5 text-[11px] leading-5 text-muted-foreground">
         <p className="font-semibold text-foreground">How to import content</p>
         <ol className="mt-1 list-decimal space-y-0.5 pl-4">
-          <li>Fill the Content Import sheet: keep its headers and add one item per row. Enter an exact active client, title, platform, and format for each row; supervisors/admins also enter the assigned creator. Campaign may be blank for General / Ongoing.</li>
-          <li>Export only that sheet as CSV UTF-8 (comma-delimited). The Excel workbook itself cannot be uploaded.</li>
-          <li>Upload the CSV and fix preview errors before importing. For a CSV that omits a shared column entirely, choose its default below. Duplicates are skipped.</li>
+          <li>Add one item per row in the template. Fill Content title, Platform, and Format; dates and brief are optional. Keep one client per import.</li>
+          <li>Export only the Content Import sheet as CSV UTF-8. Upload it here and choose the client. Account managers default to themselves as creator/editor; supervisors/admins choose an active client member.</li>
+          <li>Fix preview errors before importing. New items start as Planned; duplicates are skipped.</li>
         </ol>
+        <p className="mt-1">Video editor assignment is not available in this bulk import yet. Edit each video item after import to assign its editor.</p>
         <p className="mt-1">Limits: 1 MB maximum and 250 content rows maximum. <Link href="/help/import-calendar-csv" className="font-medium text-primary underline-offset-2 hover:underline">Read the full import guide</Link>.</p>
       </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
         <a href="/content-import-template.xlsx" download="jota-content-import-template.xlsx" className="inline-flex h-8 items-center gap-1.5 rounded-md border border-primary/20 bg-background/70 px-2.5 font-medium text-primary transition hover:bg-primary/5"><Download className="size-3.5" />Download Excel template</a>
-        <span className="text-muted-foreground">Includes an AI Guide with a copy-ready prompt and field rules.</span>
+        <span className="text-muted-foreground">Seven columns, plus an optional image-to-CSV prompt in the AI Guide sheet.</span>
       </div>
       <label className="grid gap-1.5 text-[11px] font-medium">CSV file<input className="text-xs file:mr-2 file:rounded-md file:border-0 file:bg-secondary/40 file:px-2.5 file:py-1.5 file:text-xs file:font-medium" type="file" accept=".csv,text/csv" onChange={(event) => void loadFile(event.target.files?.[0])} />{fileName && <span className="font-normal text-muted-foreground">{fileName}</span>}</label>
       {error && <p role="alert" className="rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive">{error}</p>}

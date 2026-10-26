@@ -21,7 +21,31 @@ describe("content import mapping", () => {
     expect(mapping.assignee).toBe("5")
   })
 
-  it("automatically maps every header in the downloadable content import template", () => {
+  it("automatically maps the seven headers in the downloadable simple template", () => {
+    const mapping = detectContentImportMapping([
+      "Content title",
+      "Platform",
+      "Format",
+      "Publish date",
+      "Work date",
+      "Deadline",
+      "Brief / caption",
+    ])
+
+    expect(mapping).toEqual({
+      title: "0",
+      platform: "1",
+      contentType: "2",
+      workDate: "4",
+      deadlineAt: "5",
+      publishAt: "3",
+      description: "6",
+    })
+    expect(mapping.client).toBeUndefined()
+    expect(mapping.assignee).toBeUndefined()
+  })
+
+  it("still maps detailed files made with the older template", () => {
     const mapping = detectContentImportMapping([
       "Client / account",
       "Campaign",
