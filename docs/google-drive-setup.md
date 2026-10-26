@@ -207,6 +207,16 @@ that the five variable names are present and that the server has restarted.
 
 ## Troubleshooting
 
+If **Settings > Storage** says **Reconnection required**, use **Reconnect
+Google Drive** while signed in as an Administrator and approve the same Google
+account. Do not disconnect first: reconnecting replaces the saved OAuth grant
+while preserving Jota's existing Drive folder and file references. After the
+redirect, revisit Storage to confirm **Authorization verified**, then test a
+known file download. A saved connection alone does not prove the grant still
+works. If the status says **OAuth configuration needs attention**, check the
+server-side client ID and secret before retrying; keep the existing token
+encryption key unchanged.
+
 | Symptom | Check |
 | --- | --- |
 | Google says `redirect_uri_mismatch` | The Authorized redirect URI in Google Cloud and `GOOGLE_DRIVE_REDIRECT_URI` in `.env.local` must both be exactly `http://localhost:3000/api/google-drive/callback`. Check the port and trailing slash. |

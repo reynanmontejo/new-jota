@@ -72,15 +72,24 @@ export async function saveContentItem(formData: FormData) {
   const supabase = await createClient()
   let existingClientApprovalStatus: string | null = null
   let existingClientIssues: string | null = null
+  let existingStatus: string | null = null
+  let existingHandoffVersionId: string | null = null
   if (parsed.data.id) {
     const { data: existingItem, error: existingItemError } = await supabase.from("content_items")
-      .select("client_approval_status,client_issues")
+      .select("status,client_approval_status,client_issues,client_handoff_version_id")
       .eq("id", parsed.data.id)
       .is("deleted_at", null)
       .maybeSingle()
     if (existingItemError || !existingItem) redirect("/content?notice=failed")
     existingClientApprovalStatus = existingItem.client_approval_status
     existingClientIssues = existingItem.client_issues
+    existingStatus = existingItem.status
+    existingHandoffVersionId = existingItem.client_handoff_version_id
+  }
+  if (["scheduled", "published"].includes(parsed.data.status)
+    && existingStatus !== parsed.data.status
+    && (existingClientApprovalStatus !== "approved" || !existingHandoffVersionId)) {
+    redirect("/content?notice=client_approval_required")
   }
   let campaignId = parsed.data.campaignId
   if (!campaignId) {
@@ -132,6 +141,7 @@ export async function saveContentItem(formData: FormData) {
   if (result.error?.code === "42501") redirect("/content?notice=forbidden")
   if (result.error?.code === "PGRST202") redirect("/content?notice=content_migration_missing")
   if (result.error?.code === "23514") redirect("/content?notice=campaign_paused")
+  if (result.error?.code === "22023" && result.error.message.includes("Client approval is required")) redirect("/content?notice=client_approval_required")
   if (result.error?.code === "22023") redirect("/content?notice=invalid")
   if (result.error) redirect("/content?notice=failed")
   revalidatePath("/content")
@@ -253,12 +263,13 @@ export async function markScheduledContentPublished(contentId: string): Promise<
 
   const supabase = await createClient()
   const { data: item, error: loadError } = await supabase.from("content_items")
-    .select("id,client_id,campaign_id,title,platform,content_type,description,status,work_date,deadline_at,publish_at,client_approval_status,client_issues,notes,next_action,revision_notes,assigned_to")
+    .select("id,client_id,campaign_id,title,platform,content_type,description,status,work_date,deadline_at,publish_at,client_approval_status,client_handoff_version_id,client_issues,notes,next_action,revision_notes,assigned_to")
     .eq("id", parsedId.data)
     .is("deleted_at", null)
     .maybeSingle()
   if (loadError || !item) return { ok: false, error: "Could not find this content item or you do not have access to it." }
   if (item.status !== "scheduled") return { ok: false, error: "Only scheduled content can be marked as published." }
+  if (item.client_approval_status !== "approved" || !item.client_handoff_version_id) return { ok: false, error: "Record the client's approval before marking this content as published." }
 
   const { error } = await supabase.rpc("update_content_tracker_item_for_current_user", {
     p_content_id: item.id,
@@ -280,6 +291,7 @@ export async function markScheduledContentPublished(contentId: string): Promise<
     p_assigned_to: item.assigned_to,
   })
   if (error?.code === "42501") return { ok: false, error: "You do not have permission to update this content." }
+  if (error?.code === "22023" && error.message.includes("Client approval is required")) return { ok: false, error: "Record the client's approval before marking this content as published." }
   if (error) return { ok: false, error: "The content could not be marked as published. Please try again." }
 
   revalidatePath("/tasks")

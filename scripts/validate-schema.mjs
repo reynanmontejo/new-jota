@@ -39,6 +39,7 @@ const optionalClientTasksMigrationPath = "supabase/migrations/202610300002_optio
 const clientEditorExternalApprovalMigrationPath = "supabase/migrations/202610300003_client_editor_external_approval.sql"
 const explicitClientHandoffMigrationPath = "supabase/migrations/202610300004_explicit_client_handoff.sql"
 const contentReportingCategoriesMigrationPath = "supabase/migrations/202610310001_content_reporting_categories.sql"
+const clientApprovalPublicationGuardMigrationPath = "supabase/migrations/202610310002_client_approval_publication_guard.sql"
 const seedPath = "supabase/seed.sql"
 
 function normalizeMigrationForPGlite(migration) {
@@ -1303,10 +1304,10 @@ if (!unreviewedHandoffRejected) throw new Error("Content without internal approv
 
 let newWaitingClientRejected = false
 try {
-  await asUser(employeeOne, () => database.query(`select public.create_content_tracker_item_for_current_user(
+  await asUser(administrator, () => database.query(`select public.create_content_tracker_item_for_current_user(
     '30000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001',
     'Premature client handoff', 'Instagram', 'Static', null, 'waiting_client', null, null,
-    null, null, null, null, null, '${employeeOne}'
+    null, null, null, null, null, null
   )`))
 } catch (error) { newWaitingClientRejected = error?.code === "22023" }
 if (!newWaitingClientRejected) throw new Error("New content could start in Waiting for client without review")
@@ -1425,6 +1426,8 @@ try {
   await asUser(employeeOne, () => database.query(`select public.record_external_client_decision('50000000-0000-0000-0000-000000000001', 'approved', null)`))
 } catch (error) { repeatedClientResponseRejected = error?.code === "22023" }
 if (!repeatedClientResponseRejected) throw new Error("The same client response could be recorded twice")
+
+await verifyClientApprovalPublication()
 
 await asUser(employeeOne, () => database.query(`select public.register_notification_push_subscription_for_current_user(
   'https://fcm.googleapis.com/employee-one', repeat('p', 50), repeat('a', 24)
@@ -1718,6 +1721,83 @@ if (!categoryFunction?.security_definer
   throw new Error(`Content reporting category RPC grants or search path are unsafe: ${JSON.stringify(categoryFunction)}`)
 }
 
+async function verifyClientApprovalPublication() {
+await database.exec(await fs.readFile(clientApprovalPublicationGuardMigrationPath, "utf8"))
+const importGrants = await database.query(`
+  select has_function_privilege('authenticated', 'public.import_content_items_for_current_user(jsonb)', 'execute') as can_import,
+    has_function_privilege('authenticated', 'private.import_content_items_for_current_user(jsonb)', 'execute') as can_call_impl
+`)
+if (importGrants.rows[0]?.can_import !== true || importGrants.rows[0]?.can_call_impl !== false) {
+  throw new Error("Historical import implementation is directly callable or its public wrapper is inaccessible")
+}
+
+let prematurePublicationRejected = false
+try {
+  await asUser(employeeOne, () => database.query(`select public.create_content_tracker_item_for_current_user(
+    '30000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001',
+    'Unapproved new publication', 'Instagram', 'Static', null, 'scheduled', null, null,
+    null, null, null, null, null, '${employeeOne}'
+  )`))
+} catch (error) { prematurePublicationRejected = error?.code === "22023" }
+if (!prematurePublicationRejected) throw new Error("A new unapproved item could be scheduled")
+
+const plannedPublicationId = await asUser(employeeOne, async () => (await database.query(`
+  select public.create_content_tracker_item_for_current_user(
+    '30000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001',
+    'Unapproved transition', 'Instagram', 'Static', null, 'planned', null, null,
+    null, null, null, null, null, null
+  ) as id
+`)).rows[0]?.id)
+let unapprovedTransitionRejected = false
+try {
+  await asUser(employeeOne, () => database.query(`select public.update_content_tracker_item_for_current_user(
+    '${plannedPublicationId}', '30000000-0000-0000-0000-000000000001',
+    '40000000-0000-0000-0000-000000000001', 'Unapproved transition', 'Instagram', 'Static',
+    null, 'scheduled', null, null, null, null, null, null, null, null, null
+  )`))
+} catch (error) { unapprovedTransitionRejected = error?.code === "22023" }
+if (!unapprovedTransitionRejected) throw new Error("An unapproved item could transition to Scheduled")
+
+const historicalPublishedRow = { ...importRow, title: "Historical published import", status: "published", client_approval_status: null, assigned_to: null }
+const historicalPublishedImport = await asUser(employeeOne, async () => (await database.query(
+  "select public.import_content_items_for_current_user($1::jsonb) as result",
+  [JSON.stringify([historicalPublishedRow])],
+)).rows[0]?.result)
+if (historicalPublishedImport?.created !== 1) throw new Error("Historical published content import was blocked")
+const historicalPublishedId = (await database.query(`select id from public.content_items where title = 'Historical published import'`)).rows[0]?.id
+await asUser(employeeOne, () => database.query(`select public.update_content_tracker_item_for_current_user(
+  '${historicalPublishedId}', '30000000-0000-0000-0000-000000000001',
+  '40000000-0000-0000-0000-000000000001', 'Historical published import', 'Instagram',
+  'Static graphic', null, 'published', null, null, null, null, 'Waiting on product image', 'Edited historical note',
+  null, null, null
+)`))
+let historicalApprovalBypassRejected = false
+try {
+  await database.query(`update public.content_items set status = 'scheduled' where id = '${historicalPublishedId}'`)
+} catch (error) { historicalApprovalBypassRejected = error?.code === "22023" }
+if (!historicalApprovalBypassRejected) throw new Error("A historical unapproved item could change publication status")
+
+await database.query(`update public.content_submissions set status = 'submitted', approved_at = null
+  where content_item_id = '50000000-0000-0000-0000-000000000001'`)
+let outdatedClientApprovalRejected = false
+try {
+  await database.query(`update public.content_items set status = 'scheduled'
+    where id = '50000000-0000-0000-0000-000000000001'`)
+} catch (error) { outdatedClientApprovalRejected = error?.code === "22023" }
+await database.query(`update public.content_submissions set status = 'approved', approved_at = now()
+  where content_item_id = '50000000-0000-0000-0000-000000000001'`)
+if (!outdatedClientApprovalRejected) throw new Error("An approval of an outdated review version allowed scheduling")
+
+await database.query(`update public.content_items set status = 'scheduled' where id = '50000000-0000-0000-0000-000000000001'`)
+await database.query(`update public.content_items set status = 'published' where id = '50000000-0000-0000-0000-000000000001'`)
+const approvedPublication = await database.query(`select ci.status::text as content_status, t.status::text as task_status
+  from public.content_items ci join public.tasks t on t.content_item_id = ci.id
+  where ci.id = '50000000-0000-0000-0000-000000000001' and t.id = '${linkedContentTaskId}'`)
+if (approvedPublication.rows[0]?.content_status !== "published" || approvedPublication.rows[0]?.task_status !== "todo") {
+  throw new Error("Approved publication failed or incorrectly completed its linked task")
+}
+}
+
 const tableResult = await database.query(
   "select count(*)::int as count from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE'",
 )
@@ -1753,5 +1833,5 @@ if (policyCount !== 37 || postMutationCount !== 3) {
   throw new Error(`Unexpected policy or task mutation coverage: ${policyCount} policies, employee sees ${postMutationCount} tasks`)
 }
 
-console.log(`Schema validated: ${migrationFiles.length} migrations applied in filename order, ${tableCount} tables, task assignment/review/comment/due notifications, password-change notifications, opt-in email notification queue and service-only claim RPC, private push subscriptions and service-only delivery queue, authenticated push-dispatch access denied, queue-triggered dispatch and five-minute recovery cron, missing dispatch configuration does not block in-app notifications, notification RLS/RPCs/triggers, content workflow/import/campaign/content-review/archive/restore RLS and RPCs, immutable task/content versions and decisions, private Drive token/folder tables, client platforms, multi-manager ownership, client status and recoverable Trash, employee provisioning and Trash, profile photo storage policies, service-only password-change requests, first-admin bootstrap, profile updates, reporting-category ACL/client/inactive-user checks, and ${policyCount} policies.`)
+console.log(`Schema validated: ${migrationFiles.length} migrations applied in filename order, ${tableCount} tables, task assignment/review/comment/due notifications, password-change notifications, opt-in email notification queue and service-only claim RPC, private push subscriptions and service-only delivery queue, authenticated push-dispatch access denied, queue-triggered dispatch and five-minute recovery cron, missing dispatch configuration does not block in-app notifications, notification RLS/RPCs/triggers, content workflow/import/campaign/content-review/archive/restore and client-approved publication guards, historical CSV imports, immutable task/content versions and decisions, private Drive token/folder tables, client platforms, multi-manager ownership, client status and recoverable Trash, employee provisioning and Trash, profile photo storage policies, service-only password-change requests, first-admin bootstrap, profile updates, reporting-category ACL/client/inactive-user checks, and ${policyCount} policies.`)
 await database.close()

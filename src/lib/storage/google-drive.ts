@@ -18,6 +18,12 @@ type Connection = {
 }
 const accessTokenCache = new Map<string, { token: string; expiresAt: number }>()
 
+class DriveAuthorizationError extends Error {
+  constructor(readonly reason: "reauthorization_required" | "configuration_error", message: string) {
+    super(message)
+  }
+}
+
 export function getDriveConfig() {
   const clientId = process.env.GOOGLE_DRIVE_CLIENT_ID
   const clientSecret = process.env.GOOGLE_DRIVE_CLIENT_SECRET
@@ -103,6 +109,9 @@ export async function finishGoogleAuthorization(code: string, organizationId: st
     updated_at: new Date().toISOString(),
   })
   if (error) throw new Error("Could not securely save the Google Drive connection")
+  // A previous connection may still have an access token cached in this process.
+  // Never use it after replacing the refresh grant.
+  accessTokenCache.delete(organizationId)
 }
 
 async function getConnection(organizationId: string) {
@@ -117,22 +126,41 @@ export async function getGoogleDriveStatus(organizationId: string) {
   return connection ? { connected: true as const, email: connection.google_email } : { connected: false as const, email: null }
 }
 
-async function getAccessToken(connection: Connection) {
+export async function verifyGoogleDriveConnection(organizationId: string) {
+  const connection = await getConnection(organizationId)
+  if (!connection) return { connected: false as const, email: null, health: "disconnected" as const }
+  try {
+    // A cached access token can outlive a revoked refresh grant. Force an
+    // exchange here, but only on the administrator's storage settings page.
+    await getAccessToken(connection, true)
+    return { connected: true as const, email: connection.google_email, health: "ready" as const }
+  } catch (error) {
+    return {
+      connected: true as const,
+      email: connection.google_email,
+      health: error instanceof DriveAuthorizationError ? error.reason : "unavailable" as const,
+    }
+  }
+}
+
+async function getAccessToken(connection: Connection, forceRefresh = false) {
   const cached = accessTokenCache.get(connection.organization_id)
-  if (cached && cached.expiresAt - 60_000 > Date.now()) return cached.token
+  if (!forceRefresh && cached && cached.expiresAt - 60_000 > Date.now()) return cached.token
   const config = getDriveConfig()
-  if (!config) throw new Error("Google Drive OAuth environment is not configured")
+  if (!config) throw new DriveAuthorizationError("configuration_error", "Google Drive OAuth environment is not configured")
   const response = await fetch(TOKEN_API, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ client_id: config.clientId, client_secret: config.clientSecret, refresh_token: decryptToken(connection), grant_type: "refresh_token" }),
     cache: "no-store",
+    signal: forceRefresh ? AbortSignal.timeout(5_000) : undefined,
   })
   const payload = await response.json() as { access_token?: string; expires_in?: number; error?: string }
   if (!response.ok || !payload.access_token) {
+    accessTokenCache.delete(connection.organization_id)
     console.error("[Google Drive token refresh failed]", { status: response.status, error: payload.error ?? "unknown" })
-    if (payload.error === "invalid_grant") throw new Error("Google Drive refresh access was revoked or expired. An administrator must reconnect the approved account.")
-    if (payload.error === "invalid_client") throw new Error("Google rejected the configured OAuth client. An administrator must verify the server-side client ID and secret.")
+    if (payload.error === "invalid_grant") throw new DriveAuthorizationError("reauthorization_required", "Google Drive refresh access was revoked or expired. An administrator must reconnect the approved account.")
+    if (payload.error === "invalid_client") throw new DriveAuthorizationError("configuration_error", "Google rejected the configured OAuth client. An administrator must verify the server-side client ID and secret.")
     throw new Error("Google Drive authorization could not be refreshed. An administrator must reconnect or check the OAuth configuration.")
   }
   accessTokenCache.set(connection.organization_id, { token: payload.access_token, expiresAt: Date.now() + Math.max(60, payload.expires_in ?? 3600) * 1000 })

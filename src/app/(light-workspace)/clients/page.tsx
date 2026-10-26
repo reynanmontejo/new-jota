@@ -90,30 +90,45 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
       return <DashboardShell><main className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:px-8"><ContentState variant="error" title="Account manager names couldn’t be loaded" description="Refresh and try again. Your client records have not been changed." /></main></DashboardShell>
     }
     const managerNames = new Map((managerProfiles.data ?? []).map((profile) => [profile.id, profile.display_name]))
+    const campaignCounts = new Map<string, number>()
+    for (const campaign of campaignResult.data ?? []) {
+      campaignCounts.set(campaign.client_id, (campaignCounts.get(campaign.client_id) ?? 0) + 1)
+    }
+    const openTaskCounts = new Map<string, number>()
+    for (const task of taskResult.data ?? []) {
+      if (!["approved", "completed", "cancelled"].includes(task.status)) {
+        openTaskCounts.set(task.client_id, (openTaskCounts.get(task.client_id) ?? 0) + 1)
+      }
+    }
+    const accountManagersByClient = new Map<string, NonNullable<ClientDirectoryItem["accountManagers"]>>()
+    for (const member of managerMemberships) {
+      const name = managerNames.get(member.user_id)
+      if (!name) continue
+      const managers = accountManagersByClient.get(member.client_id) ?? []
+      managers.push({ id: member.user_id, name, isPrimary: member.is_primary })
+      accountManagersByClient.set(member.client_id, managers)
+    }
 
     clients = rows.map((client) => ({
       ...client,
-      campaignCount: campaignResult.data?.filter((campaign) => campaign.client_id === client.id).length ?? 0,
-      openTaskCount: taskResult.data?.filter((task) => task.client_id === client.id && !["approved", "completed", "cancelled"].includes(task.status)).length ?? 0,
+      campaignCount: campaignCounts.get(client.id) ?? 0,
+      openTaskCount: openTaskCounts.get(client.id) ?? 0,
       primaryAccountManager: (() => {
-        const owner = managerMemberships.find((member) => member.client_id === client.id && member.is_primary)
-        const name = owner ? managerNames.get(owner.user_id) : undefined
-        return owner && name ? { id: owner.user_id, name } : null
+        const owner = accountManagersByClient.get(client.id)?.find((member) => member.isPrimary)
+        return owner ? { id: owner.id, name: owner.name } : null
       })(),
-      accountManagers: managerMemberships.filter((member) => member.client_id === client.id)
-        .flatMap((member) => {
-          const name = managerNames.get(member.user_id)
-          return name ? [{ id: member.user_id, name, isPrimary: member.is_primary }] : []
-        }),
+      accountManagers: accountManagersByClient.get(client.id) ?? [],
     }))
-    const clientNames = new Map(rows.map((client) => [client.id, client.name]))
-    const storageActor = await getStorageActor()
-    const canManageAllFiles = storageActor ? await hasStoragePermission(storageActor, ["storage.manage"]) : false
-    recentFiles = ((recentFileResult.data ?? []) as unknown as { id: string; client_id: string; file_name: string; mime_type: string; size_bytes: number; created_at: string; task_id: string | null; uploaded_by: string }[])
-      .flatMap((file) => {
-        const clientName = clientNames.get(file.client_id)
-        return [{ id: file.id, clientId: file.client_id, clientName: clientName ?? "Accessible task", canBrowseClient: Boolean(clientName), canTrash: canManageAllFiles || file.uploaded_by === storageActor?.userId, fileName: file.file_name, mimeType: file.mime_type, sizeBytes: file.size_bytes, createdAt: file.created_at, taskId: file.task_id }]
-      })
+    if (initialTab === "files" && initialView === "active") {
+      const clientNames = new Map(rows.map((client) => [client.id, client.name]))
+      const storageActor = await getStorageActor()
+      const canManageAllFiles = storageActor ? await hasStoragePermission(storageActor, ["storage.manage"]) : false
+      recentFiles = ((recentFileResult.data ?? []) as unknown as { id: string; client_id: string; file_name: string; mime_type: string; size_bytes: number; created_at: string; task_id: string | null; uploaded_by: string }[])
+        .map((file) => {
+          const clientName = clientNames.get(file.client_id)
+          return { id: file.id, clientId: file.client_id, clientName: clientName ?? "Accessible task", canBrowseClient: Boolean(clientName), canTrash: canManageAllFiles || file.uploaded_by === storageActor?.userId, fileName: file.file_name, mimeType: file.mime_type, sizeBytes: file.size_bytes, createdAt: file.created_at, taskId: file.task_id }
+        })
+    }
   }
 
   return <DashboardShell><ClientDirectory clients={clients} recentFiles={recentFiles} trashedClients={trashedClients} canManageTrash={canManageTrash} canCreate={canCreate} notice={typeof params.notice === "string" ? params.notice : undefined} initialTab={initialTab} initialView={initialView} /></DashboardShell>

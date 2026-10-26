@@ -104,6 +104,23 @@ describe("unified content tracker", () => {
     expect(screen.getByRole("button", { name: "Save category" })).toBeInTheDocument()
   })
 
+  it("offers scheduling only after the latest reviewed version has client approval", () => {
+    const renderEditor = (item: TrackerItem) => render(<ContentTracker
+      clients={[]} campaigns={[]} assignees={{}} items={[item]} canCreate={false} canEdit
+      canCreateTask={false} currentUserId="user-1" canAssignContent={false}
+    />)
+    const unapproved = renderEditor(items[0])
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }))
+    expect(screen.getByRole("combobox", { name: /^Status/ }).querySelector('option[value="scheduled"]')).toBeNull()
+    expect(screen.getByRole("combobox", { name: /^Status/ }).querySelector('option[value="published"]')).toBeNull()
+    unapproved.unmount()
+
+    renderEditor({ ...items[0], client_approval_status: "approved", client_handoff_version_id: "version-2", latest_approved_version_id: "version-2" })
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }))
+    expect(screen.getByRole("combobox", { name: /^Status/ }).querySelector('option[value="scheduled"]')).not.toBeNull()
+    expect(screen.getByRole("combobox", { name: /^Status/ }).querySelector('option[value="published"]')).not.toBeNull()
+  })
+
   it("archives an item with an undo option and restores it", async () => {
     actionMocks.archiveContentItem.mockResolvedValue({ ok: true })
     actionMocks.restoreContentItem.mockResolvedValue({ ok: true })

@@ -99,6 +99,18 @@ export function ContentCalendar({ contentPosts, contentError = false, clientId }
     ? filterContentByOwner(visibleScheduledContent, contentOwnerFilter, currentUser.id)
     : visibleScheduledContent
   const scheduledEvents = ownerFilteredContent.map((item) => ({ ...item, date: scheduledDateKey(item.date) }))
+  const scheduledEventsByDate = new Map<string, typeof scheduledEvents>()
+  for (const item of scheduledEvents) {
+    const events = scheduledEventsByDate.get(item.date) ?? []
+    events.push(item)
+    scheduledEventsByDate.set(item.date, events)
+  }
+  const deadlinesByDate = new Map<string, typeof deadlines>()
+  for (const item of deadlines) {
+    const events = deadlinesByDate.get(item.date) ?? []
+    events.push(item)
+    deadlinesByDate.set(item.date, events)
+  }
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [detailsMinimized, setDetailsMinimized] = useState(false)
   const selectedPosts = selectedDate ? scheduledEvents.filter((item) => item.date === selectedDate) : []
@@ -151,8 +163,8 @@ export function ContentCalendar({ contentPosts, contentError = false, clientId }
             {Array.from({ length: daysInMonth }, (_, index) => {
               const day = index + 1
               const date = dateKey(new Date(month.getFullYear(), month.getMonth(), day))
-              const posts = scheduledEvents.filter((item) => item.date === date)
-              const due = deadlines.filter((item) => item.date === date)
+              const posts = scheduledEventsByDate.get(date) ?? []
+              const due = deadlinesByDate.get(date) ?? []
               const dayEvents = [
                 ...posts.map((post) => ({ key: `content-${post.id}`, title: post.title, urgency: post.eventType === "deadline" ? getDeadlineUrgency(date) : null as DeadlineUrgency | null, taskId: null as string | null, detail: `${post.eventType === "deadline" ? "Content deadline" : "Publish"}: ${post.title} · ${post.client} · ${post.channel}` })),
                 ...due.map(({ task }) => ({ key: `task-${task.id}`, title: task.title, urgency: getDeadlineUrgency(date), taskId: task.id, detail: `${getDeadlineUrgency(date)} task deadline: ${task.title}` })),

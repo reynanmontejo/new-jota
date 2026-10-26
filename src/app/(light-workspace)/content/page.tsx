@@ -19,14 +19,18 @@ export default async function ContentPage({ searchParams }: { searchParams: Prom
   const { supabase } = context
   const canAssignContent = context.roles.some((role) => ["supervisor", "administrator"].includes(role.code))
 
-  const { data: permissions, error: permissionError } = await supabase.from("role_permissions").select("permission_code").eq("organization_id", context.organizationId).in("role_id", context.roleIds).in("permission_code", ["content.create", "content.update", "tasks.create"])
+  const [permissionResult, clientsResult] = await Promise.all([
+    supabase.from("role_permissions").select("permission_code").eq("organization_id", context.organizationId).in("role_id", context.roleIds).in("permission_code", ["content.create", "content.update", "tasks.create"]),
+    supabase.from("clients").select("id,name").is("deleted_at", null).order("name"),
+  ])
+  const { data: permissions, error: permissionError } = permissionResult
   if (permissionError) return <DashboardShell><main className="mx-auto max-w-6xl px-4 py-6"><ContentState variant="error" title="Content permissions couldn’t be loaded" description="Refresh the page. No content was changed." /></main></DashboardShell>
   const canCreate = Boolean(permissions?.some((permission) => permission.permission_code === "content.create"))
   const canEdit = Boolean(permissions?.some((permission) => permission.permission_code === "content.update"))
   const canCreateTask = Boolean(permissions?.some((permission) => permission.permission_code === "tasks.create"))
   if (isArchivedView && !canEdit) redirect("/access-denied")
 
-  const { data: clientsData, error: clientsError } = await supabase.from("clients").select("id,name").is("deleted_at", null).order("name")
+  const { data: clientsData, error: clientsError } = clientsResult
   if (clientsError) return <DashboardShell><main className="mx-auto max-w-6xl px-4 py-6"><ContentState variant="error" title="Clients couldn’t be loaded for the tracker" description="Check your client access, then refresh. No records were changed." /></main></DashboardShell>
   const clients = (clientsData ?? []) as TrackerClient[]
   const clientIds = clients.map((client) => client.id)
@@ -50,18 +54,22 @@ export default async function ContentPage({ searchParams }: { searchParams: Prom
   const memberRows = (membersResult.data ?? []) as Array<{ client_id: string; user_id: string; client_role: string }>
   const accountManagerClientIds = memberRows.filter((member) => member.user_id === context.userId && member.client_role === "account_manager").map((member) => member.client_id)
   const contentIds = (contentResult.data ?? []).map((item) => item.id)
-  const { data: submissionRows, error: submissionError } = !isArchivedView && contentIds.length
-    ? await supabase.from("content_submissions").select("id,content_item_id,status,current_version_number,content_submission_versions(id,version_number)").in("content_item_id", contentIds).eq("status", "approved")
-    : { data: [], error: null }
+  const memberIds = [...new Set(memberRows.map((member) => member.user_id))]
+  const [submissionResult, memberProfilesResult] = await Promise.all([
+    !isArchivedView && contentIds.length
+      ? supabase.from("content_submissions").select("id,content_item_id,status,current_version_number,content_submission_versions(id,version_number)").in("content_item_id", contentIds).eq("status", "approved")
+      : Promise.resolve({ data: [], error: null }),
+    memberIds.length
+      ? supabase.from("profiles").select("id,display_name,status,deactivated_at").in("id", memberIds)
+      : Promise.resolve({ data: [], error: null }),
+  ])
+  const { data: submissionRows, error: submissionError } = submissionResult
   if (submissionError) return <DashboardShell><main className="mx-auto max-w-6xl px-4 py-6"><ContentState variant="error" title="Content review state couldn’t be loaded" description="Refresh the page. No records were changed." /></main></DashboardShell>
   const approvedVersionByContent = new Map((submissionRows ?? []).flatMap((submission) => {
     const latest = submission.content_submission_versions?.find((version) => version.version_number === submission.current_version_number)
     return latest ? [[submission.content_item_id, latest.id] as const] : []
   }))
-  const memberIds = [...new Set(memberRows.map((member) => member.user_id))]
-  const { data: memberProfiles, error: memberProfilesError } = memberIds.length
-    ? await supabase.from("profiles").select("id,display_name,status,deactivated_at").in("id", memberIds)
-    : { data: [], error: null }
+  const { data: memberProfiles, error: memberProfilesError } = memberProfilesResult
   if (memberProfilesError) return <DashboardShell><main className="mx-auto max-w-6xl px-4 py-6"><ContentState variant="error" title="Collaborator profiles couldn’t be loaded" description="Refresh the page. Content records have not been changed." /></main></DashboardShell>
   const assigneeById = new Map((memberProfiles ?? []).filter((profile) => profile.status === "active" && !profile.deactivated_at).map((profile) => [profile.id, { id: profile.id, display_name: profile.display_name }]))
   const assignees: Record<string, TrackerAssignee[]> = {}
