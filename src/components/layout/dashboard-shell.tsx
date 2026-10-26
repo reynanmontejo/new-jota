@@ -4,7 +4,7 @@ import { LoaderCircle, Plus, Search, Settings } from "lucide-react"
 import Link from "next/link"
 import dynamic from "next/dynamic"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
+import { Suspense, createContext, useCallback, useContext, useEffect, useMemo, useState } from "react"
 
 import { AppSidebar } from "@/components/layout/app-sidebar"
 import { MobileNavigation } from "@/components/layout/mobile-navigation"
@@ -36,11 +36,19 @@ type DashboardShellProps = {
   compact?: boolean
 }
 
+const DashboardShellContext = createContext(false)
+
 export function DashboardShell({ children, compact = false }: DashboardShellProps) {
+  const shellPresent = useContext(DashboardShellContext)
+  const pathname = usePathname()
+  if (shellPresent) return <>{children}</>
+  const shellCompact = compact || pathname === "/"
   return (
-    <Suspense fallback={<DashboardShellFallback compact={compact}>{children}</DashboardShellFallback>}>
-      <DashboardShellContent compact={compact}>{children}</DashboardShellContent>
-    </Suspense>
+    <DashboardShellContext.Provider value={true}>
+      <Suspense fallback={<DashboardShellFallback compact={shellCompact}>{children}</DashboardShellFallback>}>
+        <DashboardShellContent compact={shellCompact}>{children}</DashboardShellContent>
+      </Suspense>
+    </DashboardShellContext.Provider>
   )
 }
 

@@ -9,10 +9,31 @@ vi.mock("next/navigation", () => ({
 
 import { WorkflowProvider } from "@/features/workflow/workflow-provider"
 import { TaskDrawerProvider } from "@/features/tasks/task-drawer"
+import { DashboardShell } from "@/components/layout/dashboard-shell"
 import type { WorkflowTask } from "@/features/workflow/types"
-import Home from "./(workspace)/page"
+import Home from "./(app)/(workspace)/page"
 
 afterEach(cleanup)
+
+it("keeps one sidebar mounted while the page content changes", () => {
+  const page = (label: string) => (
+    <WorkflowProvider>
+      <TaskDrawerProvider>
+        <DashboardShell>
+          <DashboardShell><main>{label}</main></DashboardShell>
+        </DashboardShell>
+      </TaskDrawerProvider>
+    </WorkflowProvider>
+  )
+
+  const view = render(page("First page"))
+  fireEvent.click(screen.getByRole("button", { name: "Minimize sidebar" }))
+  view.rerender(page("Second page"))
+
+  expect(screen.getByText("Second page")).toBeInTheDocument()
+  expect(screen.getByRole("button", { name: "Expand sidebar" })).toBeInTheDocument()
+  expect(screen.getAllByRole("navigation", { name: "Primary navigation" })).toHaveLength(1)
+})
 
 function renderDashboard() {
   return render(
