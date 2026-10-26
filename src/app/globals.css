@@ -569,7 +569,39 @@
   }
 }
 
+@keyframes calendar-month-arrive {
+  from { opacity: 0.55; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.calendar-month-enter {
+  animation: calendar-month-arrive 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.calendar-details-panel {
+  transition: opacity 240ms ease-out, transform 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@starting-style {
+  .calendar-details-panel:not([data-closing]) {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+}
+
+.calendar-details-panel[data-closing] {
+  opacity: 0;
+  transform: translateX(16px);
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .calendar-month-enter,
+  .calendar-details-panel {
+    animation: none;
+    transition: none;
+    transform: none;
+  }
+
   .iso-card,
   .iso-tile,
   .sticky-note {

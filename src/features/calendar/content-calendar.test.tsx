@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { ContentCalendar, filterContentByOwner, getCalendarDayPreview, getDeadlineUrgency } from "@/features/calendar/content-calendar"
@@ -55,7 +55,7 @@ describe("ContentCalendar", () => {
     expect(screen.getByRole("region", { name: "November 2026 calendar" })).toBeInTheDocument()
   })
 
-  it("opens scheduled content details when its date is selected", () => {
+  it("opens scheduled content details when its date is selected", async () => {
     const today = new Date()
     const date = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`
     const month = new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" }).format(today)
@@ -81,7 +81,7 @@ describe("ContentCalendar", () => {
 
     expect(dateButton).toHaveAttribute("aria-pressed", "true")
     const details = screen.getByRole("region", { name: `Details for ${dateLabel}` })
-    expect(details.parentElement).toHaveClass("lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]")
+    expect(details.parentElement).toHaveClass("lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]")
     expect(details).toHaveTextContent("October launch carousel")
     expect(details).toHaveTextContent("Northwind Coffee · Instagram · Carousel")
     expect(details).toHaveTextContent("Show the seasonal menu.")
@@ -89,10 +89,11 @@ describe("ContentCalendar", () => {
     expect(details).toHaveTextContent("Use the approved brand colors.")
 
     fireEvent.click(screen.getByRole("button", { name: "Close" }))
-    expect(screen.queryByRole("region", { name: `Details for ${dateLabel}` })).not.toBeInTheDocument()
+    expect(details).toHaveAttribute("data-closing", "true")
+    await waitFor(() => expect(screen.queryByRole("region", { name: `Details for ${dateLabel}` })).not.toBeInTheDocument())
   })
 
-  it("shows a view-more control for crowded days and supports minimizing the side details", () => {
+  it("shows a view-more control for crowded days and supports minimizing the side details", async () => {
     const today = new Date()
     const date = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`
     const dateLabel = new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" }).format(new Date(`${date}T12:00:00`))
@@ -122,6 +123,6 @@ describe("ContentCalendar", () => {
     expect(details).toHaveTextContent("Fourth post")
 
     fireEvent.click(screen.getByRole("button", { name: "Close" }))
-    expect(screen.queryByRole("region", { name: `Details for ${dateLabel}` })).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByRole("region", { name: `Details for ${dateLabel}` })).not.toBeInTheDocument())
   })
 })

@@ -29,11 +29,15 @@ export function CalendarWorkspace({ monthKey, contentPosts, contentError = false
           )}
         </div>
       )}
-      {monthPending && <p role="status" aria-live="polite" className="mx-auto max-w-[1480px] pt-2 text-xs text-muted-foreground">Loading calendar month…</p>}
-      <ContentCalendar key={monthKey} monthKey={monthKey} onMonthChange={(nextMonth) => {
-        if (nextMonth === monthKey) return
-        startMonthTransition(() => router.push(`/calendar?month=${encodeURIComponent(nextMonth)}`, { scroll: false }))
-      }} contentPosts={contentPosts} contentError={contentError} />
+      <div className="relative" aria-busy={monthPending}>
+        {monthPending && <p role="status" aria-live="polite" className="absolute right-2 top-1 z-20 rounded-full border bg-background/95 px-3 py-1.5 text-xs text-muted-foreground shadow-sm">Loading calendar month…</p>}
+        <div className={`transition-opacity duration-200 motion-reduce:transition-none ${monthPending ? "pointer-events-none opacity-60" : ""}`}>
+          <ContentCalendar key={monthKey} monthKey={monthKey} onMonthChange={(nextMonth) => {
+            if (nextMonth === monthKey) return
+            startMonthTransition(() => router.push(`/calendar?month=${encodeURIComponent(nextMonth)}`, { scroll: false }))
+          }} contentPosts={contentPosts} contentError={contentError} />
+        </div>
+      </div>
     </>
   )
 }

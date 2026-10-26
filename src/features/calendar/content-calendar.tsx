@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { CalendarDays, ChevronLeft, ChevronRight, CircleCheck } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -115,6 +115,9 @@ export function ContentCalendar({ contentPosts, contentError = false, clientId, 
   }
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [detailsMinimized, setDetailsMinimized] = useState(false)
+  const [detailsClosing, setDetailsClosing] = useState(false)
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => { if (closeTimer.current) clearTimeout(closeTimer.current) }, [])
   const selectedPosts = selectedDate ? scheduledEvents.filter((item) => item.date === selectedDate) : []
   const selectedDeadlines = selectedDate ? deadlines.filter((item) => item.date === selectedDate) : []
   const selectedDateLabel = selectedDate
@@ -127,15 +130,33 @@ export function ContentCalendar({ contentPosts, contentError = false, clientId, 
   ].sort((a, b) => a.date.localeCompare(b.date))
 
   function changeMonth(offset: number) {
+    if (closeTimer.current) clearTimeout(closeTimer.current)
     setSelectedDate(null)
     setDetailsMinimized(false)
+    setDetailsClosing(false)
     if (monthKey && onMonthChange) onMonthChange(shiftCalendarMonth(monthKey, offset))
     else setLocalMonth((current) => new Date(current.getFullYear(), current.getMonth() + offset, 1))
   }
 
   function selectDate(date: string) {
+    if (closeTimer.current) clearTimeout(closeTimer.current)
     setSelectedDate(date)
     setDetailsMinimized(false)
+    setDetailsClosing(false)
+  }
+
+  function closeDetails() {
+    if (closeTimer.current) clearTimeout(closeTimer.current)
+    if (typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setSelectedDate(null)
+      return
+    }
+    setDetailsClosing(true)
+    closeTimer.current = setTimeout(() => {
+      setSelectedDate(null)
+      setDetailsClosing(false)
+      closeTimer.current = null
+    }, 240)
   }
 
   return (
@@ -158,7 +179,7 @@ export function ContentCalendar({ contentPosts, contentError = false, clientId, 
         <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-sm bg-primary/55" />Scheduled content</span>
         {(Object.entries(deadlineStyles) as [DeadlineUrgency, typeof deadlineStyles[DeadlineUrgency]][]).map(([urgency, style]) => <span key={urgency} className="inline-flex items-center gap-1.5"><span className={`size-2 rounded-sm ${style.dateClassName}`} />{style.legendLabel}</span>)}
       </div>
-      <div className={`mt-4 grid min-w-0 grid-cols-1 items-start gap-3 ${selectedDate ? detailsMinimized ? "lg:grid-cols-[minmax(0,1fr)_4rem]" : "lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]" : ""}`}>
+      <div key={monthPrefix} className={`calendar-month-enter mt-4 grid min-w-0 grid-cols-1 items-start gap-3 transition-[grid-template-columns,column-gap] duration-300 ease-out motion-reduce:transition-none ${selectedDate && !detailsClosing ? detailsMinimized ? "lg:grid-cols-[minmax(0,1fr)_4rem]" : "lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]" : "lg:grid-cols-[minmax(0,1fr)_0fr] lg:gap-x-0"}`}>
         <section aria-label={`${monthLabel} calendar`} className="overview-panel hidden min-w-0 overflow-hidden rounded-lg border md:block">
           <div className="grid grid-cols-7 border-b bg-secondary/15 text-center text-[11px] font-semibold text-muted-foreground">{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <div key={day} className="py-2">{day}</div>)}</div>
           <div className="grid grid-cols-7">
@@ -197,15 +218,15 @@ export function ContentCalendar({ contentPosts, contentError = false, clientId, 
           </button>
         ))}
         </section>
-        {selectedDate && <section aria-label={`Details for ${selectedDateLabel}`} className={`overview-panel min-w-0 rounded-lg border ${detailsMinimized ? "flex items-center justify-between gap-2 p-2 lg:flex-col lg:justify-start" : "p-4 lg:max-h-[calc(100vh-5rem)] lg:overflow-y-auto"}`} aria-live="polite">
+        {selectedDate && <section aria-label={`Details for ${selectedDateLabel}`} data-closing={detailsClosing || undefined} className={`calendar-details-panel overview-panel min-w-0 rounded-lg border ${detailsClosing ? "pointer-events-none lg:overflow-hidden" : ""} ${detailsMinimized ? "flex items-center justify-between gap-2 p-2 lg:flex-col lg:justify-start" : "p-4 lg:max-h-[calc(100vh-5rem)] lg:overflow-y-auto"}`} aria-live="polite">
         {detailsMinimized ? <>
           <span className="min-w-0 truncate text-xs font-medium lg:hidden">{selectedDateLabel}</span>
           <Button variant="outline" size="sm" onClick={() => setDetailsMinimized(false)} aria-label={`Expand details for ${selectedDateLabel}`}>Expand</Button>
-          <Button variant="ghost" size="sm" onClick={() => setSelectedDate(null)}>Close</Button>
+          <Button variant="ghost" size="sm" onClick={closeDetails}>Close</Button>
         </> : <>
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-start gap-2.5"><CalendarDays className="mt-0.5 size-4 text-primary" aria-hidden="true" /><div><h2 className="text-sm font-semibold">{selectedDateLabel}</h2><p className="mt-0.5 text-xs text-muted-foreground">{selectedPosts.length + selectedDeadlines.length ? `${selectedPosts.length + selectedDeadlines.length} item${selectedPosts.length + selectedDeadlines.length === 1 ? "" : "s"} scheduled` : "Nothing scheduled"}</p></div></div>
-          <div className="flex shrink-0 items-center gap-1"><Button variant="ghost" size="sm" onClick={() => setDetailsMinimized(true)}>Minimize</Button><Button variant="ghost" size="sm" onClick={() => setSelectedDate(null)}>Close</Button></div>
+          <div className="flex shrink-0 items-center gap-1"><Button variant="ghost" size="sm" onClick={() => setDetailsMinimized(true)}>Minimize</Button><Button variant="ghost" size="sm" onClick={closeDetails}>Close</Button></div>
         </div>
         {(selectedPosts.length > 0 || selectedDeadlines.length > 0) && <div className="mt-3 divide-y rounded-md border">
           {selectedPosts.map((post) => {
