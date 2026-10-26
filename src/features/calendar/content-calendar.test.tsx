@@ -42,6 +42,19 @@ describe("calendar day preview", () => {
 })
 
 describe("ContentCalendar", () => {
+  it("follows the selected URL month and requests another month without showing stale content", () => {
+    const onMonthChange = vi.fn()
+    const { rerender } = render(<ContentCalendar contentPosts={[]} monthKey="2026-10" onMonthChange={onMonthChange} />)
+
+    expect(screen.getByRole("region", { name: "October 2026 calendar" })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Next month" }))
+    expect(onMonthChange).toHaveBeenCalledWith("2026-11")
+    expect(screen.getByRole("region", { name: "October 2026 calendar" })).toBeInTheDocument()
+
+    rerender(<ContentCalendar contentPosts={[]} monthKey="2026-11" onMonthChange={onMonthChange} />)
+    expect(screen.getByRole("region", { name: "November 2026 calendar" })).toBeInTheDocument()
+  })
+
   it("opens scheduled content details when its date is selected", () => {
     const today = new Date()
     const date = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`

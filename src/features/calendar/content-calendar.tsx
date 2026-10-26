@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { useTaskDrawer } from "@/features/tasks/task-drawer"
 import { useWorkflow } from "@/features/workflow/workflow-provider"
 import { getTaskDueTimestamp } from "@/features/workflow/task-dates"
+import { shiftCalendarMonth } from "@/features/calendar/calendar-month"
 
 export type ContentCalendarPost = {
   id: string
@@ -72,11 +73,12 @@ export function getCalendarDayPreview<T>(events: T[], limit = 2) {
   return { visibleEvents, remainingCount: Math.max(0, events.length - visibleEvents.length) }
 }
 
-export function ContentCalendar({ contentPosts, contentError = false, clientId }: { contentPosts?: ContentCalendarPost[]; contentError?: boolean; clientId?: string }) {
-  const [month, setMonth] = useState(() => {
+export function ContentCalendar({ contentPosts, contentError = false, clientId, monthKey, onMonthChange }: { contentPosts?: ContentCalendarPost[]; contentError?: boolean; clientId?: string; monthKey?: string; onMonthChange?: (monthKey: string) => void }) {
+  const [localMonth, setLocalMonth] = useState(() => {
     const now = new Date()
     return new Date(now.getFullYear(), now.getMonth(), 1)
   })
+  const month = monthKey ? new Date(`${monthKey}-01T12:00:00`) : localMonth
   const { tasks, currentUser } = useWorkflow()
   const { openTask } = useTaskDrawer()
   const [contentOwnerFilter, setContentOwnerFilter] = useState("all")
@@ -127,7 +129,8 @@ export function ContentCalendar({ contentPosts, contentError = false, clientId }
   function changeMonth(offset: number) {
     setSelectedDate(null)
     setDetailsMinimized(false)
-    setMonth((current) => new Date(current.getFullYear(), current.getMonth() + offset, 1))
+    if (monthKey && onMonthChange) onMonthChange(shiftCalendarMonth(monthKey, offset))
+    else setLocalMonth((current) => new Date(current.getFullYear(), current.getMonth() + offset, 1))
   }
 
   function selectDate(date: string) {
