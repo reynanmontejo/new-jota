@@ -15,12 +15,12 @@ when that post needs separately assigned work in My Work.
   (automatic)**, or optionally choose one of that client's Draft or Active
   campaigns. Paused or closed campaigns are unavailable for new content.
   The app creates the default campaign on the first import if needed.
-- An Account Manager import defaults the creator/editor to that manager.
-  A Supervisor/Admin should choose a creator/editor for the selected client.
+- An Account Manager or Supervisor/Admin import defaults the creator/editor to
+  their own account when available. They can choose another eligible creator.
   Keep one client per file when using the simple template.
 - The simple template and sample file do not assign a separate account manager
-  to each content item. Bulk import also does not select the client's video
-  editor. After import, edit each video item to choose its editor.
+  to each content item. If the file includes video rows, you can optionally
+  choose the client’s designated video editor in the import form.
 - The titles start with `TEST -` so the sample rows are easy to find and avoid
   collisions with ordinary posts.
 
@@ -33,9 +33,9 @@ when that post needs separately assigned work in My Work.
 4. Select the test client. Keep **General / Ongoing (automatic)** or optionally
    choose a named Draft or Active campaign. Confirm the platform, format, publish date,
    work date, deadline, and caption in the preview.
-5. Confirm the assigned creator/editor. An Account Manager import defaults this
-   to the importing manager; a Supervisor/Admin chooses a client member. My
-   Work visibility follows client access, not this creator/editor field.
+5. Confirm the assigned creator/editor. For video rows, optionally choose the
+   client’s designated video editor. Static rows keep the creator selection.
+   My Work visibility follows client access, not this creator/editor field.
 6. Make sure all three rows say **Ready**, then import once.
 
 ## Verify the result

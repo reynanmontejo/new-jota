@@ -41,6 +41,12 @@ describe("client Video Editor defaults", () => {
 
     fireEvent.change(format, { target: { value: "Reel" } })
     expect(assignee.value).toBe("editor-1")
+    const videoEditor = screen.getByRole("combobox", { name: "Video editor (optional)" }) as HTMLSelectElement
+    expect(videoEditor.value).toBe("editor-1")
+    fireEvent.change(videoEditor, { target: { value: "" } })
+    expect(assignee.value).toBe("manager-1")
+    fireEvent.change(videoEditor, { target: { value: "editor-1" } })
+    expect(assignee.value).toBe("editor-1")
     fireEvent.change(assignee, { target: { value: "" } })
     fireEvent.change(format, { target: { value: "Static image" } })
     fireEvent.change(format, { target: { value: "Video clip" } })
@@ -48,5 +54,21 @@ describe("client Video Editor defaults", () => {
 
     fireEvent.change(screen.getByRole("combobox", { name: "Client" }), { target: { value: "client-2" } })
     expect(assignee.value).toBe("editor-2")
+  })
+
+  it("lets a supervisor select their own account for content creation", () => {
+    render(<ContentTracker
+      clients={[{ id: "client-1", name: "Northwind" }]}
+      campaigns={[]}
+      assignees={{ "client-1": [{ id: "supervisor-1", display_name: "Supervisor" }, ...members] }}
+      videoEditorByClient={{ "client-1": "editor-1" }}
+      items={[]}
+      canCreate canEdit canCreateTask={false} canAssignContent
+      currentUserId="supervisor-1"
+    />)
+
+    const assignee = screen.getByRole("combobox", { name: /Assigned creator \/ editor/ }) as HTMLSelectElement
+    expect(assignee.value).toBe("supervisor-1")
+    expect(screen.getByRole("option", { name: "Supervisor" })).toBeInTheDocument()
   })
 })

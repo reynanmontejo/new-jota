@@ -7,6 +7,7 @@ import Link from "next/link"
 import { importContentItems } from "@/app/content/actions"
 import type { TrackerAssignee, TrackerCampaign, TrackerClient, TrackerItem } from "@/features/content/content-tracker"
 import { ContentSubmitButton } from "@/features/content/content-submit-button"
+import { isVideoContentFormat } from "@/features/content/content-assignment"
 import { contentImportFields, detectContentImportMapping, detectSocialCalendarMapping, normalizeImportValue, parseContentImportCount, parseContentImportDate, parseContentImportDateOnly, readClientApprovalStatus, readContentImportStatus, type ContentImportStatus, type ImportField } from "@/features/content/content-import-utils"
 
 type RowInput = { client_id: string; campaign_id: string; title: string; platform: string; content_type: string; description: string | null; status: ContentImportStatus; work_date: string | null; deadline_at: string | null; publish_at: string | null; client_approval_status: "pending" | "approved" | "revision_requested" | "rejected" | null; client_issues: string | null; revision_count: number; notes: string | null; next_action: string | null; revision_notes: string | null; assigned_to: string | null }
@@ -46,7 +47,7 @@ function parseCsv(text: string) {
 
 const fieldClass = "h-9 w-full rounded-md border border-input bg-background px-2.5 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
 
-export function ContentImport({ clients, campaigns, assignees, items, currentUserId, canAssignContent }: { clients: TrackerClient[]; campaigns: TrackerCampaign[]; assignees: Record<string, TrackerAssignee[]>; items: TrackerItem[]; currentUserId: string; canAssignContent: boolean }) {
+export function ContentImport({ clients, campaigns, assignees, videoEditorByClient, items, currentUserId, canAssignContent }: { clients: TrackerClient[]; campaigns: TrackerCampaign[]; assignees: Record<string, TrackerAssignee[]>; videoEditorByClient: Record<string, string>; items: TrackerItem[]; currentUserId: string; canAssignContent: boolean }) {
   const [headers, setHeaders] = useState<string[]>([])
   const [rows, setRows] = useState<string[][]>([])
   const [mapping, setMapping] = useState<Partial<Record<ImportField, string>>>({})
@@ -55,6 +56,7 @@ export function ContentImport({ clients, campaigns, assignees, items, currentUse
   const [defaultPlatform, setDefaultPlatform] = useState("")
   const [defaultFormat, setDefaultFormat] = useState("")
   const [defaultAssignee, setDefaultAssignee] = useState("")
+  const [selectedVideoEditor, setSelectedVideoEditor] = useState("")
   const [fileName, setFileName] = useState("")
   const [error, setError] = useState("")
   const isSocialCalendar = Boolean(detectSocialCalendarMapping(headers))
@@ -62,6 +64,8 @@ export function ContentImport({ clients, campaigns, assignees, items, currentUse
   const resolvedDefaultCampaign = defaultClientCampaigns.some((campaign) => campaign.id === defaultCampaign)
     ? defaultCampaign
     : defaultClientCampaigns.find((campaign) => campaign.name.toLocaleLowerCase() === "general / ongoing")?.id ?? ""
+  const clientVideoEditor = (assignees[defaultClient] ?? []).find((person) => person.id === videoEditorByClient[defaultClient])
+  const hasVideoRows = rows.some((row) => isVideoContentFormat(mapping.contentType === undefined || mapping.contentType === "" ? defaultFormat : row[Number(mapping.contentType)] || defaultFormat))
 
   const preview = useMemo<PreviewRow[]>(() => {
     const seen = new Set<string>()
@@ -114,7 +118,9 @@ export function ContentImport({ clients, campaigns, assignees, items, currentUse
       const ownerName = value("assignee")
       const ownerId = ownerName
         ? (assignees[client.id] ?? []).find((person) => normalize(person.display_name) === normalize(ownerName))?.id
-        : canAssignContent ? defaultAssignee : currentUserId
+        : isVideoContentFormat(contentType) && client.id === defaultClient && selectedVideoEditor
+          ? selectedVideoEditor
+          : canAssignContent ? defaultAssignee : currentUserId
       const matchedOwners = ownerId ? (assignees[client.id] ?? []).filter((person) => person.id === ownerId) : []
       if (ownerName && matchedOwners.length !== 1) return { number: rowIndex + 2, values: null, duplicate: false, error: `Responsible person “${ownerName}” isn’t an active member of ${client.name}.` }
       if (!ownerName && !ownerId) return { number: rowIndex + 2, values: null, duplicate: false, error: "Choose an assigned creator/editor or map that column." }
@@ -143,7 +149,7 @@ export function ContentImport({ clients, campaigns, assignees, items, currentUse
       seen.add(key)
       return { number: rowIndex + 2, values, duplicate, ...(missingDetails ? { error: missingDetails } : {}) }
     })
-  }, [rows, mapping, clients, campaigns, defaultClient, defaultCampaign, defaultPlatform, defaultFormat, defaultAssignee, currentUserId, canAssignContent, assignees, items, isSocialCalendar])
+  }, [rows, mapping, clients, campaigns, defaultClient, defaultCampaign, defaultPlatform, defaultFormat, defaultAssignee, selectedVideoEditor, currentUserId, canAssignContent, assignees, items, isSocialCalendar])
 
   const validRows = preview.filter((row) => row.values && !row.error && !row.duplicate).map((row) => row.values!)
   const duplicateCount = preview.filter((row) => row.duplicate).length
@@ -170,8 +176,9 @@ export function ContentImport({ clients, campaigns, assignees, items, currentUse
       setDefaultCampaign(singleClientCampaigns.find((campaign) => canReceiveNewContent(campaign) && campaign.name.toLocaleLowerCase() === "general / ongoing")?.id ?? "")
       setDefaultPlatform("")
       setDefaultFormat("")
+      setSelectedVideoEditor("")
       const singleClientAssignees = singleClient ? assignees[singleClient.id] ?? [] : []
-      setDefaultAssignee(canAssignContent && singleClientAssignees.length !== 1 ? "" : canAssignContent ? singleClientAssignees[0]?.id ?? "" : currentUserId)
+      setDefaultAssignee(canAssignContent ? singleClientAssignees.some((person) => person.id === currentUserId) ? currentUserId : singleClientAssignees.length === 1 ? singleClientAssignees[0].id : "" : currentUserId)
       if (parsed.length - 1 > 250) setError("Only the first 250 rows are included. Split larger sheets into separate imports.")
     } catch (caught) {
       setHeaders([]); setRows([])
@@ -182,9 +189,10 @@ export function ContentImport({ clients, campaigns, assignees, items, currentUse
   const mappingControls = <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">{fields.map((field) => <label key={field.id} className="grid gap-1 text-[11px] font-medium text-muted-foreground">{field.label}{field.required && <span className="sr-only"> required</span>}<select className={fieldClass} value={mapping[field.id] ?? ""} onChange={(event) => setMapping((current) => ({ ...current, [field.id]: event.target.value }))}><option value="">{field.required ? "Choose column or default" : "Not mapped"}</option>{headers.map((header, index) => <option key={`${index}-${header}`} value={index}>{header}</option>)}</select></label>)}</div>
 
   const contextControls = <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-    {!mapping.client && <label className="grid gap-1 text-[11px] font-medium text-muted-foreground">{isSocialCalendar ? "Client for all posts" : "Default client"}<select className={fieldClass} value={defaultClient} onChange={(event) => { const nextClient = event.target.value; const nextCampaigns = campaigns.filter((campaign) => campaign.client_id === nextClient && canReceiveNewContent(campaign)); const nextAssignees = assignees[nextClient] ?? []; setDefaultClient(nextClient); setDefaultCampaign(nextCampaigns.find((campaign) => campaign.name.toLocaleLowerCase() === "general / ongoing")?.id ?? ""); setDefaultAssignee(canAssignContent ? nextAssignees.length === 1 ? nextAssignees[0].id : "" : currentUserId) }}><option value="">Choose client</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</select></label>}
+    {!mapping.client && <label className="grid gap-1 text-[11px] font-medium text-muted-foreground">{isSocialCalendar ? "Client for all posts" : "Default client"}<select className={fieldClass} value={defaultClient} onChange={(event) => { const nextClient = event.target.value; const nextCampaigns = campaigns.filter((campaign) => campaign.client_id === nextClient && canReceiveNewContent(campaign)); const nextAssignees = assignees[nextClient] ?? []; setDefaultClient(nextClient); setDefaultCampaign(nextCampaigns.find((campaign) => campaign.name.toLocaleLowerCase() === "general / ongoing")?.id ?? ""); setDefaultAssignee(canAssignContent ? nextAssignees.some((person) => person.id === currentUserId) ? currentUserId : nextAssignees.length === 1 ? nextAssignees[0].id : "" : currentUserId); setSelectedVideoEditor("") }}><option value="">Choose client</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</select></label>}
     {!mapping.campaign && <label className="grid gap-1 text-[11px] font-medium text-muted-foreground">{isSocialCalendar ? "Campaign (optional)" : "Default campaign (optional)"}<select className={fieldClass} value={resolvedDefaultCampaign} onChange={(event) => setDefaultCampaign(event.target.value)} disabled={!defaultClient}><option value="">General / Ongoing (automatic)</option>{defaultClientCampaigns.map((campaign) => <option key={campaign.id} value={campaign.id}>{campaign.name}</option>)}</select></label>}
     {!mapping.assignee && canAssignContent && <label className="grid gap-1 text-[11px] font-medium text-muted-foreground">Assigned creator / editor<select className={fieldClass} value={defaultAssignee} onChange={(event) => setDefaultAssignee(event.target.value)} disabled={!defaultClient}><option value="">Choose a creator/editor</option>{(assignees[defaultClient] ?? []).map((person) => <option key={person.id} value={person.id}>{person.display_name}</option>)}</select>{!defaultClient && <span className="font-normal">For CSVs covering multiple clients, map an Assigned creator/editor column.</span>}</label>}
+    {hasVideoRows && defaultClient && <label className="grid gap-1 text-[11px] font-medium text-muted-foreground">Video editor <span className="font-normal">(optional, for video rows)</span><select className={fieldClass} aria-label="Video editor for imported content" value={selectedVideoEditor} onChange={(event) => setSelectedVideoEditor(event.target.value)}><option value="">Keep the creator above</option>{clientVideoEditor && <option value={clientVideoEditor.id}>{clientVideoEditor.display_name}</option>}</select><span className="font-normal">{clientVideoEditor ? "Only video rows use this editor; static rows keep their creator." : "Assign a video editor to this client first if you want to select one here."}</span></label>}
     {!canAssignContent && <p className="self-end pb-2 text-[11px] text-muted-foreground">Unless specified in the CSV, posts will show you as the assigned creator/editor. My Work is based on your client access.</p>}
     {!mapping.platform && <label className="grid gap-1 text-[11px] font-medium text-muted-foreground">{isSocialCalendar ? "Platform for all posts" : "Default platform"}<input className={fieldClass} value={defaultPlatform} onChange={(event) => setDefaultPlatform(event.target.value)} placeholder="e.g. Instagram" maxLength={60} />{isSocialCalendar && <span className="font-normal">Your CSV has no Platform column, so this will be used for each post.</span>}</label>}
     {!isSocialCalendar && !mapping.contentType && <label className="grid gap-1 text-[11px] font-medium text-muted-foreground">Default format<input className={fieldClass} value={defaultFormat} onChange={(event) => setDefaultFormat(event.target.value)} placeholder="e.g. Reel" /></label>}
@@ -199,10 +207,10 @@ export function ContentImport({ clients, campaigns, assignees, items, currentUse
         <p className="font-semibold text-foreground">How to import content</p>
         <ol className="mt-1 list-decimal space-y-0.5 pl-4">
           <li>Add one item per row in the template. Fill Content title, Platform, and Format; dates and brief are optional. Keep one client per import.</li>
-          <li>Export only the Content Import sheet as CSV UTF-8. Upload it here and choose the client. Account managers default to themselves as creator/editor; supervisors/admins choose an active client member.</li>
+          <li>Export only the Content Import sheet as CSV UTF-8. Upload it here and choose the client. Account managers and supervisors default to themselves as creator/editor when available.</li>
           <li>Fix preview errors before importing. New items start as Planned; duplicates are skipped.</li>
         </ol>
-        <p className="mt-1">Video editor assignment is not available in this bulk import yet. Edit each video item after import to assign its editor.</p>
+        <p className="mt-1">If the file includes video content, you can optionally select the client’s video editor below. Only video rows will use that editor; other rows keep the creator above.</p>
         <p className="mt-1">Limits: 1 MB maximum and 250 content rows maximum. <Link href="/help/import-calendar-csv" className="font-medium text-primary underline-offset-2 hover:underline">Read the full import guide</Link>.</p>
       </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">

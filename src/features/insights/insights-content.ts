@@ -9,6 +9,7 @@ export type InsightsContentItem = {
 }
 
 export type ContentDateRange = "today" | "30" | "90" | "365" | "all"
+export type ContentStatusFilter = "all" | "completed"
 
 const manilaDate = new Intl.DateTimeFormat("en-US", {
   timeZone: "Asia/Manila",
@@ -23,7 +24,7 @@ export function isSameManilaDay(first: Date, second: Date) {
 
 export function filterInsightsContent(
   items: InsightsContentItem[],
-  filters: { ownerId: string; clientId: string; range: ContentDateRange; now: Date },
+  filters: { ownerId: string; clientId: string; range: ContentDateRange; status?: ContentStatusFilter; now: Date },
 ) {
   const cutoff = filters.range === "all" || filters.range === "today" ? null : new Date(filters.now)
   if (cutoff) {
@@ -34,6 +35,7 @@ export function filterInsightsContent(
   return items.filter((item) => {
     if (filters.ownerId !== "all" && item.ownerId !== filters.ownerId) return false
     if (filters.clientId !== "all" && item.clientId !== filters.clientId) return false
+    if (filters.status === "completed" && item.status !== "published") return false
     if (filters.range === "all") return true
     if (!item.publishAt) return false
     const published = new Date(item.publishAt)

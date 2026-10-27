@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { ArrowRight, CalendarClock, CheckCircle2, CircleAlert, ClipboardCheck, ListTodo, Users } from "lucide-react"
 
 import { useTaskDrawer } from "@/features/tasks/task-drawer"
-import { filterInsightsContent, getContentCategoryCounts, getContentFormatBreakdown, getPublishedContentTrend, isSameManilaDay, type ContentDateRange, type InsightsContentItem } from "@/features/insights/insights-content"
+import { filterInsightsContent, getContentCategoryCounts, getContentFormatBreakdown, getPublishedContentTrend, isSameManilaDay, type ContentDateRange, type ContentStatusFilter, type InsightsContentItem } from "@/features/insights/insights-content"
 import { useWorkflow } from "@/features/workflow/workflow-provider"
 import { getStatusLabel } from "@/features/workflow/status-badge"
 import type { TaskStatus, WorkflowContentWorkItem, WorkflowTask } from "@/features/workflow/types"
@@ -96,6 +96,7 @@ export function InsightsDashboard() {
   const [completionRange, setCompletionRange] = useState<CompletionRange>("30")
   const [trendGrouping, setTrendGrouping] = useState<TrendGrouping>("weekly")
   const [contentDateRange, setContentDateRange] = useState<ContentDateRange>("all")
+  const [contentStatus, setContentStatus] = useState<ContentStatusFilter>("all")
   const [selectedClientId, setSelectedClientId] = useState("all")
   const [reportingContent, setReportingContent] = useState<InsightsContentItem[] | null>(null)
   const [reportingError, setReportingError] = useState<string | null>(null)
@@ -155,7 +156,7 @@ export function InsightsDashboard() {
   }).sort((a, b) => a.days - b.days)
   const reportOwnerId = isSupervisor && scope === "team" ? selectedUserId : currentUser.id
   const filteredReportingContent = reportingContent ? filterInsightsContent(reportingContent, {
-    ownerId: reportOwnerId, clientId: selectedClientId, range: contentDateRange, now: today,
+    ownerId: reportOwnerId, clientId: selectedClientId, range: contentDateRange, status: contentStatus, now: today,
   }) : []
   const statusCounts = statusOrder.map((status) => ({ status, count: scoped.tasks.filter((task) => task.status === status).length }))
   const maxStatusCount = Math.max(1, ...statusCounts.map((entry) => entry.count))
@@ -210,6 +211,8 @@ export function InsightsDashboard() {
         demoMode={demoMode}
         range={contentDateRange}
         onRangeChange={setContentDateRange}
+        status={contentStatus}
+        onStatusChange={setContentStatus}
         clientId={selectedClientId}
         onClientChange={setSelectedClientId}
         clients={clients}
@@ -254,13 +257,15 @@ export function InsightsDashboard() {
   )
 }
 
-function ContentReportingSummary({ items, loading, error, demoMode, range, onRangeChange, clientId, onClientChange, clients, now }: {
+function ContentReportingSummary({ items, loading, error, demoMode, range, onRangeChange, status, onStatusChange, clientId, onClientChange, clients, now }: {
   items: InsightsContentItem[]
   loading: boolean
   error: string | null
   demoMode: boolean
   range: ContentDateRange
   onRangeChange: (range: ContentDateRange) => void
+  status: ContentStatusFilter
+  onStatusChange: (status: ContentStatusFilter) => void
   clientId: string
   onClientChange: (clientId: string) => void
   clients: Array<{ id: string; name: string }>
@@ -278,8 +283,9 @@ function ContentReportingSummary({ items, loading, error, demoMode, range, onRan
 
   return <section className="overview-panel mt-4 rounded-xl border p-4 sm:p-5" aria-labelledby="content-reporting-heading">
     <div className="flex flex-wrap items-start justify-between gap-3">
-      <div><h2 id="content-reporting-heading" className="text-sm font-semibold">Content output</h2><p className="mt-1 text-xs text-muted-foreground">All non-archived tracker records, including published, rejected, and cancelled items.</p></div>
+      <div><h2 id="content-reporting-heading" className="text-sm font-semibold">Content output</h2><p className="mt-1 text-xs text-muted-foreground">{status === "completed" ? "Published content only. In Jota, published is the completed content stage." : "All non-archived tracker records, including published, rejected, and cancelled items."}</p></div>
       <div className="flex flex-wrap gap-2">
+        <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">Status<select aria-label="Filter content insights by status" value={status} onChange={(event) => onStatusChange(event.target.value as ContentStatusFilter)} className="h-8 rounded-md border bg-background px-2 text-xs text-foreground"><option value="all">All content</option><option value="completed">Completed (published)</option></select></label>
         <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">Client<select aria-label="Filter content insights by client" value={clientId} onChange={(event) => onClientChange(event.target.value)} className="h-8 max-w-44 rounded-md border bg-background px-2 text-xs text-foreground"><option value="all">All clients</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</select></label>
         <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">Publish date<select aria-label="Filter content insights by publish date" value={range} onChange={(event) => onRangeChange(event.target.value as ContentDateRange)} className="h-8 rounded-md border bg-background px-2 text-xs text-foreground"><option value="all">All dates</option><option value="today">Today</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option><option value="365">Last 365 days</option></select></label>
       </div>
@@ -304,7 +310,7 @@ function ContentReportingSummary({ items, loading, error, demoMode, range, onRan
             </div>
           </div>
           <div className="rounded-lg border border-border/70 p-3"><h3 className="text-xs font-semibold">Saved formats</h3><p className="mt-1 text-[11px] text-muted-foreground">The original subtype remains visible alongside the reporting category.</p><dl className="mt-2 grid gap-1.5 sm:grid-cols-2">{formats.slice(0, 8).map((entry) => <div key={entry.label} className="flex justify-between gap-2 rounded bg-secondary/25 px-2 py-1.5 text-xs"><dt className="truncate">{entry.label}</dt><dd className="font-semibold tabular-nums">{entry.count}</dd></div>)}{formats.length > 8 && <div className="flex justify-between gap-2 rounded bg-secondary/25 px-2 py-1.5 text-xs"><dt>Remaining formats</dt><dd className="font-semibold tabular-nums">{formats.slice(8).reduce((sum, entry) => sum + entry.count, 0)}</dd></div>}</dl></div>
-        </div> : <p className="mt-4 rounded-lg border border-dashed px-3 py-5 text-center text-xs text-muted-foreground">No content matches this user, client, and publish-date view.</p>}
+        </div> : <p className="mt-4 rounded-lg border border-dashed px-3 py-5 text-center text-xs text-muted-foreground">No content matches these filters.</p>}
         <div className="mt-4 rounded-lg border border-border/70 p-3"><h3 className="text-xs font-semibold">Published output</h3><p className="mt-1 text-[11px] text-muted-foreground">Published items by their saved publish date, last six calendar months. A missing publish date cannot appear in this trend.</p>{trend.some((period) => period.count > 0) ? <div className="mt-3 grid h-32 grid-cols-6 items-end gap-2" role="img" aria-label={`Published content trend: ${trend.map((period) => `${period.label} ${period.count}`).join(", ")}`}>{trend.map((period) => <div key={period.key} className="flex h-full min-w-0 flex-col items-center justify-end gap-1" aria-hidden="true"><span className="text-[10px] tabular-nums">{period.count}</span><div className="flex h-20 w-full items-end rounded-t bg-secondary/25"><div className="w-full rounded-t bg-primary/75" style={{ height: `${period.count ? Math.max(8, period.count / maxTrend * 100) : 0}%` }} /></div><span className="truncate text-[9px] text-muted-foreground">{period.label}</span></div>)}</div> : <p className="mt-3 text-xs text-muted-foreground">No dated published items in the last six months for this view.</p>}</div>
       </>}
   </section>

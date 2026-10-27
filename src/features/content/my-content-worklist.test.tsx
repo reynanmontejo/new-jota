@@ -61,11 +61,11 @@ describe("unified content tracker", () => {
     expect(screen.queryByText("October product reel")).not.toBeInTheDocument()
   })
 
-  it("offers a client handoff only to the assigned Account Manager after internal approval", () => {
+  it("offers a client handoff only to an authorized client handler after internal approval", () => {
     const approvedItem: TrackerItem = { ...items[0], latest_approved_version_id: "version-2", client_handoff_version_id: null }
-    const renderTracker = (accountManagerClientIds: string[], item = approvedItem) => render(<ContentTracker
+    const renderTracker = (clientHandoffClientIds: string[], item = approvedItem) => render(<ContentTracker
       clients={[]} campaigns={[]} assignees={{}} items={[item]} canCreate={false} canEdit canCreateTask={false}
-      currentUserId="manager-1" canAssignContent={false} accountManagerClientIds={accountManagerClientIds}
+      currentUserId="manager-1" canAssignContent={false} clientHandoffClientIds={clientHandoffClientIds}
     />)
 
     const outsideManager = renderTracker([])

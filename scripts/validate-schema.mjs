@@ -40,6 +40,7 @@ const clientEditorExternalApprovalMigrationPath = "supabase/migrations/202610300
 const explicitClientHandoffMigrationPath = "supabase/migrations/202610300004_explicit_client_handoff.sql"
 const contentReportingCategoriesMigrationPath = "supabase/migrations/202610310001_content_reporting_categories.sql"
 const clientApprovalPublicationGuardMigrationPath = "supabase/migrations/202610310002_client_approval_publication_guard.sql"
+const supervisorContentMigrationPath = "supabase/migrations/202611010001_supervisor_content_and_video_assignment.sql"
 const seedPath = "supabase/seed.sql"
 
 function normalizeMigrationForPGlite(migration) {
@@ -1428,6 +1429,49 @@ try {
 if (!repeatedClientResponseRejected) throw new Error("The same client response could be recorded twice")
 
 await verifyClientApprovalPublication()
+await database.exec(await fs.readFile(supervisorContentMigrationPath, "utf8"))
+const supervisorIsClientMember = await database.query(`select exists (
+  select 1 from public.client_members where client_id = '30000000-0000-0000-0000-000000000001'
+    and user_id = '${supervisor}' and removed_at is null
+) as is_member`)
+if (supervisorIsClientMember.rows[0]?.is_member) throw new Error("Supervisor self-assignment fixture must not be a client member")
+const supervisorContentId = await asUser(supervisor, async () => (await database.query(`
+  select public.create_content_tracker_item_for_current_user(
+    '30000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001',
+    'Supervisor owned content', 'Instagram', 'Reel', null, 'planned', null, null,
+    null, null, null, null, null, '${supervisor}'
+  ) as id
+`)).rows[0]?.id)
+if (!supervisorContentId) throw new Error("Supervisor could not create their own content")
+await asUser(supervisor, () => database.query(`select public.update_content_tracker_item_for_current_user(
+  '${supervisorContentId}', '30000000-0000-0000-0000-000000000001',
+  '40000000-0000-0000-0000-000000000001', 'Supervisor edited content', 'Instagram', 'Reel',
+  null, 'planned', null, null, null, null, null, null, null, null, '${supervisor}'
+)`))
+const supervisorImport = await asUser(supervisor, async () => (await database.query(
+  "select public.import_content_items_for_current_user($1::jsonb) as result",
+  [JSON.stringify([{ ...importRow, title: "Supervisor imported own content", status: "planned", assigned_to: supervisor }])],
+)).rows[0]?.result)
+if (supervisorImport?.created !== 1) throw new Error("Supervisor could not import content assigned to themselves")
+let employeeAssignedSupervisorRejected = false
+try {
+  await asUser(employeeOne, () => database.query(`select public.create_content_tracker_item_for_current_user(
+    '30000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001',
+    'Unauthorized supervisor assignment', 'Instagram', 'Reel', null, 'planned', null, null,
+    null, null, null, null, null, '${supervisor}'
+  )`))
+} catch (error) { employeeAssignedSupervisorRejected = error?.code === "22023" }
+if (!employeeAssignedSupervisorRejected) throw new Error("Employee could assign a non-member supervisor to content")
+let supervisorHandoffReachedWorkflow = false
+try {
+  await asUser(supervisor, () => database.query(`select public.send_approved_content_to_client('${supervisorContentId}')`))
+} catch (error) { supervisorHandoffReachedWorkflow = error?.code === "22023" }
+if (!supervisorHandoffReachedWorkflow) throw new Error("Supervisor could not access content handoff workflow")
+let supervisorResponseReachedWorkflow = false
+try {
+  await asUser(supervisor, () => database.query(`select public.record_external_client_decision('${supervisorContentId}', 'approved', null)`))
+} catch (error) { supervisorResponseReachedWorkflow = error?.code === "22023" }
+if (!supervisorResponseReachedWorkflow) throw new Error("Supervisor could not access client response workflow")
 
 await asUser(employeeOne, () => database.query(`select public.register_notification_push_subscription_for_current_user(
   'https://fcm.googleapis.com/employee-one', repeat('p', 50), repeat('a', 24)

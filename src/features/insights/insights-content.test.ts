@@ -28,6 +28,12 @@ describe("content reporting", () => {
       .toEqual({ total: 1, static: 0, video: 1, other: 0 })
   })
 
+  it("shows only published content when completed is selected", () => {
+    const completed = filterInsightsContent(items, { ownerId: "all", clientId: "all", range: "all", status: "completed", now })
+    expect(completed.map((item) => item.id)).toEqual(["published-video", "undated-other", "old-static"])
+    expect(getContentCategoryCounts(completed)).toEqual({ total: 3, static: 1, video: 1, other: 1 })
+  })
+
   it("includes the full current publish day in the workspace timezone", () => {
     const now = new Date("2026-10-21T17:00:00.000Z") // Oct 22, 1 AM in Manila
     const dated = [

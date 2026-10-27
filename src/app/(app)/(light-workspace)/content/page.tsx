@@ -52,7 +52,9 @@ export default async function ContentPage({ searchParams }: { searchParams: Prom
 
   const campaigns = (campaignResult.data ?? []) as TrackerCampaign[]
   const memberRows = (membersResult.data ?? []) as Array<{ client_id: string; user_id: string; client_role: string }>
-  const accountManagerClientIds = memberRows.filter((member) => member.user_id === context.userId && member.client_role === "account_manager").map((member) => member.client_id)
+  const clientHandoffClientIds = canAssignContent
+    ? clientIds
+    : memberRows.filter((member) => member.user_id === context.userId && member.client_role === "account_manager").map((member) => member.client_id)
   const contentIds = (contentResult.data ?? []).map((item) => item.id)
   const memberIds = [...new Set(memberRows.map((member) => member.user_id))]
   const [submissionResult, memberProfilesResult] = await Promise.all([
@@ -82,6 +84,15 @@ export default async function ContentPage({ searchParams }: { searchParams: Prom
     }
     if (member.client_role === "video_editor") videoEditorByClient[member.client_id] = person.id
   }
+  if (canAssignContent) {
+    const currentUser = { id: context.userId, display_name: context.displayName }
+    assigneeById.set(context.userId, currentUser)
+    for (const clientId of clientIds) {
+      if (!(assignees[clientId] ?? []).some((assignee) => assignee.id === context.userId)) {
+        assignees[clientId] = [currentUser, ...(assignees[clientId] ?? [])]
+      }
+    }
+  }
   const campaignById = new Map(campaigns.map((campaign) => [campaign.id, campaign]))
   const clientById = new Map(clients.map((client) => [client.id, client]))
   const items = ((contentResult.data ?? []) as Omit<TrackerItem, "client_name" | "campaign_name" | "assignee_name">[]).flatMap((item) => {
@@ -91,5 +102,5 @@ export default async function ContentPage({ searchParams }: { searchParams: Prom
     return campaign && client ? [{ ...item, client_name: client.name, campaign_name: campaign.name, assignee_name: assignee?.display_name ?? null, latest_approved_version_id: approvedVersionByContent.get(item.id) ?? null }] : []
   })
 
-  return <DashboardShell><ContentTracker clients={clients} campaigns={campaigns} assignees={assignees} videoEditorByClient={videoEditorByClient} accountManagerClientIds={accountManagerClientIds} items={items} canCreate={canCreate} canEdit={canEdit} canCreateTask={canCreateTask} currentUserId={context.userId} canAssignContent={canAssignContent} notice={typeof params.notice === "string" ? params.notice : undefined} importedCount={importedCount} skippedCount={skippedCount} isArchivedView={isArchivedView} /></DashboardShell>
+  return <DashboardShell><ContentTracker clients={clients} campaigns={campaigns} assignees={assignees} videoEditorByClient={videoEditorByClient} clientHandoffClientIds={clientHandoffClientIds} items={items} canCreate={canCreate} canEdit={canEdit} canCreateTask={canCreateTask} currentUserId={context.userId} canAssignContent={canAssignContent} notice={typeof params.notice === "string" ? params.notice : undefined} importedCount={importedCount} skippedCount={skippedCount} isArchivedView={isArchivedView} /></DashboardShell>
 }
