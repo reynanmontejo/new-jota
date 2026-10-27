@@ -69,6 +69,26 @@ using the Asia/Manila calendar day. Boundary tests cover midnight and future
 times. This follow-up is local only; lint, typecheck, 125 tests, ordered schema
 validation, and the production build pass. Live role-based checks remain open.
 
+## Production migration-history reconciliation — 2026-10-27
+
+The owner applied `202610310002_client_approval_publication_guard.sql` and
+`202611010001_supervisor_content_and_video_assignment.sql` through the Supabase
+SQL Editor. A read-only check of the production project
+`bwxukkcjabwdhnxaqoid` found 38 recorded versions ending at `202610310001`;
+both newer versions were absent from the ledger. Before repairing history, the
+enabled publication trigger, its guard, the private importer and wrapper grants,
+both supervisor helper functions, and the expected helper references in all five
+updated content functions were verified in the live catalog.
+
+A guarded transaction added only the two missing version/name rows to
+`supabase_migrations.schema_migrations`. It did not replay either migration or
+change application rows. A subsequent read-only query returned 40 recorded
+versions ending at `202611010001`, with both new names matching the committed
+filenames. The transaction required the pre-repair count and latest version to
+remain unchanged; if this ledger-only repair ever needs reversal, remove only
+those two version/name rows after rechecking the live catalog. No full database
+backup was created for this metadata-only repair.
+
 ## Still required before closing final acceptance
 
 1. Run the live workflow with separate Administrator, Supervisor, Account
@@ -106,4 +126,4 @@ git diff --check
 ```
 
 Do not replay already-applied migration files in the production SQL Editor.
-Future migration versions must sort after `202610310001`.
+Future migration versions must sort after `202611010001`.

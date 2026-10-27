@@ -1,0 +1,12 @@
+.git
+.next
+.next-performance
+node_modules
+coverage
+outputs
+.vercel
+.env
+.env.*
+supabase/.temp
+*.tsbuildinfo
+npm-debug.log*

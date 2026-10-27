@@ -137,8 +137,10 @@ the content editor; changing its format resets that correction to automatic.
 Apply this migration before deploying the updated Content and Insights pages in
 any new environment. In the Jota production project, the migration objects,
 trigger, function ACL, and backfill were verified on 2026-10-23. The migration
-ledger was then reconciled without replaying SQL; it contains all 38 committed
-versions through `202610310001`. Review the `other` group after future imports
+ledger was then reconciled without replaying SQL. A further catalog and ledger
+check on 2026-10-27 verified the two later content migrations and recorded their
+versions without replaying them. Production now records all 40 committed
+versions through `202611010001`. Review the `other` group after future imports
 or when a new format is introduced:
 
 ```sql
@@ -207,17 +209,17 @@ schema privileges. The account-trash migration enables `pg_cron` and schedules
 the hourly purge. If the extension is unavailable, enable **Integrations > Cron**
 in the Supabase Dashboard, then rerun the migration.
 
-The current local workflow also includes `202610300002_optional_client_tasks.sql`
+The current workflow includes `202610300002_optional_client_tasks.sql`
 and `202610300003_client_editor_external_approval.sql`. The latter adds the
 client-level Video Editor assignment, a protected RPC for recording an external
 client decision, and Realtime publication for content workflow tables. A client
 approval changes only the external approval badge; it does not publish content
 or complete a task. A client revision returns active, linked, non-cancelled tasks
 to To do and reopens their submission state while retaining immutable versions
-and prior reviews. These migrations have not been applied to a hosted database
-by this local implementation. Check the hosted migration ledger and live catalog
-first, then apply only the missing migrations in order after review and staging
-tests.
+and prior reviews. The later `202610310002` publication guard and `202611010001`
+supervisor-content migration are also present in production, with their versions
+recorded in the ledger after live object verification. Check the hosted ledger
+and catalog again before any future migration or `supabase db push`.
 
 The local schema checker runs all migrations and verifies task/client isolation,
 task/content/campaign RPCs, employee provisioning/deactivation/role changes,
