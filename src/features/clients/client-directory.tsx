@@ -9,6 +9,7 @@ import { ArrowUpRight, Download, Eye, FileText, Film, LoaderCircle, MoreHorizont
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { createClientRecord, restoreClientFromTrash } from "@/app/clients/actions"
+import { CreateClientSubmitButton } from "@/features/clients/create-client-submit-button"
 import { getPreviewMimeType } from "@/lib/storage/preview-types"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 
@@ -221,7 +222,7 @@ export function ClientDirectory({ clients, recentFiles = [], trashedClients = []
                   <label className="grid gap-1 text-[10px] font-normal text-muted-foreground">Other platforms, comma-separated<input className="h-8 rounded-md border border-input bg-background px-2.5 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring" name="customPlatforms" placeholder="e.g. Lemon8, Bluesky" /></label>
                 </fieldset>
                 <label className="grid gap-1 text-[11px] font-medium">Description <span className="font-normal text-muted-foreground">Optional</span><textarea className="min-h-20 resize-y rounded-md border border-input bg-background px-2.5 py-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring" name="description" maxLength={2000} placeholder="A short account summary" /></label>
-                <Button type="submit" size="sm" className="w-full">Create client</Button>
+                <CreateClientSubmitButton />
               </form>
             </details>
           )}

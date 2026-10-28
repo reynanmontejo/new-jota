@@ -56,6 +56,8 @@ export type WorkflowTask = {
   activity: Array<{ id: string; label: string; actor: string; createdAt: string }>
   /** True once the task's checklist, comments, version history, and activity have been fetched. */
   detailsLoaded?: boolean
+  /** Summary data was refreshed; cached task history can update without hiding it. */
+  detailsStale?: boolean
   /** Null means attachment visibility could not be verified for Trash eligibility. */
   fileCount?: number | null
   hasSubmissions?: boolean

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { ArrowRight, CalendarClock, CheckCircle2, CircleAlert, ClipboardCheck, ListTodo, Users } from "lucide-react"
 
 import { useTaskDrawer } from "@/features/tasks/task-drawer"
+import { deadlineStyles, getDeadlineUrgencyForDays, type DeadlineUrgency } from "@/features/calendar/deadline-urgency"
 import { filterInsightsContent, getContentCategoryCounts, getContentFormatBreakdown, getPublishedContentTrend, isSameManilaDay, type ContentDateRange, type ContentStatusFilter, type InsightsContentItem } from "@/features/insights/insights-content"
 import { useWorkflow } from "@/features/workflow/workflow-provider"
 import { getStatusLabel } from "@/features/workflow/status-badge"
@@ -150,10 +151,12 @@ export function InsightsDashboard() {
     const days = dayDistance(task.dueAt, today)
     return (task.priority === "high" || task.priority === "urgent") && days !== null && days >= 0 && days <= 7
   }).sort((a, b) => (asDate(a.dueAt)?.getTime() ?? Infinity) - (asDate(b.dueAt)?.getTime() ?? Infinity))
-  const upcomingContent = scoped.content.flatMap((item) => {
+  const contentDeadlines = scoped.content.flatMap((item) => {
     const days = dayDistance(item.deadlineAt ?? item.publishAt, today)
-    return days !== null && days >= 0 && days <= 7 ? [{ ...item, days }] : []
+    return days !== null && days <= 30 ? [{ ...item, days }] : []
   }).sort((a, b) => a.days - b.days)
+  const visibleContentDeadlines = (["overdue", "soon", "upcoming"] as DeadlineUrgency[])
+    .flatMap((urgency) => contentDeadlines.filter((item) => getDeadlineUrgencyForDays(item.days) === urgency).slice(0, 2))
   const reportOwnerId = isSupervisor && scope === "team" ? selectedUserId : currentUser.id
   const filteredReportingContent = reportingContent ? filterInsightsContent(reportingContent, {
     ownerId: reportOwnerId, clientId: selectedClientId, range: contentDateRange, status: contentStatus, now: today,
@@ -174,8 +177,8 @@ export function InsightsDashboard() {
       ? `${highPriorityDueSoon.length} high-priority task${highPriorityDueSoon.length === 1 ? " is" : "s are"} due within 7 days.`
       : reviewTasks.length
       ? `${reviewTasks.length} task${reviewTasks.length === 1 ? " is" : "s are"} waiting for review.`
-      : upcomingContent.length
-        ? `${upcomingContent.length} content deadline${upcomingContent.length === 1 ? " is" : "s are"} coming up this week.`
+      : contentDeadlines.length
+        ? `${contentDeadlines.length} content deadline${contentDeadlines.length === 1 ? " needs" : "s need"} attention.`
         : "Work is on track. Keep task statuses and content dates current."
 
   return (
@@ -233,8 +236,9 @@ export function InsightsDashboard() {
 
       <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
         <section className="overview-panel rounded-xl border p-4 sm:p-5" aria-labelledby="content-dates-heading">
-          <div className="flex items-start justify-between gap-3"><div><h2 id="content-dates-heading" className="text-sm font-semibold">Content deadlines</h2><p className="mt-1 text-xs text-muted-foreground">Due or scheduled in the next 7 days.</p></div><button type="button" onClick={() => router.push("/calendar")} className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">Calendar <ArrowRight className="size-3.5" /></button></div>
-          {upcomingContent.length ? <div className="mt-3 divide-y">{upcomingContent.slice(0, 5).map((item) => <ContentRow key={item.id} item={item} />)}</div> : <p className="mt-4 rounded-lg border border-dashed px-3 py-5 text-center text-xs text-muted-foreground">No content deadlines coming up this week.</p>}
+          <div className="flex items-start justify-between gap-3"><div><h2 id="content-dates-heading" className="text-sm font-semibold">Content deadlines</h2><p className="mt-1 text-xs text-muted-foreground">Past due and due within 30 days. Up to two per urgency.</p></div><button type="button" onClick={() => router.push("/calendar")} className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">Calendar <ArrowRight className="size-3.5" /></button></div>
+          <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted-foreground" aria-label="Deadline color legend">{(["overdue", "soon", "upcoming"] as DeadlineUrgency[]).map((urgency) => <span key={urgency} className="inline-flex items-center gap-1.5"><span aria-hidden="true" className={`size-2 rounded-sm ${deadlineStyles[urgency].dotClassName}`} />{deadlineStyles[urgency].legendLabel}</span>)}</div>
+          {visibleContentDeadlines.length ? <div className="mt-3 divide-y">{visibleContentDeadlines.map((item) => <ContentRow key={item.id} item={item} />)}</div> : <p className="mt-4 rounded-lg border border-dashed px-3 py-5 text-center text-xs text-muted-foreground">No content deadlines past due or within 30 days.</p>}
         </section>
 
         {isSupervisor ? <section className="overview-panel rounded-xl border p-4 sm:p-5" aria-labelledby="team-load-heading">
@@ -330,6 +334,8 @@ function FocusTaskButton({ task, overdue, openTask }: { task: WorkflowTask; over
 }
 
 function ContentRow({ item }: { item: WorkflowContentWorkItem & { days: number } }) {
-  const label = item.days === 0 ? "Today" : item.days === 1 ? "Tomorrow" : shortDate(item.deadlineAt ?? item.publishAt)
-  return <div className="flex items-center justify-between gap-3 py-2.5"><span className="min-w-0"><span className="block truncate text-xs font-medium">{item.title}</span><span className="mt-0.5 block truncate text-[11px] text-muted-foreground">{item.clientName} · {item.platform} · {item.status.replaceAll("_", " ")}</span></span><span className="shrink-0 text-[11px] font-medium text-muted-foreground">{label}</span></div>
+  const urgency = getDeadlineUrgencyForDays(item.days)
+  const style = deadlineStyles[urgency]
+  const dateLabel = item.days === 0 ? "Today" : item.days === 1 ? "Tomorrow" : shortDate(item.deadlineAt ?? item.publishAt)
+  return <div className="flex items-center justify-between gap-3 py-2.5"><span className="min-w-0"><span className="block truncate text-xs font-medium">{item.title}</span><span className="mt-0.5 block truncate text-[11px] text-muted-foreground">{item.clientName} · {item.platform} · {item.status.replaceAll("_", " ")}</span></span><span className={`shrink-0 rounded-md border px-2 py-1 text-right text-[10px] font-medium ${style.className}`}><span className="block">{style.label}</span><span className="block">{dateLabel}</span></span></div>
 }

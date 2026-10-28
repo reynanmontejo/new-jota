@@ -5,6 +5,20 @@ import { currentEmployee, currentSupervisor } from "@/features/workflow/task-per
 import { workflowReducer } from "@/features/workflow/workflow-provider"
 
 describe("mocked submission workflow", () => {
+  it("keeps visible task history while refreshing it after a quiet summary sync", () => {
+    const original = { ...initialWorkflowState.tasks[0], detailsLoaded: true }
+    const summary = { ...original, title: "Updated task", comments: [], versions: [], activity: [], detailsLoaded: false }
+    const synced = workflowReducer({ tasks: [original] }, { type: "sync_task_summaries", tasks: [summary] })
+
+    expect(synced.tasks[0]).toMatchObject({ title: "Updated task", detailsLoaded: true, detailsStale: true })
+    expect(synced.tasks[0].comments).toEqual(original.comments)
+
+    const refreshed = workflowReducer(synced, { type: "hydrate_task_details", taskId: original.id, details: {
+      checklist: [], comments: [], versions: [], activity: [],
+    } })
+    expect(refreshed.tasks[0]).toMatchObject({ detailsLoaded: true, detailsStale: false, comments: [] })
+  })
+
   it("creates a new version without replacing prior review history", () => {
     const taskId = "upload-carousel-design-v2"
     const originalTask = initialWorkflowState.tasks.find((task) => task.id === taskId)

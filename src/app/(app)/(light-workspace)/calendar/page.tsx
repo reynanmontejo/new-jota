@@ -14,7 +14,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
     const supabase = await createClient()
     const contentQuery = () => supabase.from("content_items")
       .select("id,title,client_id,platform,content_type,content_category,description,status,deadline_at,publish_at,next_action,revision_notes,client_approval_status,client_issues,notes,assigned_to")
-      .in("status", ["planned", "in_production", "for_review", "revision_requested", "waiting_client", "scheduled"])
+      .in("status", ["idea", "planned", "in_production", "for_review", "revision_requested", "waiting_client", "scheduled"])
       .is("deleted_at", null)
     const [publishResult, deadlineResult, clientsResult] = await Promise.all([
       contentQuery().gte("publish_at", startInclusive).lt("publish_at", endExclusive),

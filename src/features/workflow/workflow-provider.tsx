@@ -36,6 +36,7 @@ function formatTaskDate(value: string) {
 
 type WorkflowAction =
   | { type: "replace_tasks"; tasks: WorkflowState["tasks"] }
+  | { type: "sync_task_summaries"; tasks: WorkflowState["tasks"] }
   | { type: "hydrate_task_details"; taskId: string; details: WorkflowTaskDetails }
   | { type: "toggle_checklist"; taskId: string; itemId: string; actor: DemoUser }
   | { type: "add_comment"; taskId: string; body: string; actor: DemoUser }
@@ -47,12 +48,19 @@ type WorkflowAction =
 
 export function workflowReducer(state: WorkflowState, action: WorkflowAction): WorkflowState {
   if (action.type === "replace_tasks") return { tasks: action.tasks }
+  if (action.type === "sync_task_summaries") {
+    const detailsById = new Map(state.tasks.filter((task) => task.detailsLoaded).map((task) => [task.id, task]))
+    return { tasks: action.tasks.map((task) => {
+      const previous = detailsById.get(task.id)
+      return previous ? { ...task, checklist: previous.checklist, comments: previous.comments, versions: previous.versions, activity: previous.activity, detailsLoaded: true, detailsStale: true } : task
+    }) }
+  }
   if (action.type === "hydrate_task_details") {
     let changed = false
     const tasks = state.tasks.map((task) => {
-      if (task.id !== action.taskId || task.detailsLoaded) return task
+      if (task.id !== action.taskId || (task.detailsLoaded && !task.detailsStale)) return task
       changed = true
-      return { ...task, ...action.details, detailsLoaded: true }
+      return { ...task, ...action.details, detailsLoaded: true, detailsStale: false }
     })
     return changed ? { tasks } : state
   }
@@ -265,6 +273,23 @@ export function WorkflowProvider({
     let isSubscribed = false
     let hasSubscribed = false
     let disposed = false
+    let recoveryRequest: Promise<void> | null = null
+    const recoveryController = new AbortController()
+    const refreshWorkflowQuietly = () => {
+      if (recoveryRequest) return
+      recoveryRequest = (async () => {
+        try {
+          const response = await fetch("/api/workflow-summary", { cache: "no-store", signal: recoveryController.signal })
+          if (!response.ok) return
+          const payload = await response.json() as { summary?: WorkflowSummary }
+          if (disposed || !payload.summary) return
+          setDeferredSummary(payload.summary)
+          dispatch({ type: "sync_task_summaries", tasks: payload.summary.tasks })
+          setRealtimeRevision((revision) => revision + 1)
+        } catch { /* Keep existing work visible until the next retry or live update. */ }
+        finally { recoveryRequest = null }
+      })()
+    }
     const refreshWorkflow = () => {
       if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
       refreshTimer = window.setTimeout(() => {
@@ -308,7 +333,7 @@ export function WorkflowProvider({
           isSubscribed = true
           retryAttempt = 0
           setRealtimeStatus("connected")
-          if (isReconnect) refreshWorkflow()
+          if (isReconnect) refreshWorkflowQuietly()
           return
         }
         if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
@@ -325,7 +350,6 @@ export function WorkflowProvider({
 
     const refreshOnReturn = () => {
       if (document.visibilityState === "visible") {
-        refreshWorkflow()
         if (!isSubscribed && !channel) {
           if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer)
           reconnectTimer = undefined
@@ -336,7 +360,7 @@ export function WorkflowProvider({
 
     connect()
     const fallbackTimer = window.setInterval(() => {
-      if (!isSubscribed && document.visibilityState === "visible") refreshWorkflow()
+      if (!isSubscribed && document.visibilityState === "visible") refreshWorkflowQuietly()
     }, 30_000)
     document.addEventListener("visibilitychange", refreshOnReturn)
     window.addEventListener("focus", refreshOnReturn)
@@ -344,6 +368,7 @@ export function WorkflowProvider({
 
     return () => {
       disposed = true
+      recoveryController.abort()
       if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
       if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer)
       if (connectWatchdog !== undefined) window.clearTimeout(connectWatchdog)

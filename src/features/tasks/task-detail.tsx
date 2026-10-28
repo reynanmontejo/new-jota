@@ -42,7 +42,7 @@ export function TaskDetail({ taskId, embedded = false }: { taskId: string; embed
   const [detailsErrorTaskId, setDetailsErrorTaskId] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!task || !canViewTask(task, currentUser) || demoMode || task.detailsLoaded) return
+    if (!task || !canViewTask(task, currentUser) || demoMode || (task.detailsLoaded && !task.detailsStale)) return
     let active = true
     void loadTaskDetails(taskId).then((loaded) => {
       if (active && !loaded) setDetailsErrorTaskId(taskId)

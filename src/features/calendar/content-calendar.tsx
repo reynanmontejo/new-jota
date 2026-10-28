@@ -8,6 +8,7 @@ import { useTaskDrawer } from "@/features/tasks/task-drawer"
 import { useWorkflow } from "@/features/workflow/workflow-provider"
 import { getTaskDueTimestamp } from "@/features/workflow/task-dates"
 import { shiftCalendarMonth } from "@/features/calendar/calendar-month"
+import { deadlineStyles, getDeadlineUrgencyForDays } from "@/features/calendar/deadline-urgency"
 
 export type ContentCalendarPost = {
   id: string
@@ -30,13 +31,7 @@ export type ContentCalendarPost = {
   ownerName?: string | null
 }
 
-type DeadlineUrgency = "overdue" | "soon" | "upcoming"
-
-const deadlineStyles: Record<DeadlineUrgency, { label: string; legendLabel: string; className: string; dateClassName: string }> = {
-  overdue: { label: "Past due", legendLabel: "Past due", className: "border-rose-500/25 bg-rose-500/12 text-rose-900 dark:text-rose-200", dateClassName: "bg-rose-500/15 text-rose-900 dark:text-rose-200" },
-  soon: { label: "Due soon", legendLabel: "Due within 3 days", className: "border-amber-500/25 bg-amber-500/14 text-amber-900 dark:text-amber-200", dateClassName: "bg-amber-500/15 text-amber-900 dark:text-amber-200" },
-  upcoming: { label: "Upcoming", legendLabel: "Later deadline", className: "border-emerald-600/20 bg-emerald-600/10 text-emerald-900 dark:text-emerald-200", dateClassName: "bg-emerald-600/12 text-emerald-900 dark:text-emerald-200" },
-}
+import type { DeadlineUrgency } from "@/features/calendar/deadline-urgency"
 
 const contentCategoryStyles = {
   video: "border-violet-300/70 bg-violet-50/70 text-violet-950 dark:border-violet-800/70 dark:bg-violet-950/35 dark:text-violet-100",
@@ -70,8 +65,7 @@ export function getDeadlineUrgency(date: string, today = dateKey(new Date())): D
   const todayTime = Date.parse(`${today}T00:00:00Z`)
   if (Number.isNaN(dueTime) || Number.isNaN(todayTime)) return "upcoming"
   const daysUntilDue = Math.floor((dueTime - todayTime) / 86_400_000)
-  if (daysUntilDue < 0) return "overdue"
-  return daysUntilDue <= 3 ? "soon" : "upcoming"
+  return getDeadlineUrgencyForDays(daysUntilDue)
 }
 
 export function filterContentByOwner(posts: ContentCalendarPost[], ownerFilter: string, currentUserId: string) {
@@ -189,7 +183,7 @@ export function ContentCalendar({ contentPosts, contentError = false, clientId, 
       {contentError && <p role="status" className="mt-3 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-muted-foreground">Scheduled content couldn’t be loaded. Task deadlines are still available.</p>}
       <div aria-label="Calendar legend" className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[10px] text-muted-foreground">
         <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-sm bg-primary/55" />Scheduled content</span>
-        {(Object.entries(deadlineStyles) as [DeadlineUrgency, typeof deadlineStyles[DeadlineUrgency]][]).map(([urgency, style]) => <span key={urgency} className="inline-flex items-center gap-1.5"><span className={`size-2 rounded-sm ${style.dateClassName}`} />{style.legendLabel}</span>)}
+        {(Object.entries(deadlineStyles) as [DeadlineUrgency, typeof deadlineStyles[DeadlineUrgency]][]).map(([urgency, style]) => <span key={urgency} className="inline-flex items-center gap-1.5"><span className={`size-2 rounded-sm ${style.dotClassName}`} />{style.legendLabel}</span>)}
       </div>
       <div key={monthPrefix} className={`calendar-month-enter mt-4 grid min-w-0 grid-cols-1 items-start gap-3 transition-[grid-template-columns,column-gap] duration-300 ease-out motion-reduce:transition-none ${selectedDate && !detailsClosing ? detailsMinimized ? "lg:grid-cols-[minmax(0,1fr)_4rem]" : "lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]" : "lg:grid-cols-[minmax(0,1fr)_0fr] lg:gap-x-0"}`}>
         <section aria-label={`${monthLabel} calendar`} className="overview-panel hidden min-w-0 overflow-hidden rounded-lg border md:block">

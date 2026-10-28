@@ -26,9 +26,10 @@ vi.mock("@/lib/supabase/client", () => ({
 import { useWorkflow, WorkflowProvider } from "@/features/workflow/workflow-provider"
 
 function Probe() {
-  const { realtimeStatus, refreshWorkflowNow } = useWorkflow()
+  const { tasks, realtimeStatus, refreshWorkflowNow } = useWorkflow()
   return <div>
     <span data-testid="realtime-status">{realtimeStatus}</span>
+    <span data-testid="task-count">{tasks.length}</span>
     <button type="button" onClick={refreshWorkflowNow}>Refresh data now</button>
   </div>
 }
@@ -41,10 +42,13 @@ afterEach(() => {
   cleanup()
   vi.useRealTimers()
   vi.clearAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe("task realtime recovery", () => {
-  it("shows a disconnected state and returns to connected after a focus-triggered reconnect", () => {
+  it("recovers work quietly after a focus-triggered reconnect", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ summary: { tasks: [{ id: "new-task" }], clients: [], assignableUsers: [], upcomingContent: [], contentWorkItems: [] } }) })
+    vi.stubGlobal("fetch", fetchMock)
     renderProvider()
     expect(screen.getByTestId("realtime-status")).toHaveTextContent("connecting")
 
@@ -59,17 +63,20 @@ describe("task realtime recovery", () => {
     expect(realtime.channel.subscribe).toHaveBeenCalledTimes(2)
     act(() => realtime.emitStatus("SUBSCRIBED"))
     expect(screen.getByTestId("realtime-status")).toHaveTextContent("connected")
+    await waitFor(() => expect(screen.getByTestId("task-count")).toHaveTextContent("1"))
+    expect(fetchMock).toHaveBeenCalledWith("/api/workflow-summary", expect.objectContaining({ cache: "no-store" }))
+    expect(realtime.refresh).not.toHaveBeenCalled()
   })
 
-  it("refreshes work on focus and exposes a manual refresh", async () => {
+  it("keeps a connected tab stable on focus and exposes a manual refresh", async () => {
     renderProvider()
     act(() => realtime.emitStatus("SUBSCRIBED"))
 
     fireEvent.focus(window)
-    await waitFor(() => expect(realtime.refresh).toHaveBeenCalledTimes(1))
+    expect(realtime.refresh).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByRole("button", { name: "Refresh data now" }))
-    expect(realtime.refresh).toHaveBeenCalledTimes(2)
+    expect(realtime.refresh).toHaveBeenCalledTimes(1)
   })
 
   it("marks a silent connection attempt as interrupted", () => {

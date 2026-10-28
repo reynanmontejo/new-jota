@@ -147,8 +147,8 @@ function PersistentTaskReviewQueue({ realtimeRevision }: { realtimeRevision: num
   const [largeImage, setLargeImage] = useState<{ url: string; name: string } | null>(null)
   const selected = items.find((item) => item.versionId === selectedId) ?? items[0] ?? null
 
-  const loadQueue = useCallback(async () => {
-    setLoading(true)
+  const loadQueue = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     try {
       const response = await fetch("/api/tasks/reviews", { cache: "no-store" })
       const payload = await response.json() as { submissions?: TaskReviewSubmission[]; error?: string }
@@ -158,7 +158,7 @@ function PersistentTaskReviewQueue({ realtimeRevision }: { realtimeRevision: num
       setMessage(null)
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not load task submissions.")
-    } finally { setLoading(false) }
+    } finally { if (!silent) setLoading(false) }
   }, [])
 
   useEffect(() => {
@@ -168,7 +168,7 @@ function PersistentTaskReviewQueue({ realtimeRevision }: { realtimeRevision: num
   }, [loadQueue])
   useEffect(() => {
     if (realtimeRevision === 0) return
-    const timer = window.setTimeout(() => { void loadQueue() }, 0)
+    const timer = window.setTimeout(() => { void loadQueue(true) }, 0)
     return () => window.clearTimeout(timer)
   }, [loadQueue, realtimeRevision])
   useEffect(() => {
