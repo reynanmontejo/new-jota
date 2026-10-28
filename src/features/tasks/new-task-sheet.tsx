@@ -71,9 +71,10 @@ export function NewTaskSheet({ open, seed, onOpenChange }: NewTaskSheetProps & {
   const [description, setDescription] = useState(seed?.contentDescription ?? "")
   const [checklistText, setChecklistText] = useState("")
   const selectedClient = clients.find((client) => client.id === selectedClientId)
-  const clientMembers = demoMode && currentUser.role === "supervisor"
+  const clientMembers = (demoMode && currentUser.role === "supervisor"
     ? [{ id: currentEmployee.id, name: currentEmployee.name, role: "Account Manager" }]
-    : selectedClient?.members ?? []
+    : selectedClient?.members ?? []).filter((member, index, members) =>
+      members.findIndex((candidate) => candidate.id === member.id) === index)
   const videoEditor = isVideoTask ? clientMembers.find((member) => member.id === seed.videoEditorId) : null
   const organizationMembers = demoMode ? clientMembers : (assignableUsers ?? [])
   const assignableMembers = currentUser.role === "supervisor"

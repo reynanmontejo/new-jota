@@ -19,6 +19,7 @@ afterEach(() => {
   cleanup()
   vi.clearAllMocks()
   mocks.currentUser = { id: "admin-1", name: "Admin User", role: "supervisor", title: "Administrator" }
+  mocks.clients[0].members.length = 1
 })
 
 describe("new task sheet for supervisors and administrators", () => {
@@ -56,6 +57,13 @@ describe("new task sheet for supervisors and administrators", () => {
     expect(screen.getByText(/Suggested from the content item/)).toBeInTheDocument()
     fireEvent.change(assignee, { target: { value: "admin-1" } })
     expect(assignee.value).toBe("admin-1")
+  })
+
+  it("lists a client member once when they hold multiple client roles", () => {
+    mocks.clients[0].members.push({ id: "employee-1", name: "Employee One", role: "Employee" })
+    render(<NewTaskSheet open seed={{ contentItemId: "content-1", contentItemTitle: "Static post", title: "Create static post", clientId: "client-1", clientName: "Northwind", campaignName: "General / Ongoing", deadlineAt: null, contentCategory: "static" }} onOpenChange={vi.fn()} />)
+
+    expect(screen.getAllByRole("option", { name: "Employee One · Employee" })).toHaveLength(1)
   })
 
   it("allows a supervisor/admin to assign an active employee without choosing a client", async () => {
