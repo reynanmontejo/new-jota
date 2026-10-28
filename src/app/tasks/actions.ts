@@ -16,6 +16,9 @@ export async function createTaskAction(input: {
   dueAt: string
   assigneeId: string
   contentItemId?: string | null
+  description?: string
+  startAt?: string | null
+  checklist?: string[]
 }) {
   const parsed = z.object({
     title: z.string().trim().min(2).max(220),
@@ -25,17 +28,23 @@ export async function createTaskAction(input: {
     dueAt: z.iso.datetime(),
     assigneeId: uuid,
     contentItemId: uuid.nullable().optional(),
+    description: z.string().max(5000).optional(),
+    startAt: z.iso.datetime().nullable().optional(),
+    checklist: z.array(z.string().trim().min(1).max(240)).max(20).optional(),
   }).safeParse(input)
   if (!parsed.success) return { id: null, error: "Check the task details and try again." }
 
   const supabase = await createClient()
   const { data, error } = parsed.data.contentItemId
-    ? await supabase.rpc("workflow_create_task_for_content", {
+    ? await supabase.rpc("workflow_create_task_for_content_with_details", {
       p_content_item_id: parsed.data.contentItemId,
       p_title: parsed.data.title,
       p_priority: parsed.data.priority,
       p_due_at: parsed.data.dueAt,
       p_assigned_to: parsed.data.assigneeId,
+      p_description: parsed.data.description ?? "",
+      p_start_at: parsed.data.startAt ?? null,
+      p_checklist: parsed.data.checklist ?? [],
     })
     : await supabase.rpc("workflow_create_task", {
       p_title: parsed.data.title,

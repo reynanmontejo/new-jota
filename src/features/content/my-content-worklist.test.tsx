@@ -28,6 +28,12 @@ const items: TrackerItem[] = [
 ]
 
 describe("unified content tracker", () => {
+  it("visually separates video and static content cards", () => {
+    render(<ContentTracker clients={[]} campaigns={[]} assignees={{}} items={items} canCreate={false} canEdit={false} canCreateTask={false} currentUserId="user-1" canAssignContent={false} />)
+    expect(document.getElementById("content-item-item-1")).toHaveClass("bg-violet-50/60")
+    expect(document.getElementById("content-item-item-2")).toHaveClass("bg-emerald-50/60")
+  })
+
   it("counts future planned posts as upcoming and flags unresolved overdue content", () => {
     const summary = getContentSummaryCounts([
       { ...items[0], id: "future-planned", status: "planned", publish_at: "2026-10-21T12:00:00", deadline_at: null },

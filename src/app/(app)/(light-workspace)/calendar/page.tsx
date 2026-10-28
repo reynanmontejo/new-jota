@@ -13,7 +13,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
   if (isSupabaseConfigured()) {
     const supabase = await createClient()
     const contentQuery = () => supabase.from("content_items")
-      .select("id,title,client_id,platform,content_type,description,status,deadline_at,publish_at,next_action,revision_notes,client_approval_status,client_issues,notes,assigned_to")
+      .select("id,title,client_id,platform,content_type,content_category,description,status,deadline_at,publish_at,next_action,revision_notes,client_approval_status,client_issues,notes,assigned_to")
       .in("status", ["planned", "in_production", "for_review", "revision_requested", "waiting_client", "scheduled"])
       .is("deleted_at", null)
     const [publishResult, deadlineResult, clientsResult] = await Promise.all([
@@ -39,6 +39,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
         client,
         channel: row.platform,
         contentType: row.content_type,
+        contentCategory: row.content_category as "static" | "video" | "other",
         status: row.status,
         description: row.description,
         nextAction: row.next_action,

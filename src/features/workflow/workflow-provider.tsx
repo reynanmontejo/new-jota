@@ -20,6 +20,9 @@ type NewTaskInputFields = {
   campaign: string
   priority: "low" | "medium" | "high" | "urgent"
   assigneeId: string
+  description?: string
+  startAt?: string | null
+  checklist?: string[]
   contentItemId?: string | null
   contentItemTitle?: string
 }
@@ -490,6 +493,7 @@ export function WorkflowProvider({
         assigneeId: input.assigneeId,
         dueAt,
         contentItemId: input.contentItemId,
+        ...(input.contentItemId ? { description: input.description ?? "", startAt: input.startAt ?? null, checklist: input.checklist ?? [] } : {}),
       })
       const id = demoMode ? fakeId : created?.id
       if (!id) {
@@ -502,20 +506,21 @@ export function WorkflowProvider({
         task: {
           id,
           title: input.title,
-          description: "New task created from the global task form.",
+          description: input.description ?? "",
           clientId: input.clientId ?? "",
           clientName: input.clientName,
           campaign: input.campaign || "General work",
           contentItem: input.contentItemTitle ?? "General campaign work",
           contentItemId: input.contentItemId ?? null,
+          createdById: currentUser.id,
           priority: input.priority,
           status: "todo",
-          startDate: "Today",
+          startDate: input.startAt ? formatTaskDate(input.startAt) : "Not set",
           dueDate: formatTaskDate(dueAt),
           dueAt,
-          primaryOwner: { id: owner.id, name: owner.name, initials: owner.name.split(" ").map((part) => part[0]).join(""), role: owner.role === "employee" ? "Account Manager" : "Supervisor" },
+          primaryOwner: { id: owner.id, name: owner.name, initials: owner.name.split(" ").map((part) => part[0]).join(""), role: owner.role === "employee" ? "Account Manager" : owner.role === "supervisor" ? "Supervisor" : owner.role },
           collaborators: [],
-          checklist: [],
+          checklist: (input.checklist ?? []).map((label, position) => ({ id: `new-${position}`, label, completed: false })),
           comments: [],
           versions: [],
           activity: [{ id: crypto.randomUUID(), label: "Task created", actor: currentUser.name, createdAt: "Just now" }],

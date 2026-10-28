@@ -159,7 +159,7 @@ export function TaskList() {
     return () => window.clearTimeout(timeout)
   }, [archiveNotice, archivePending])
 
-  const myTasks = useMemo(() => currentUser.role === "supervisor" ? tasks : tasks.filter((task) => task.primaryOwner.id === currentUser.id), [tasks, currentUser.id, currentUser.role])
+  const myTasks = useMemo(() => currentUser.role === "supervisor" ? tasks : tasks.filter((task) => task.primaryOwner.id === currentUser.id || task.createdById === currentUser.id), [tasks, currentUser.id, currentUser.role])
   // This list is already scoped by Supabase RLS to the user's accessible clients.
   // assigned_to identifies the creator/editor, not the account manager for a client.
   const myContent = useMemo(() => hideContentAlreadyTrackedByTasks(contentWorkItems, myTasks), [contentWorkItems, myTasks])
@@ -395,8 +395,13 @@ function CalendarContentCard({ item, demoMode, showAssignee, publishing, onRevie
   const { openNewTask } = useTaskDrawer()
   const canAddTask = !["published", "cancelled", "rejected"].includes(item.status)
   const canSubmitForReview = !demoMode && !["for_review", "published", "cancelled", "rejected"].includes(item.status)
+  const categoryColor = item.category === "video"
+    ? "border-violet-300/70 bg-violet-50/60 hover:bg-violet-50/85 dark:border-violet-800/70 dark:bg-violet-950/25 dark:hover:bg-violet-950/40"
+    : item.category === "static"
+      ? "border-emerald-300/70 bg-emerald-50/60 hover:bg-emerald-50/85 dark:border-emerald-800/70 dark:bg-emerald-950/25 dark:hover:bg-emerald-950/40"
+      : "border-primary/15 bg-background/75 hover:border-primary/35 hover:bg-background"
 
-  return <article className="group w-full min-w-0 rounded-lg border border-primary/15 bg-background/75 px-2 py-1.5 transition hover:border-primary/35 hover:bg-background">
+  return <article className={`group w-full min-w-0 rounded-lg border px-2 py-1.5 transition ${categoryColor}`}>
     <div className="flex items-center justify-between gap-1.5">
       <Link href={`/content#content-item-${encodeURIComponent(item.id)}`} className="min-w-0 truncate text-[11px] font-semibold leading-4 hover:text-primary hover:underline">
         {item.title}
@@ -406,7 +411,7 @@ function CalendarContentCard({ item, demoMode, showAssignee, publishing, onRevie
           <MoreHorizontal className="size-3.5" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" sideOffset={5} className="min-w-48 rounded-xl border border-primary/16 bg-popover/95 p-1.5 shadow-xl backdrop-blur-xl">
-          {canAddTask && <DropdownMenuItem onClick={() => openNewTask({ contentItemId: item.id, contentItemTitle: item.title, title: `Create assets: ${item.title}`, clientId: item.clientId, clientName: item.clientName, campaignName: item.campaignName, deadlineAt: item.deadlineAt })} className="min-h-8 rounded-lg px-2 text-xs"><ListPlus className="size-3.5" />Add as task</DropdownMenuItem>}
+          {canAddTask && <DropdownMenuItem onClick={() => openNewTask({ contentItemId: item.id, contentItemTitle: item.title, title: `Create assets: ${item.title}`, clientId: item.clientId, clientName: item.clientName, campaignName: item.campaignName, deadlineAt: item.deadlineAt, assigneeId: item.assigneeId, contentCategory: item.category, contentType: item.format, contentDescription: item.description, videoEditorId: item.videoEditorId })} className="min-h-8 rounded-lg px-2 text-xs"><ListPlus className="size-3.5" />Add as task</DropdownMenuItem>}
           {canAddTask && (canSubmitForReview || item.status === "for_review" || item.status === "scheduled") && <DropdownMenuSeparator />}
           {canSubmitForReview && <DropdownMenuItem onClick={onReview} className="min-h-8 rounded-lg px-2 text-xs"><Send className="size-3.5" />Submit files for review</DropdownMenuItem>}
           {item.status === "for_review" && !demoMode && <DropdownMenuItem onClick={onReview} className="min-h-8 rounded-lg px-2 text-xs"><Send className="size-3.5" />View review files</DropdownMenuItem>}

@@ -65,7 +65,6 @@ export function ContentImport({ clients, campaigns, assignees, videoEditorByClie
     ? defaultCampaign
     : defaultClientCampaigns.find((campaign) => campaign.name.toLocaleLowerCase() === "general / ongoing")?.id ?? ""
   const clientVideoEditor = (assignees[defaultClient] ?? []).find((person) => person.id === videoEditorByClient[defaultClient])
-  const hasVideoRows = rows.some((row) => isVideoContentFormat(mapping.contentType === undefined || mapping.contentType === "" ? defaultFormat : row[Number(mapping.contentType)] || defaultFormat))
 
   const preview = useMemo<PreviewRow[]>(() => {
     const seen = new Set<string>()
@@ -116,13 +115,14 @@ export function ContentImport({ clients, campaigns, assignees, videoEditorByClie
       const revisionCount = parseContentImportCount(revisionRaw)
       if (revisionCount === null) return { number: rowIndex + 2, values: null, duplicate: false, error: `Revision count “${revisionRaw}” must be a whole number from 0 to 10,000.` }
       const ownerName = value("assignee")
-      const ownerId = ownerName
-        ? (assignees[client.id] ?? []).find((person) => normalize(person.display_name) === normalize(ownerName))?.id
-        : isVideoContentFormat(contentType) && client.id === defaultClient && selectedVideoEditor
-          ? selectedVideoEditor
+      const useSelectedVideoEditor = isVideoContentFormat(contentType) && client.id === defaultClient && Boolean(selectedVideoEditor)
+      const ownerId = useSelectedVideoEditor
+        ? selectedVideoEditor
+        : ownerName
+          ? (assignees[client.id] ?? []).find((person) => normalize(person.display_name) === normalize(ownerName))?.id
           : canAssignContent ? defaultAssignee : currentUserId
       const matchedOwners = ownerId ? (assignees[client.id] ?? []).filter((person) => person.id === ownerId) : []
-      if (ownerName && matchedOwners.length !== 1) return { number: rowIndex + 2, values: null, duplicate: false, error: `Responsible person “${ownerName}” isn’t an active member of ${client.name}.` }
+      if (ownerName && !useSelectedVideoEditor && matchedOwners.length !== 1) return { number: rowIndex + 2, values: null, duplicate: false, error: `Responsible person “${ownerName}” isn’t an active member of ${client.name}.` }
       if (!ownerName && !ownerId) return { number: rowIndex + 2, values: null, duplicate: false, error: "Choose an assigned creator/editor or map that column." }
       if (ownerId && matchedOwners.length !== 1) return { number: rowIndex + 2, values: null, duplicate: false, error: `The selected responsible person is not an active member of ${client.name}.` }
       const values: RowInput = {
@@ -192,7 +192,7 @@ export function ContentImport({ clients, campaigns, assignees, videoEditorByClie
     {!mapping.client && <label className="grid gap-1 text-[11px] font-medium text-muted-foreground">{isSocialCalendar ? "Client for all posts" : "Default client"}<select className={fieldClass} value={defaultClient} onChange={(event) => { const nextClient = event.target.value; const nextCampaigns = campaigns.filter((campaign) => campaign.client_id === nextClient && canReceiveNewContent(campaign)); const nextAssignees = assignees[nextClient] ?? []; setDefaultClient(nextClient); setDefaultCampaign(nextCampaigns.find((campaign) => campaign.name.toLocaleLowerCase() === "general / ongoing")?.id ?? ""); setDefaultAssignee(canAssignContent ? nextAssignees.some((person) => person.id === currentUserId) ? currentUserId : nextAssignees.length === 1 ? nextAssignees[0].id : "" : currentUserId); setSelectedVideoEditor("") }}><option value="">Choose client</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</select></label>}
     {!mapping.campaign && <label className="grid gap-1 text-[11px] font-medium text-muted-foreground">{isSocialCalendar ? "Campaign (optional)" : "Default campaign (optional)"}<select className={fieldClass} value={resolvedDefaultCampaign} onChange={(event) => setDefaultCampaign(event.target.value)} disabled={!defaultClient}><option value="">General / Ongoing (automatic)</option>{defaultClientCampaigns.map((campaign) => <option key={campaign.id} value={campaign.id}>{campaign.name}</option>)}</select></label>}
     {!mapping.assignee && canAssignContent && <label className="grid gap-1 text-[11px] font-medium text-muted-foreground">Assigned creator / editor<select className={fieldClass} value={defaultAssignee} onChange={(event) => setDefaultAssignee(event.target.value)} disabled={!defaultClient}><option value="">Choose a creator/editor</option>{(assignees[defaultClient] ?? []).map((person) => <option key={person.id} value={person.id}>{person.display_name}</option>)}</select>{!defaultClient && <span className="font-normal">For CSVs covering multiple clients, map an Assigned creator/editor column.</span>}</label>}
-    {hasVideoRows && defaultClient && <label className="grid gap-1 text-[11px] font-medium text-muted-foreground">Video editor <span className="font-normal">(optional, for video rows)</span><select className={fieldClass} aria-label="Video editor for imported content" value={selectedVideoEditor} onChange={(event) => setSelectedVideoEditor(event.target.value)}><option value="">Keep the creator above</option>{clientVideoEditor && <option value={clientVideoEditor.id}>{clientVideoEditor.display_name}</option>}</select><span className="font-normal">{clientVideoEditor ? "Only video rows use this editor; static rows keep their creator." : "Assign a video editor to this client first if you want to select one here."}</span></label>}
+    {defaultClient && <label className="grid gap-1 text-[11px] font-medium text-muted-foreground">Video editor for video content <span className="font-normal">(optional)</span><select className={fieldClass} aria-label="Video editor for imported content" value={selectedVideoEditor} onChange={(event) => setSelectedVideoEditor(event.target.value)}><option value="">Keep the creator for video rows</option>{clientVideoEditor && <option value={clientVideoEditor.id}>{clientVideoEditor.display_name}</option>}</select><span className="font-normal">{clientVideoEditor ? "Choose this client’s editor before import. Only video rows use this selection; static rows keep their creator. Tasks are added separately." : "Assign a video editor to this client first if you want to select one here."}</span></label>}
     {!canAssignContent && <p className="self-end pb-2 text-[11px] text-muted-foreground">Unless specified in the CSV, posts will show you as the assigned creator/editor. My Work is based on your client access.</p>}
     {!mapping.platform && <label className="grid gap-1 text-[11px] font-medium text-muted-foreground">{isSocialCalendar ? "Platform for all posts" : "Default platform"}<input className={fieldClass} value={defaultPlatform} onChange={(event) => setDefaultPlatform(event.target.value)} placeholder="e.g. Instagram" maxLength={60} />{isSocialCalendar && <span className="font-normal">Your CSV has no Platform column, so this will be used for each post.</span>}</label>}
     {!isSocialCalendar && !mapping.contentType && <label className="grid gap-1 text-[11px] font-medium text-muted-foreground">Default format<input className={fieldClass} value={defaultFormat} onChange={(event) => setDefaultFormat(event.target.value)} placeholder="e.g. Reel" /></label>}

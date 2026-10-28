@@ -24,7 +24,7 @@ type DbClient = {
   id: string
   name: string
   active_campaigns: Array<{ id: string; name: string }>
-  active_members: Array<{ user_id: string }>
+  active_members: Array<{ user_id: string; client_role: string }>
 }
 type DbChecklist = { id: string; task_id: string; title: string; is_completed: boolean; position: number }
 type DbComment = { id: string; task_id: string; author_id: string; body: string; created_at: string }
@@ -62,13 +62,13 @@ export async function loadWorkflowData(): Promise<{ tasks: WorkflowTask[]; clien
       .is("active_assignees.removed_at", null)
       .order("due_at", { ascending: true, nullsFirst: false }),
     supabase.from("clients")
-      .select("id,name,active_campaigns:campaigns(id,name),active_members:client_members(user_id)")
+      .select("id,name,active_campaigns:campaigns(id,name),active_members:client_members(user_id,client_role)")
       .is("deleted_at", null)
       .is("active_campaigns.deleted_at", null)
       .is("active_members.removed_at", null)
       .order("name"),
     supabase.from("content_items")
-      .select("id,title,client_id,campaign_id,platform,content_type,status,publish_at,deadline_at,assigned_to")
+      .select("id,title,client_id,campaign_id,platform,content_type,content_category,description,status,publish_at,deadline_at,assigned_to")
       .in("status", ["idea", "planned", "in_production", "for_review", "revision_requested", "waiting_client", "scheduled"])
       .is("deleted_at", null)
       .order("publish_at", { ascending: true, nullsFirst: false }),
@@ -83,7 +83,7 @@ export async function loadWorkflowData(): Promise<{ tasks: WorkflowTask[]; clien
   const rows = (taskResult.data ?? []) as unknown as DbTask[]
   const clients = (clientResult.data ?? []) as unknown as DbClient[]
   const contentWorkRows = (contentWorkResult.data ?? []) as unknown as Array<{
-    id: string; title: string; client_id: string; campaign_id: string; platform: string; content_type: string
+    id: string; title: string; client_id: string; campaign_id: string; platform: string; content_type: string; content_category: "static" | "video" | "other"; description: string | null
     status: string; publish_at: string | null; deadline_at: string | null; assigned_to: string | null
   }>
   // Only fetch the summary fields used by shared navigation, task boards, and insights.
@@ -104,6 +104,7 @@ export async function loadWorkflowData(): Promise<{ tasks: WorkflowTask[]; clien
     }),
   }))
   const clientsById = new Map(clientsWithCampaigns.map((row) => [row.id, row.name]))
+  const videoEditorByClient = new Map(clients.map((client) => [client.id, client.active_members.find((member) => member.client_role === "video_editor")?.user_id ?? null]))
   const upcomingContent: WorkflowUpcomingContent[] = contentWorkRows
     .filter((item) => ["planned", "in_production", "scheduled"].includes(item.status) && Boolean(item.publish_at) && item.publish_at! >= new Date().toISOString())
     .slice(0, 3)
@@ -120,6 +121,9 @@ export async function loadWorkflowData(): Promise<{ tasks: WorkflowTask[]; clien
       campaignName: campaignById.get(row.campaign_id) ?? "General / Ongoing",
       platform: row.platform,
       format: row.content_type,
+      category: row.content_category,
+      description: row.description,
+      videoEditorId: videoEditorByClient.get(row.client_id) ?? null,
       status: row.status,
       publishAt: row.publish_at,
       deadlineAt: row.deadline_at,

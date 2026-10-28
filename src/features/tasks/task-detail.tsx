@@ -51,7 +51,7 @@ export function TaskDetail({ taskId, embedded = false }: { taskId: string; embed
   }, [taskId, task, currentUser, demoMode, loadTaskDetails])
 
   if (!task) return <ContentState variant="empty" title="Task not found" description="This task does not exist or has been removed." />
-  if (!canViewTask(task, currentUser)) return <ContentState variant="access_denied" title="Task access restricted" description="Only the assigned employee and supervisors can view this task." />
+  if (!canViewTask(task, currentUser)) return <ContentState variant="access_denied" title="Task access restricted" description="Only the assigned employee, task creator, and supervisors can view this task." />
 
   const taskDetailsReady = demoMode || task.detailsLoaded === true
   const detailsError = detailsErrorTaskId === taskId

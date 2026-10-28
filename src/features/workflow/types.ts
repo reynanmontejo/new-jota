@@ -93,6 +93,9 @@ export type WorkflowContentWorkItem = {
   campaignName: string
   platform: string
   format: string
+  category?: "static" | "video" | "other"
+  description?: string | null
+  videoEditorId?: string | null
   status: string
   publishAt: string | null
   deadlineAt: string | null

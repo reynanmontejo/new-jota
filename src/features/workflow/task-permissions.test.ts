@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { initialWorkflowState } from "@/features/workflow/mock-data"
-import { currentEmployee, currentSupervisor, isSupervisorOwnedTask, taskStatusOptions } from "@/features/workflow/task-permissions"
+import { canViewTask, currentEmployee, currentSupervisor, isSupervisorOwnedTask, taskStatusOptions } from "@/features/workflow/task-permissions"
 
 describe("task review permissions", () => {
   const employeeTask = initialWorkflowState.tasks.find((task) => task.status === "todo")!
@@ -20,5 +20,15 @@ describe("task review permissions", () => {
 
   it("does not let employees bypass review by completing a task", () => {
     expect(taskStatusOptions(employeeTask, currentEmployee)).not.toContain("completed")
+  })
+
+  it("lets a manager view a task they handed to an editor without starting it", () => {
+    const delegatedVideoTask = {
+      ...employeeTask,
+      createdById: currentEmployee.id,
+      primaryOwner: { ...employeeTask.primaryOwner, id: "video-editor-1" },
+    }
+    expect(canViewTask(delegatedVideoTask, currentEmployee)).toBe(true)
+    expect(taskStatusOptions(delegatedVideoTask, currentEmployee)).not.toContain("in_progress")
   })
 })

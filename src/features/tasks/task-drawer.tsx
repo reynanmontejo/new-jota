@@ -20,6 +20,10 @@ export type ContentTaskSeed = {
   campaignName: string
   deadlineAt: string | null
   assigneeId?: string | null
+  contentCategory?: "static" | "video" | "other"
+  contentType?: string
+  contentDescription?: string | null
+  videoEditorId?: string | null
 }
 
 type TaskDrawerContextValue = {
@@ -40,7 +44,9 @@ export function TaskDrawerProvider({ children }: { children: ReactNode }) {
   const task = tasks.find((item) => item.id === taskId)
   const openTask = (id: string) => {
     const requestedTask = tasks.find((item) => item.id === id)
-    if (requestedTask && canViewTask(requestedTask, currentUser)) setTaskId(id)
+    // A newly created task may enter the provider on the next React render.
+    // TaskDetail checks access again once the row is present.
+    if (!requestedTask || canViewTask(requestedTask, currentUser)) setTaskId(id)
   }
   const openNewTask = (seed?: ContentTaskSeed) => {
     setNewTaskSeed(seed ?? null)

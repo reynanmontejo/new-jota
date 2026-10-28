@@ -32,6 +32,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
 vi.mock("@/app/tasks/actions", () => ({ archiveCompletedTaskAction: vi.fn(), undoTaskArchiveAction: vi.fn(), trashTaskAction: vi.fn(), undoTaskTrashAction: vi.fn() }))
 
 import { hideContentAlreadyTrackedByTasks, TaskList } from "@/features/tasks/task-list"
+import { initialWorkflowState } from "@/features/workflow/mock-data"
 import type { WorkflowTask } from "@/features/workflow/types"
 import { archiveCompletedTaskAction, trashTaskAction, undoTaskArchiveAction, undoTaskTrashAction } from "@/app/tasks/actions"
 
@@ -57,6 +58,20 @@ afterEach(() => {
 })
 
 describe("My Work calendar content", () => {
+  it("shows video tasks delegated by the manager while keeping progress with the editor", () => {
+    const delegatedTask = {
+      ...initialWorkflowState.tasks[0],
+      id: "delegated-video-task",
+      title: "Edit launch reel",
+      createdById: "account-manager-1",
+      primaryOwner: { ...initialWorkflowState.tasks[0].primaryOwner, id: "editor-1", name: "Video Editor" },
+      status: "todo" as const,
+    }
+    mocks.workflow.tasks = [delegatedTask]
+    render(<TaskList />)
+    expect(screen.getByText("Edit launch reel")).toBeInTheDocument()
+  })
+
   it("shows RLS-visible client content even when another creator/editor is assigned", () => {
     render(<TaskList />)
 

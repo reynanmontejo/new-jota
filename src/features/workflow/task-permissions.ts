@@ -16,7 +16,7 @@ export function canCreateTask(actor: DemoUser) {
 }
 
 export function canViewTask(task: WorkflowTask, actor: DemoUser) {
-  return actor.role === "supervisor" || task.primaryOwner.id === actor.id
+  return actor.role === "supervisor" || task.primaryOwner.id === actor.id || task.createdById === actor.id
 }
 
 export function canEditTask(task: WorkflowTask, actorId: string) {

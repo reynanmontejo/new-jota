@@ -17,6 +17,7 @@ export type ContentCalendarPost = {
   client: string
   channel: string
   contentType?: string
+  contentCategory?: "static" | "video" | "other"
   status?: string
   eventType?: "publish" | "deadline"
   description?: string | null
@@ -37,9 +38,20 @@ const deadlineStyles: Record<DeadlineUrgency, { label: string; legendLabel: stri
   upcoming: { label: "Upcoming", legendLabel: "Later deadline", className: "border-emerald-600/20 bg-emerald-600/10 text-emerald-900 dark:text-emerald-200", dateClassName: "bg-emerald-600/12 text-emerald-900 dark:text-emerald-200" },
 }
 
+const contentCategoryStyles = {
+  video: "border-violet-300/70 bg-violet-50/70 text-violet-950 dark:border-violet-800/70 dark:bg-violet-950/35 dark:text-violet-100",
+  static: "border-emerald-300/70 bg-emerald-50/70 text-emerald-950 dark:border-emerald-800/70 dark:bg-emerald-950/35 dark:text-emerald-100",
+  other: "border-primary/15 bg-primary/12 text-primary",
+}
+const contentCategoryAccents = {
+  video: "border-l-4 border-l-violet-500",
+  static: "border-l-4 border-l-emerald-600",
+  other: "",
+}
+
 const demoScheduledContent: ContentCalendarPost[] = [
-  { id: "demo-founder-reel", date: "2026-09-28", title: "Founder story reel", clientId: "harbor-and-pine", client: "Harbor & Pine", channel: "Instagram", contentType: "Reel", status: "scheduled" },
-  { id: "demo-coffee-carousel", date: "2026-09-30", title: "Cold brew carousel", clientId: "northwind-coffee", client: "Northwind Coffee", channel: "LinkedIn", contentType: "Carousel", status: "scheduled" },
+  { id: "demo-founder-reel", date: "2026-09-28", title: "Founder story reel", clientId: "harbor-and-pine", client: "Harbor & Pine", channel: "Instagram", contentType: "Reel", contentCategory: "video", status: "scheduled" },
+  { id: "demo-coffee-carousel", date: "2026-09-30", title: "Cold brew carousel", clientId: "northwind-coffee", client: "Northwind Coffee", channel: "LinkedIn", contentType: "Carousel", contentCategory: "static", status: "scheduled" },
   { id: "demo-product-spotlight", date: "2026-10-02", title: "Product spotlight", clientId: "luma-skincare", client: "Luma Skincare", channel: "Facebook", contentType: "Post", status: "scheduled" },
 ]
 
@@ -125,8 +137,8 @@ export function ContentCalendar({ contentPosts, contentError = false, clientId, 
     : ""
   const monthPrefix = `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, "0")}`
   const agenda = [
-    ...scheduledEvents.filter((item) => item.date.startsWith(monthPrefix)).map((item) => ({ key: item.id, date: item.date, title: item.title, detail: `${item.eventType === "deadline" ? `${deadlineStyles[getDeadlineUrgency(item.date)].label} content deadline` : "Publish"} · ${item.client} · ${item.channel}`, urgency: item.eventType === "deadline" ? getDeadlineUrgency(item.date) : null, taskId: null as string | null })),
-    ...deadlines.filter((item) => item.date.startsWith(monthPrefix)).map(({ date, task }) => ({ key: task.id, date, title: task.title, detail: `${deadlineStyles[getDeadlineUrgency(date)].label} task deadline · ${task.clientName} · ${task.primaryOwner.name}`, urgency: getDeadlineUrgency(date), taskId: task.id })),
+    ...scheduledEvents.filter((item) => item.date.startsWith(monthPrefix)).map((item) => ({ key: item.id, date: item.date, title: item.title, detail: `${item.eventType === "deadline" ? `${deadlineStyles[getDeadlineUrgency(item.date)].label} content deadline` : "Publish"} · ${item.client} · ${item.channel}`, urgency: item.eventType === "deadline" ? getDeadlineUrgency(item.date) : null, category: item.contentCategory ?? "other", taskId: null as string | null })),
+    ...deadlines.filter((item) => item.date.startsWith(monthPrefix)).map(({ date, task }) => ({ key: task.id, date, title: task.title, detail: `${deadlineStyles[getDeadlineUrgency(date)].label} task deadline · ${task.clientName} · ${task.primaryOwner.name}`, urgency: getDeadlineUrgency(date), category: "other" as const, taskId: task.id })),
   ].sort((a, b) => a.date.localeCompare(b.date))
 
   function changeMonth(offset: number) {
@@ -190,8 +202,8 @@ export function ContentCalendar({ contentPosts, contentError = false, clientId, 
               const posts = scheduledEventsByDate.get(date) ?? []
               const due = deadlinesByDate.get(date) ?? []
               const dayEvents = [
-                ...posts.map((post) => ({ key: `content-${post.id}`, title: post.title, urgency: post.eventType === "deadline" ? getDeadlineUrgency(date) : null as DeadlineUrgency | null, taskId: null as string | null, detail: `${post.eventType === "deadline" ? "Content deadline" : "Publish"}: ${post.title} · ${post.client} · ${post.channel}` })),
-                ...due.map(({ task }) => ({ key: `task-${task.id}`, title: task.title, urgency: getDeadlineUrgency(date), taskId: task.id, detail: `${getDeadlineUrgency(date)} task deadline: ${task.title}` })),
+                ...posts.map((post) => ({ key: `content-${post.id}`, title: post.title, urgency: post.eventType === "deadline" ? getDeadlineUrgency(date) : null as DeadlineUrgency | null, category: post.contentCategory ?? "other", taskId: null as string | null, detail: `${post.eventType === "deadline" ? "Content deadline" : "Publish"}: ${post.title} · ${post.client} · ${post.channel}` })),
+                ...due.map(({ task }) => ({ key: `task-${task.id}`, title: task.title, urgency: getDeadlineUrgency(date), category: "other" as const, taskId: task.id, detail: `${getDeadlineUrgency(date)} task deadline: ${task.title}` })),
               ]
               const { visibleEvents, remainingCount } = getCalendarDayPreview(dayEvents)
               return <div key={date} className={`group relative min-h-24 min-w-0 border-b border-r p-1.5 sm:p-2 ${selectedDate === date ? "bg-primary/5" : ""}`}>
@@ -201,7 +213,7 @@ export function ContentCalendar({ contentPosts, contentError = false, clientId, 
                 <div className="pointer-events-none relative z-10 mt-7 space-y-1">
                   {visibleEvents.map((event) => {
                     const style = event.urgency ? deadlineStyles[event.urgency] : null
-                    return <button key={event.key} type="button" onClick={() => event.taskId ? openTask(event.taskId) : selectDate(date)} title={event.detail} className={`pointer-events-auto block w-full truncate rounded border px-1.5 py-1 text-left text-[10px] font-medium ${style ? style.className : "border-primary/15 bg-primary/12 text-primary"}`}>{style ? `${style.label}: ` : ""}{event.title}</button>
+                    return <button key={event.key} type="button" onClick={() => event.taskId ? openTask(event.taskId) : selectDate(date)} title={event.detail} className={`pointer-events-auto block w-full truncate rounded border px-1.5 py-1 text-left text-[10px] font-medium ${style ? style.className : contentCategoryStyles[event.category]} ${!event.taskId ? contentCategoryAccents[event.category] : ""}`}>{style ? `${style.label}: ` : ""}{event.title}</button>
                   })}
                   {remainingCount > 0 && <button type="button" onClick={() => selectDate(date)} aria-label={`View ${remainingCount} more items for ${date}`} className="pointer-events-auto block w-full truncate rounded px-1.5 py-1 text-left text-[10px] font-semibold text-primary hover:bg-primary/10">+{remainingCount} more</button>}
                 </div>
@@ -211,7 +223,7 @@ export function ContentCalendar({ contentPosts, contentError = false, clientId, 
         </section>
         <section aria-label={`${monthLabel} agenda`} className="space-y-2 md:hidden">
         {agenda.length === 0 ? <div className="overview-panel rounded-lg border px-4 py-6 text-center text-sm text-muted-foreground">No scheduled content or task deadlines this month.</div> : agenda.map((event) => (
-          <button type="button" key={`${event.date}-${event.key}`} onClick={() => event.taskId ? openTask(event.taskId) : selectDate(event.date)} className={`overview-panel flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left ${event.urgency ? deadlineStyles[event.urgency].className : "hover:border-primary/40"}`}>
+          <button type="button" key={`${event.date}-${event.key}`} onClick={() => event.taskId ? openTask(event.taskId) : selectDate(event.date)} className={`overview-panel flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left ${event.urgency ? deadlineStyles[event.urgency].className : contentCategoryStyles[event.category]} ${!event.taskId ? contentCategoryAccents[event.category] : ""}`}>
             <span className={`grid size-10 shrink-0 place-items-center rounded-md text-xs font-semibold ${event.urgency ? deadlineStyles[event.urgency].dateClassName : "bg-secondary/35"}`}>{Number(event.date.slice(-2))}</span>
             <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{event.title}</p><p className="truncate text-xs text-muted-foreground">{event.detail}</p></div>
             <span className="shrink-0 text-xs font-medium text-primary">Details</span>
@@ -231,7 +243,7 @@ export function ContentCalendar({ contentPosts, contentError = false, clientId, 
         {(selectedPosts.length > 0 || selectedDeadlines.length > 0) && <div className="mt-3 divide-y rounded-md border">
           {selectedPosts.map((post) => {
             const urgency = post.eventType === "deadline" ? getDeadlineUrgency(post.date) : null
-            return <article key={post.id} className={`space-y-1.5 border-l-2 p-3 ${urgency ? deadlineStyles[urgency].className : ""}`}>
+            return <article key={post.id} className={`space-y-1.5 p-3 ${urgency ? deadlineStyles[urgency].className : contentCategoryStyles[post.contentCategory ?? "other"]} ${contentCategoryAccents[post.contentCategory ?? "other"]}`}>
             <div className="flex flex-wrap items-center gap-2"><h3 className="min-w-0 break-words text-sm font-medium">{post.title}</h3><span className={`rounded-full px-2 py-0.5 text-[10px] ${urgency ? deadlineStyles[urgency].className : "bg-secondary/45"}`}>{urgency ? deadlineStyles[urgency].label : "Publish"}</span>{post.status && <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] capitalize text-primary">{post.status.replaceAll("_", " ")}</span>}</div>
             <p className="text-xs text-muted-foreground">{post.client} · {post.channel}{post.contentType ? ` · ${post.contentType}` : ""}</p>
             {post.description && <p className="whitespace-pre-wrap text-xs leading-relaxed">{post.description}</p>}

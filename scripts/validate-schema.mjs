@@ -41,6 +41,7 @@ const explicitClientHandoffMigrationPath = "supabase/migrations/202610300004_exp
 const contentReportingCategoriesMigrationPath = "supabase/migrations/202610310001_content_reporting_categories.sql"
 const clientApprovalPublicationGuardMigrationPath = "supabase/migrations/202610310002_client_approval_publication_guard.sql"
 const supervisorContentMigrationPath = "supabase/migrations/202611010001_supervisor_content_and_video_assignment.sql"
+const videoTaskHandoffMigrationPath = "supabase/migrations/202611020001_video_content_task_handoff.sql"
 const seedPath = "supabase/seed.sql"
 
 function normalizeMigrationForPGlite(migration) {
@@ -1842,6 +1843,84 @@ if (approvedPublication.rows[0]?.content_status !== "published" || approvedPubli
 }
 }
 
+await database.exec(await fs.readFile(videoTaskHandoffMigrationPath, "utf8"))
+const videoEditor = "80000000-0000-0000-0000-000000000006"
+await database.exec(`
+  insert into auth.users (id) values ('${videoEditor}');
+  insert into public.profiles (id, organization_id, email, display_name, status) values
+    ('${videoEditor}', '10000000-0000-0000-0000-000000000001', 'video-editor@example.test', 'Video Editor', 'active');
+  insert into public.user_roles (organization_id, user_id, role_id) values
+    ('10000000-0000-0000-0000-000000000001', '${videoEditor}', '20000000-0000-0000-0000-000000000001');
+`)
+const videoContentId = (await database.query(`insert into public.content_items (
+  organization_id, client_id, campaign_id, title, description, platform, content_type, status, created_by
+) values (
+  '10000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000002',
+  '40000000-0000-0000-0000-000000000002', 'Editor handoff reel', 'Cut the launch footage',
+  'Instagram', 'Reel', 'planned', '${employeeTwo}'
+) returning id, content_category`)).rows[0]
+if (videoContentId?.content_category !== "video") throw new Error("Video task fixture was not classified as video")
+let missingEditorRejected = false
+try {
+  await asUser(employeeTwo, () => database.query(`select public.workflow_create_task_for_content(
+    '${videoContentId.id}', 'Edit reel', 'medium', now() + interval '2 days', '${employeeTwo}'
+  )`))
+} catch (error) { missingEditorRejected = error?.code === "22023"; if (!missingEditorRejected) throw error }
+if (!missingEditorRejected) throw new Error("A video task was created without a designated editor")
+
+await asUser(employeeTwo, () => database.query(`select public.set_client_video_editor('30000000-0000-0000-0000-000000000002', '${videoEditor}')`))
+let managerSelfAssignmentRejected = false
+try {
+  await asUser(employeeTwo, () => database.query(`select public.workflow_create_task_for_content(
+    '${videoContentId.id}', 'Edit reel', 'medium', now() + interval '2 days', '${employeeTwo}'
+  )`))
+} catch (error) { managerSelfAssignmentRejected = error?.code === "22023" }
+if (!managerSelfAssignmentRejected) throw new Error("Account Manager could assign linked video work to themself")
+
+const videoTaskId = await asUser(employeeTwo, async () => (await database.query(`select public.workflow_create_task_for_content_with_details(
+  '${videoContentId.id}', 'Edit reel', 'medium', now() + interval '2 days', '${videoEditor}',
+  'Cut the launch footage', now(), array['Prepare draft', 'Export final']::text[]
+) as id`)).rows[0]?.id)
+const videoTaskDetails = (await database.query(`select t.description, t.start_at, t.status::text as status, ta.user_id,
+  (select array_agg(title order by position) from public.task_checklist_items where task_id = t.id) as checklist
+  from public.tasks t join public.task_assignees ta on ta.task_id = t.id and ta.is_primary
+  where t.id = '${videoTaskId}'`)).rows[0]
+if (videoTaskDetails?.user_id !== videoEditor || videoTaskDetails?.description !== "Cut the launch footage"
+  || !videoTaskDetails.start_at || videoTaskDetails.status !== "todo"
+  || JSON.stringify(videoTaskDetails.checklist) !== JSON.stringify(["Prepare draft", "Export final"])) {
+  throw new Error("Video task handoff did not retain editor, brief, start date, and checklist")
+}
+const editorNotice = (await database.query(`select count(*)::int as count from public.notifications
+  where recipient_id = '${videoEditor}' and type = 'task_assigned' and entity_id = '${videoTaskId}'`)).rows[0]?.count
+if (editorNotice !== 1) throw new Error("Video editor was not notified of the linked task")
+let managerProgressRejected = false
+try {
+  await asUser(employeeTwo, () => database.query(`select public.workflow_update_task_status('${videoTaskId}', 'in_progress')`))
+} catch (error) { managerProgressRejected = error?.code === "42501" }
+if (!managerProgressRejected) throw new Error("Account Manager started the video editor's task")
+await asUser(videoEditor, () => database.query(`select public.workflow_update_task_status('${videoTaskId}', 'in_progress')`))
+
+const staticContentId = (await database.query(`insert into public.content_items (
+  organization_id, client_id, campaign_id, title, platform, content_type, status, created_by
+) values (
+  '10000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000002',
+  '40000000-0000-0000-0000-000000000002', 'Manager graphic task', 'Instagram', 'Static image', 'planned', '${employeeTwo}'
+) returning id`)).rows[0]?.id
+let staticHandoffRejected = false
+try {
+  await asUser(employeeTwo, () => database.query(`select public.workflow_create_task_for_content(
+    '${staticContentId}', 'Create graphic', 'medium', now() + interval '2 days', '${videoEditor}'
+  )`))
+} catch (error) { staticHandoffRejected = error?.code === "42501" }
+if (!staticHandoffRejected) throw new Error("Video exception allowed an Account Manager to delegate static work")
+await asUser(employeeTwo, () => database.query(`select public.workflow_create_task_for_content(
+  '${staticContentId}', 'Create graphic', 'medium', now() + interval '2 days', '${employeeTwo}'
+)`))
+const handoffGrant = (await database.query(`select has_function_privilege(
+  'authenticated', 'public.workflow_create_task_for_content_with_details(uuid,text,public.task_priority,timestamptz,uuid,text,timestamptz,text[])', 'execute'
+) as allowed`)).rows[0]?.allowed
+if (handoffGrant !== true) throw new Error("Authenticated role cannot create linked tasks with details")
+
 const tableResult = await database.query(
   "select count(*)::int as count from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE'",
 )
@@ -1865,8 +1944,8 @@ if (tableCount !== 40) {
   throw new Error(`Expected 40 public tables, found ${tableCount}`)
 }
 
-if (taskCount !== 7) {
-  throw new Error(`Seed plus the supervisor self-owned task case should produce seven tasks; found ${taskCount}`)
+if (taskCount !== 9) {
+  throw new Error(`Seed plus the supervisor and content handoff cases should produce nine tasks; found ${taskCount}`)
 }
 
 if (tablesWithoutRls !== 0) {
@@ -1877,5 +1956,5 @@ if (policyCount !== 37 || postMutationCount !== 3) {
   throw new Error(`Unexpected policy or task mutation coverage: ${policyCount} policies, employee sees ${postMutationCount} tasks`)
 }
 
-console.log(`Schema validated: ${migrationFiles.length} migrations applied in filename order, ${tableCount} tables, task assignment/review/comment/due notifications, password-change notifications, opt-in email notification queue and service-only claim RPC, private push subscriptions and service-only delivery queue, authenticated push-dispatch access denied, queue-triggered dispatch and five-minute recovery cron, missing dispatch configuration does not block in-app notifications, notification RLS/RPCs/triggers, content workflow/import/campaign/content-review/archive/restore and client-approved publication guards, historical CSV imports, immutable task/content versions and decisions, private Drive token/folder tables, client platforms, multi-manager ownership, client status and recoverable Trash, employee provisioning and Trash, profile photo storage policies, service-only password-change requests, first-admin bootstrap, profile updates, reporting-category ACL/client/inactive-user checks, and ${policyCount} policies.`)
+console.log(`Schema validated: ${migrationFiles.length} migrations applied in filename order, ${tableCount} tables, task assignment/review/comment/due notifications and video editor handoff, password-change notifications, opt-in email notification queue and service-only claim RPC, private push subscriptions and service-only delivery queue, authenticated push-dispatch access denied, queue-triggered dispatch and five-minute recovery cron, missing dispatch configuration does not block in-app notifications, notification RLS/RPCs/triggers, content workflow/import/campaign/content-review/archive/restore and client-approved publication guards, historical CSV imports, immutable task/content versions and decisions, private Drive token/folder tables, client platforms, multi-manager ownership, client status and recoverable Trash, employee provisioning and Trash, profile photo storage policies, service-only password-change requests, first-admin bootstrap, profile updates, reporting-category ACL/client/inactive-user checks, and ${policyCount} policies.`)
 await database.close()

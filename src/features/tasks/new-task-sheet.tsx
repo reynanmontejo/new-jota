@@ -58,7 +58,8 @@ export function NewTaskSheet({ open, seed, onOpenChange }: NewTaskSheetProps & {
   const { createTask, clients, assignableUsers, currentUser, demoMode } = useWorkflow()
   const [submitting, setSubmitting] = useState(false)
   const initialClientId = seed?.clientId ?? ""
-  const suggestedAssigneeId = currentUser.role === "supervisor" && seed?.assigneeId
+  const isVideoTask = seed?.contentCategory === "video"
+  const suggestedAssigneeId = isVideoTask ? seed.videoEditorId ?? "" : currentUser.role === "supervisor" && seed?.assigneeId
     && clients.find((client) => client.id === seed.clientId)?.members?.some((member) => member.id === seed.assigneeId)
     ? seed.assigneeId : currentUser.id
   const [selectedClientId, setSelectedClientId] = useState(initialClientId)
@@ -66,15 +67,24 @@ export function NewTaskSheet({ open, seed, onOpenChange }: NewTaskSheetProps & {
   const [title, setTitle] = useState(seed?.title ?? "")
   const [campaignName, setCampaignName] = useState(seed?.campaignName ?? "")
   const [dueDate, setDueDate] = useState(seed ? contentDeadlineInput(seed.deadlineAt) : defaultDueDate())
+  const [startDate, setStartDate] = useState("")
+  const [description, setDescription] = useState(seed?.contentDescription ?? "")
+  const [checklistText, setChecklistText] = useState("")
   const selectedClient = clients.find((client) => client.id === selectedClientId)
   const clientMembers = demoMode && currentUser.role === "supervisor"
     ? [{ id: currentEmployee.id, name: currentEmployee.name, role: "Account Manager" }]
     : selectedClient?.members ?? []
+  const videoEditor = isVideoTask ? clientMembers.find((member) => member.id === seed.videoEditorId) : null
   const organizationMembers = demoMode ? clientMembers : (assignableUsers ?? [])
   const assignableMembers = currentUser.role === "supervisor"
     ? [...(seed ? clientMembers : organizationMembers).filter((member) => member.id !== currentUser.id), { id: currentUser.id, name: currentUser.name, role: currentUser.title ?? "Supervisor" }]
     : clientMembers
+  const checklist = checklistText.split("\n").map((item) => item.trim()).filter(Boolean)
+  const checklistValid = checklist.length <= 20 && checklist.every((item) => item.length <= 240)
+  const datesValid = !startDate || new Date(startDate).getTime() <= new Date(dueDate).getTime()
   const canCreate = Boolean(assigneeId) && (!seed || Boolean(selectedClient))
+    && (!isVideoTask || Boolean(videoEditor && assigneeId === videoEditor.id))
+    && checklistValid && datesValid
 
   async function submitTask(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -83,7 +93,7 @@ export function NewTaskSheet({ open, seed, onOpenChange }: NewTaskSheetProps & {
     const clientId = String(form.get("clientId") ?? "")
     const client = clients.find((entry) => entry.id === clientId)
     const selectedAssignee = assignableMembers.find((member) => member.id === assigneeId)
-    if ((seed && !client) || !assigneeId || (currentUser.role === "supervisor" && !selectedAssignee)) return
+    if (!canCreate || (seed && !client) || (currentUser.role === "supervisor" && !selectedAssignee)) return
 
     setSubmitting(true)
     try {
@@ -95,6 +105,7 @@ export function NewTaskSheet({ open, seed, onOpenChange }: NewTaskSheetProps & {
         priority: String(form.get("priority")) as "low" | "medium" | "high" | "urgent",
         assigneeId,
         dueAt: new Date(String(form.get("dueDate"))).toISOString(),
+        ...(seed ? { description: description.trim(), startAt: startDate ? new Date(startDate).toISOString() : null, checklist } : {}),
         contentItemId: seed?.contentItemId,
         contentItemTitle: seed?.contentItemTitle,
       })
@@ -135,6 +146,11 @@ export function NewTaskSheet({ open, seed, onOpenChange }: NewTaskSheetProps & {
               />
             </label>
 
+            {seed && <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5 text-xs">
+              <p className="font-semibold">Linked content: {seed.contentItemTitle}</p>
+              <p className="mt-1 text-muted-foreground">{seed.contentType ?? seed.contentCategory ?? "Content"} · The content item remains in Content and Calendar. This task tracks its production work.</p>
+            </div>}
+
             {seed ? <div className="text-xs font-semibold">Client<input type="hidden" name="clientId" value={selectedClientId} /><p className="mt-1.5 rounded-lg border border-primary/15 bg-muted/30 px-3 py-2 font-normal">{seed.clientName}</p></div> : <label className="text-xs font-semibold">
               Client <span className="font-normal text-muted-foreground">(optional)</span>
               <select className={fieldClassName} value={selectedClientId} name="clientId" onChange={(event) => {
@@ -162,7 +178,11 @@ export function NewTaskSheet({ open, seed, onOpenChange }: NewTaskSheetProps & {
               {!seed && <span className="mt-1 block text-[11px] font-normal text-muted-foreground">Leave this as General / no campaign for work that isn’t tied to a campaign.</span>}
             </label>
 
-            {currentUser.role === "supervisor" ? <label className="text-xs font-semibold">
+            {isVideoTask ? <div className="rounded-lg border border-violet-300/60 bg-violet-50/60 px-3 py-2.5 text-xs dark:border-violet-800/60 dark:bg-violet-950/25">
+              <p className="font-semibold">Video editor</p>
+              <p className="mt-1">{videoEditor ? `${videoEditor.name} · ${videoEditor.role}` : "No active video editor is assigned to this client."}</p>
+              <p className="mt-1 text-muted-foreground">Creating this task notifies the editor. Only the editor can start and progress the production task.</p>
+            </div> : currentUser.role === "supervisor" ? <label className="text-xs font-semibold">
               Assign to
               <select aria-label="Assign to" className={fieldClassName} value={assigneeId} onChange={(event) => setAssigneeId(event.target.value)} required disabled={!assignableMembers.length}>
                 {assignableMembers.map((member) => <option key={member.id} value={member.id}>{member.name} · {member.role}</option>)}
@@ -170,6 +190,12 @@ export function NewTaskSheet({ open, seed, onOpenChange }: NewTaskSheetProps & {
               {seed?.assigneeId === suggestedAssigneeId && suggestedAssigneeId !== currentUser.id && <span className="mt-1 block text-[11px] font-normal text-muted-foreground">Suggested from the content item. You can assign this task to another client team member.</span>}
               {!assignableMembers.length && <span className="mt-1 block text-[11px] font-normal text-muted-foreground">No active employees are available to assign.</span>}
             </label> : <p className="text-xs text-muted-foreground">Assigned to you</p>}
+
+            {seed && <label className="text-xs font-semibold">
+              Task brief / instructions
+              <textarea className={`${fieldClassName} min-h-24 py-2`} value={description} onChange={(event) => setDescription(event.target.value)} maxLength={5000} placeholder="Describe the deliverable and any instructions for the assignee" />
+              <span className="mt-1 block text-[11px] font-normal text-muted-foreground">Starts with the linked content brief. Edit it here for this task.</span>
+            </label>}
 
             <div className="grid grid-cols-2 gap-3">
               <label className="text-xs font-semibold">
@@ -195,6 +221,18 @@ export function NewTaskSheet({ open, seed, onOpenChange }: NewTaskSheetProps & {
                 />
               </label>
             </div>
+            {seed && <>
+              <label className="text-xs font-semibold">
+                Start date <span className="font-normal text-muted-foreground">(optional)</span>
+                <input className={fieldClassName} type="datetime-local" value={startDate} max={dueDate} onChange={(event) => setStartDate(event.target.value)} />
+                {!datesValid && <span className="mt-1 block text-[11px] font-normal text-destructive">Start date must be before the due date.</span>}
+              </label>
+              <label className="text-xs font-semibold">
+                Checklist <span className="font-normal text-muted-foreground">(optional)</span>
+                <textarea className={`${fieldClassName} min-h-20 py-2`} value={checklistText} onChange={(event) => setChecklistText(event.target.value)} placeholder={"One step per line\nPrepare draft\nExport final asset"} />
+                <span className={`mt-1 block text-[11px] font-normal ${checklistValid ? "text-muted-foreground" : "text-destructive"}`}>{checklistValid ? "Up to 20 steps, one per line (240 characters each)." : "Keep the checklist to 20 steps and each step to 240 characters."}</span>
+              </label>
+            </>}
           </div>
 
           <SheetFooter className="mt-auto flex-row justify-end border-t px-5 py-4">

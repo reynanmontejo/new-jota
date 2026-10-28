@@ -10,9 +10,9 @@ afterEach(cleanup)
 describe("content import assignment", () => {
   it("optionally assigns only video rows to the client video editor", async () => {
     const csv = [
-      "Content title,Platform,Format",
-      "Video announcement,Instagram,Reel",
-      "Graphic announcement,Instagram,Static image",
+      "Content title,Platform,Format,Assigned creator/editor",
+      "Video announcement,Instagram,Reel,Supervisor",
+      "Graphic announcement,Instagram,Static image,Supervisor",
     ].join("\n")
     const file = new File([csv], "content.csv", { type: "text/csv" })
     Object.defineProperty(file, "text", { value: async () => csv })
