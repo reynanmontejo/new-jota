@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { Archive, CalendarDays, ChevronDown, CircleAlert, Files, LayoutGrid, List, ListPlus, LoaderCircle, Plus, RotateCcw, Search } from "lucide-react"
 
 import { archiveContentItem, recordExternalClientDecision, restoreContentItem, saveContentItem, sendApprovedContentToClient, setContentCategory } from "@/app/content/actions"
@@ -9,6 +10,7 @@ import { ClientFiles } from "@/features/clients/client-files"
 import { isVideoContentFormat, suggestedContentAssignee } from "@/features/content/content-assignment"
 import { ContentImport } from "@/features/content/content-import"
 import { ContentSubmitButton } from "@/features/content/content-submit-button"
+import { ContentScheduleSheet } from "@/features/content/content-schedule-sheet"
 import { useTaskDrawer } from "@/features/tasks/task-drawer"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 
@@ -181,9 +183,12 @@ function ContentForm({ clients, campaigns, assignees, videoEditorByClient, item,
   </form>
 }
 
-export function ContentTracker({ clients, campaigns, assignees, videoEditorByClient = {}, clientHandoffClientIds = [], items, canCreate, canEdit, canCreateTask, currentUserId, canAssignContent, notice, importedCount, skippedCount, isArchivedView = false }: {
-    clients: TrackerClient[]; campaigns: TrackerCampaign[]; assignees: Record<string, TrackerAssignee[]>; videoEditorByClient?: Record<string, string>; clientHandoffClientIds?: string[]; items: TrackerItem[]; canCreate: boolean; canEdit: boolean; canCreateTask: boolean; currentUserId: string; canAssignContent: boolean; notice?: string; importedCount?: number; skippedCount?: number; isArchivedView?: boolean
+export function ContentTracker({ clients, campaigns, assignees, videoEditorByClient = {}, clientHandoffClientIds = [], items, canCreate, canEdit, canCreateTask, currentUserId, canAssignContent, notice, scheduleItemId, importedCount, skippedCount, isArchivedView = false }: {
+    clients: TrackerClient[]; campaigns: TrackerCampaign[]; assignees: Record<string, TrackerAssignee[]>; videoEditorByClient?: Record<string, string>; clientHandoffClientIds?: string[]; items: TrackerItem[]; canCreate: boolean; canEdit: boolean; canCreateTask: boolean; currentUserId: string; canAssignContent: boolean; notice?: string; scheduleItemId?: string; importedCount?: number; skippedCount?: number; isArchivedView?: boolean
 }) {
+  const router = useRouter()
+  const [manualScheduleId, setManualScheduleId] = useState<string | null>(null)
+  const [dismissedScheduleKey, setDismissedScheduleKey] = useState<string | null>(null)
   const { openNewTask } = useTaskDrawer()
   const [query, setQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
@@ -200,6 +205,15 @@ export function ContentTracker({ clients, campaigns, assignees, videoEditorByCli
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const availableItems = useMemo(() => items.filter((item) => !hiddenItemIds.has(item.id)), [items, hiddenItemIds])
   const editingItem = availableItems.find((item) => item.id === editingItemId) ?? null
+  const scheduleRequestKey = `${scheduleItemId}:${availableItems.find((item) => item.id === scheduleItemId)?.latest_approved_version_id}`
+  const schedulingItem = canEdit && !isArchivedView ? availableItems.find((item) => item.id === (manualScheduleId ?? (scheduleRequestKey !== dismissedScheduleKey ? scheduleItemId : undefined))
+    && clientHandoffClientIds.includes(item.client_id) && ["waiting_client", "scheduled"].includes(item.status)
+    && item.client_approval_status === "approved" && item.client_handoff_version_id === item.latest_approved_version_id && Boolean(item.latest_approved_version_id)) : undefined
+  function closeSchedule() {
+    setManualScheduleId(null)
+    setDismissedScheduleKey(scheduleRequestKey)
+    if (scheduleItemId) router.replace("/content", { scroll: false })
+  }
   const visibleItems = useMemo(() => availableItems.filter((item) => {
     const text = `${item.title} ${item.client_name} ${item.campaign_name} ${item.platform} ${item.content_type} ${item.status} ${item.client_approval_status ?? ""} ${item.client_issues ?? ""} ${item.notes ?? ""} ${item.revision_notes ?? ""} ${item.assignee_name ?? ""}`.toLocaleLowerCase()
     return (!query || text.includes(query.trim().toLocaleLowerCase())) && (statusFilter === "all" || item.status === statusFilter) && (clientFilter === "all" || item.client_id === clientFilter)
@@ -208,7 +222,7 @@ export function ContentTracker({ clients, campaigns, assignees, videoEditorByCli
   const activePage = Math.min(currentPage, pageCount)
   const displayedItems = useMemo(() => visibleItems.slice((activePage - 1) * contentPageSize, activePage * contentPageSize), [visibleItems, activePage])
   const { upcomingCount, attentionCount } = getContentSummaryCounts(availableItems)
-  const notices: Record<string, string> = { created: "Content added to the tracker.", updated: "Content updated.", client_approval_required: "Record the external client's approval before scheduling or publishing this content.", category_updated: "Reporting category updated.", content_reporting_migration_missing: "Apply the content reporting categories migration under supabase/migrations, then refresh.", archived: "Content moved out of the active tracker.", imported: `${importedCount ?? 0} content rows imported; ${skippedCount ?? 0} duplicates skipped.`, client_handoff_recorded: "Client handoff recorded. Send the approved content through your usual external channel; Jota does not send it.", client_handoff_not_ready: "This item needs a new internal approval before it can be sent to the client.", client_handoff_migration_missing: "Apply the explicit client handoff migration, then refresh.", client_decision_updated: "External client response recorded. Jota does not contact the client.", client_decision_invalid: "Send approved content to the client first, then choose its response. Feedback is required for revisions.", client_workflow_migration_missing: "Apply the client/editor workflow migration under supabase/migrations, then refresh.", content_not_found: "That content item is no longer available. Refresh and try again.", import_too_large: "CSV file exceeds the 1 MB limit.", invalid_import: "CSV import failed validation. Review the row preview and required columns.", content_migration_missing: "Apply the local content workflow alignment migration under supabase/migrations, then refresh.", campaign_paused: "The default campaign is paused or closed. Ask a supervisor or admin to reopen it, then try again.", invalid: "Check the required fields and try again.", failed: "The change could not be saved. Refresh and try again.", forbidden: "Your account does not have permission for that change." }
+  const notices: Record<string, string> = { created: "Content added to the tracker.", updated: "Content updated.", client_approval_required: "Record the external client's approval before scheduling or publishing this content.", category_updated: "Reporting category updated.", content_reporting_migration_missing: "Apply the content reporting categories migration under supabase/migrations, then refresh.", archived: "Content moved out of the active tracker.", imported: `${importedCount ?? 0} content rows imported; ${skippedCount ?? 0} duplicates skipped.`, client_handoff_recorded: "Client handoff recorded. Await the client response through your external channel.", client_handoff_not_ready: "This item needs a new internal approval before it can be sent to the client.", client_handoff_migration_missing: "Apply the explicit client handoff migration, then refresh.", client_decision_updated: "External client response recorded. Jota does not contact the client.", client_decision_invalid: "Send approved content to the client first, then choose its response. Feedback is required for revisions.", client_workflow_migration_missing: "Apply the client/editor workflow migration under supabase/migrations, then refresh.", content_not_found: "That content item is no longer available. Refresh and try again.", import_too_large: "CSV file exceeds the 1 MB limit.", invalid_import: "CSV import failed validation. Review the row preview and required columns.", content_migration_missing: "Apply the local content workflow alignment migration under supabase/migrations, then refresh.", campaign_paused: "The default campaign is paused or closed. Ask a supervisor or admin to reopen it, then try again.", invalid: "Check the required fields and try again.", failed: "The change could not be saved. Refresh and try again.", forbidden: "Your account does not have permission for that change." }
 
   useEffect(() => () => { if (undoTimer.current) clearTimeout(undoTimer.current) }, [])
 
@@ -344,14 +358,21 @@ export function ContentTracker({ clients, campaigns, assignees, videoEditorByCli
           <button type="button" aria-pressed={viewMode === "list"} onClick={() => setViewMode("list")} className={`inline-flex h-8 items-center gap-1.5 rounded px-2 text-[10px] font-medium transition ${viewMode === "list" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}><List className="size-3.5" />List</button>
         </div>
       </div>
+      <div aria-label="Content card legend" className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border/70 px-3 py-2 text-[10px] text-muted-foreground">
+        <span className="font-semibold text-foreground">Card colors</span>
+        <span className="inline-flex items-center gap-1.5"><span aria-hidden="true" className="size-3 rounded border border-emerald-300/70 bg-emerald-50/60 dark:border-emerald-800/70 dark:bg-emerald-950/25" />Static</span>
+        <span className="inline-flex items-center gap-1.5"><span aria-hidden="true" className="size-3 rounded border border-violet-300/70 bg-violet-50/60 dark:border-violet-800/70 dark:bg-violet-950/25" />Video</span>
+        <span className="inline-flex items-center gap-1.5"><span aria-hidden="true" className="size-3 rounded border border-border/80 bg-background/70" />Other</span>
+        <span className="sm:ml-auto">Badges show workflow status and recorded external client response.</span>
+      </div>
       {!visibleItems.length ? <div className="px-4 py-12 text-center"><p className="text-sm font-medium">{availableItems.length ? "No matching content" : isArchivedView ? "No archived content" : "No content tracked yet"}</p><p className="mt-1 text-xs text-muted-foreground">{availableItems.length ? "Try a different search or filter." : isArchivedView ? "Archived items will appear here and can be restored." : "Add the team’s upcoming posts and creative deliverables here."}</p></div> : <div className={viewMode === "cards" ? "grid gap-2 p-2 sm:grid-cols-2 2xl:grid-cols-3" : "divide-y divide-border/70"}>
         {displayedItems.map((item) => {
           const canSendToClient = canEdit && !isArchivedView && clientHandoffClientIds.includes(item.client_id)
             && Boolean(item.latest_approved_version_id)
-            && item.latest_approved_version_id !== item.client_handoff_version_id
+            && (item.latest_approved_version_id !== item.client_handoff_version_id || !item.client_sent_at)
             && !["for_review", "revision_requested", "published", "cancelled", "rejected"].includes(item.status)
-            && !(item.client_approval_status === "pending" && item.client_handoff_version_id)
-          const awaitingClientResponse = item.status === "waiting_client" && item.client_approval_status === "pending" && Boolean(item.client_handoff_version_id)
+            && !(item.client_approval_status === "pending" && item.client_sent_at)
+          const awaitingClientResponse = item.status === "waiting_client" && item.client_approval_status === "pending" && Boolean(item.client_handoff_version_id) && Boolean(item.client_sent_at)
           const categoryColor = item.content_category === "video"
             ? "border-violet-300/70 bg-violet-50/60 hover:bg-violet-50/85 dark:border-violet-800/70 dark:bg-violet-950/25 dark:hover:bg-violet-950/40"
             : item.content_category === "static"
@@ -373,6 +394,7 @@ export function ContentTracker({ clients, campaigns, assignees, videoEditorByCli
               {pendingAction === `restore:${item.id}` ? "Restoring…" : "Restore"}
             </button>}
             {!isArchivedView && canEdit && <button type="button" onClick={() => { setSheetError(null); setEditingItemId(item.id) }} className="inline-flex h-7 items-center rounded-md border border-border/80 bg-background/70 px-2 text-[10px] font-medium text-muted-foreground hover:text-foreground">Edit</button>}
+            {!isArchivedView && canEdit && clientHandoffClientIds.includes(item.client_id) && item.client_approval_status === "approved" && item.latest_approved_version_id && item.client_handoff_version_id === item.latest_approved_version_id && ["waiting_client", "scheduled"].includes(item.status) && <button type="button" onClick={() => setManualScheduleId(item.id)} className="inline-flex h-7 items-center gap-1 rounded-md border border-primary/25 bg-primary/5 px-2 text-[10px] font-medium text-primary"><CalendarDays className="size-3" />{item.status === "scheduled" ? "Change schedule" : "Set posting schedule"}</button>}
           </div>
           {(item.next_action || item.assignee_name || item.work_date || item.revision_count > 0 || item.client_approval_status || item.client_issues || item.notes || item.revision_notes || (canEdit && !isArchivedView)) && <details className={`border-t border-border/60 pt-1.5 ${viewMode === "list" ? "sm:col-span-3" : "mt-1.5"}`}>
             <summary className="cursor-pointer list-none text-[10px] font-medium text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">More details</summary>
@@ -428,5 +450,6 @@ export function ContentTracker({ clients, campaigns, assignees, videoEditorByCli
         </>}
       </SheetContent>
     </Sheet>
+    {schedulingItem && <ContentScheduleSheet key={schedulingItem.id} item={schedulingItem} onClose={closeSchedule} onSaved={() => { closeSchedule(); router.refresh() }} />}
   </main>
 }

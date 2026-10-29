@@ -1921,6 +1921,76 @@ const handoffGrant = (await database.query(`select has_function_privilege(
 ) as allowed`)).rows[0]?.allowed
 if (handoffGrant !== true) throw new Error("Authenticated role cannot create linked tasks with details")
 
+// Client approval scheduling: apply twice to prove safe retry; retain the populated fixture.
+const approvalSchedulingSql = await fs.readFile("supabase/migrations/202611030001_client_approval_scheduling.sql", "utf8")
+const preservationSql = `select jsonb_build_object('content', (select jsonb_agg(ci order by id) from public.content_items ci), 'tasks', (select jsonb_agg(t order by id) from public.tasks t)) as snapshot`
+const beforeSchedulingMigration = (await database.query(preservationSql)).rows[0].snapshot
+await database.exec(approvalSchedulingSql)
+await database.exec(approvalSchedulingSql)
+if (JSON.stringify(beforeSchedulingMigration) !== JSON.stringify((await database.query(preservationSql)).rows[0].snapshot)) throw new Error('Scheduling migration rewrote existing content or tasks')
+async function expectSchedulingRejection(actor, sql, code) {
+  let rejected = false
+  try { await asUser(actor, () => database.query(sql)) }
+  catch (error) { if (error?.code !== code) throw error; rejected = true }
+  if (!rejected) throw new Error(`Expected ${code} for client scheduling gate`)
+}
+const newVideoFile = (await database.query(`insert into public.attachments (
+  organization_id, client_id, campaign_id, task_id, provider_file_id, file_name, mime_type, size_bytes, uploaded_by
+) values ('10000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000002',
+  '40000000-0000-0000-0000-000000000002', '${videoTaskId}', 'client-review-video', 'final.mp4', 'video/mp4', 1024, '${videoEditor}') returning id`)).rows[0].id
+const linkedApprovedVersion = await asUser(videoEditor, async () => (await database.query(`select public.submit_task_for_review(
+  '${videoTaskId}', array['${newVideoFile}'::uuid], 'Ready for client review') as id`)).rows[0].id)
+await asUser(supervisor, () => database.query(`select public.review_task_submission('${linkedApprovedVersion}', 'approved', null)`))
+const pendingClient = (await database.query(`select ci.status::text as status, ci.client_approval_status, ci.client_handoff_version_id,
+  ci.client_sent_at, t.status::text as task_status, t.completed_at from public.content_items ci
+  join public.tasks t on t.content_item_id = ci.id where t.id = '${videoTaskId}'`)).rows[0]
+if (pendingClient.status !== 'waiting_client' || pendingClient.client_approval_status !== 'pending'
+  || !pendingClient.client_handoff_version_id || pendingClient.client_sent_at || pendingClient.task_status !== 'approved' || pendingClient.completed_at) {
+  throw new Error('Linked task approval did not enter client approval without pretending to send or complete work')
+}
+const approvedSnapshot = (await database.query(`select v.submitted_by, f.attachment_id, r.reviewer_id from public.content_submission_versions v
+  join public.content_submission_version_files f on f.submission_version_id = v.id
+  join public.content_reviews r on r.submission_version_id = v.id where v.id = '${pendingClient.client_handoff_version_id}'`)).rows[0]
+if (approvedSnapshot.submitted_by !== videoEditor || approvedSnapshot.attachment_id !== newVideoFile || approvedSnapshot.reviewer_id !== supervisor) {
+  throw new Error('Linked task content snapshot lost the reviewed file, editor, or supervisor')
+}
+const managerSnapshotFileCount = await asUser(employeeTwo, async () => (await database.query(`select count(*)::int as count from public.content_submission_version_files f join public.attachments a on a.id = f.attachment_id where f.submission_version_id = '${pendingClient.client_handoff_version_id}'`)).rows[0].count)
+if (managerSnapshotFileCount !== 1) throw new Error('Account Manager cannot access the approved linked-task asset')
+await expectSchedulingRejection(supervisor, `select public.workflow_update_task_status('${videoTaskId}', 'completed')`, '22023')
+await expectSchedulingRejection(employeeTwo, `select public.schedule_client_approved_content('${videoContentId.id}', now() + interval '1 day')`, '22023')
+await expectSchedulingRejection(employeeTwo, `select public.record_external_client_decision('${videoContentId.id}', 'approved', null)`, '22023')
+await expectSchedulingRejection(employeeOne, `select public.send_approved_content_to_client('${videoContentId.id}')`, '42501')
+await asUser(employeeTwo, () => database.query(`select public.send_approved_content_to_client('${videoContentId.id}')`))
+await expectSchedulingRejection(employeeTwo, `select public.send_approved_content_to_client('${videoContentId.id}')`, '22023')
+await asUser(employeeTwo, () => database.query(`select public.record_external_client_decision('${videoContentId.id}', 'approved', null)`))
+await expectSchedulingRejection(employeeTwo, `select public.schedule_client_approved_content('${videoContentId.id}', now() - interval '1 day')`, '22023')
+await expectSchedulingRejection(videoEditor, `select public.schedule_client_approved_content('${videoContentId.id}', now() + interval '1 day')`, '42501')
+await asUser(employeeTwo, () => database.query(`select public.schedule_client_approved_content('${videoContentId.id}', now() + interval '2 days')`))
+const scheduledClientContent = (await database.query(`select status::text as status, publish_at from public.content_items where id = '${videoContentId.id}'`)).rows[0]
+if (scheduledClientContent.status !== 'scheduled' || !scheduledClientContent.publish_at) throw new Error('Client-approved content was not scheduled')
+await database.query(`update public.content_submissions set status = 'submitted', approved_at = null where content_item_id = '${videoContentId.id}'`)
+await expectSchedulingRejection(employeeTwo, `select public.schedule_client_approved_content('${videoContentId.id}', now() + interval '3 days')`, '22023')
+await expectSchedulingRejection(supervisor, `select public.workflow_update_task_status('${videoTaskId}', 'completed')`, '22023')
+await database.query(`update public.content_submissions set status = 'approved', approved_at = now() where content_item_id = '${videoContentId.id}'`)
+await asUser(supervisor, () => database.query(`select public.workflow_update_task_status('${videoTaskId}', 'completed')`))
+// Direct content review takes the same pending-client path, with immutable version attribution.
+const directContentFile = (await database.query(`insert into public.attachments (
+  organization_id, client_id, campaign_id, content_item_id, provider_file_id, file_name, mime_type, size_bytes, uploaded_by
+) values ('10000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000002',
+  '40000000-0000-0000-0000-000000000002', '${staticContentId}', 'client-review-static', 'static.png', 'image/png', 1024, '${employeeTwo}') returning id`)).rows[0].id
+const directReviewVersion = await asUser(employeeTwo, async () => (await database.query(`select public.submit_content_for_review(
+  '${staticContentId}', array['${directContentFile}'::uuid], 'Review graphic') as id`)).rows[0].id)
+await expectSchedulingRejection(employeeTwo, `select public.review_content_submission('${directReviewVersion}', 'approved', null)`, '42501')
+await asUser(supervisor, () => database.query(`select public.review_content_submission('${directReviewVersion}', 'approved', null)`))
+const directPending = (await database.query(`select status::text as status, client_approval_status, client_handoff_version_id, client_sent_at from public.content_items where id = '${staticContentId}'`)).rows[0]
+if (directPending.status !== 'waiting_client' || directPending.client_approval_status !== 'pending' || directPending.client_handoff_version_id !== directReviewVersion || directPending.client_sent_at) throw new Error('Direct content approval did not enter pending client approval')
+await asUser(employeeTwo, () => database.query(`select public.send_approved_content_to_client('${staticContentId}')`))
+await asUser(employeeTwo, () => database.query(`select public.record_external_client_decision('${staticContentId}', 'revision_requested', 'Use the new branding')`))
+const revisedStatic = (await database.query(`select ci.status::text as status, ci.client_approval_status, t.status::text as task_status from public.content_items ci join public.tasks t on t.content_item_id = ci.id where ci.id = '${staticContentId}'`)).rows[0]
+if (revisedStatic.status !== 'revision_requested' || revisedStatic.client_approval_status !== 'revision_requested' || revisedStatic.task_status !== 'todo') throw new Error('Client revision did not reopen linked work')
+const pendingNotices = (await database.query(`select count(*)::int as count from public.notifications where recipient_id = '${employeeTwo}' and entity_id in ('${staticContentId}', '${videoContentId.id}') and dedupe_key like 'content-client-approval:%'`)).rows[0].count
+if (pendingNotices !== 2) throw new Error('Account Manager did not receive deduplicated pending-client notifications')
+
 const tableResult = await database.query(
   "select count(*)::int as count from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE'",
 )

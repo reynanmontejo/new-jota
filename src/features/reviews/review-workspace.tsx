@@ -195,7 +195,7 @@ function PersistentTaskReviewQueue({ realtimeRevision }: { realtimeRevision: num
       const payload = await response.json() as { error?: string }
       if (!response.ok) throw new Error(payload.error ?? "Could not save the task review decision.")
       setComment("")
-      setMessage(decision === "approved" ? "Task version approved. The owner can now complete the task." : "Revision requested. The owner can upload a new version.")
+      setMessage(decision === "approved" ? "Task version approved. Linked content now awaits external client approval; standalone tasks can be completed by a supervisor." : "Revision requested. The owner can upload a new version.")
       await loadQueue()
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not save the task review decision.")
@@ -274,7 +274,7 @@ function PersistentContentReviewQueue() {
       const payload = await response.json() as { error?: string }
       if (!response.ok) throw new Error(payload.error ?? "Could not save the review decision.")
       setComment("")
-      setMessage(decision === "approved" ? "Content approved." : "Changes requested and returned to the Account Manager.")
+      setMessage(decision === "approved" ? "Content approved internally. The Account Manager can now send it for external client approval." : "Changes requested and returned to the Account Manager.")
       await loadQueue()
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not save the review decision.")

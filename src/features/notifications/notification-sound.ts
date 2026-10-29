@@ -3,7 +3,7 @@
 const databaseName = "jota-notification-sounds"
 const storeName = "sounds"
 const databaseVersion = 1
-const defaultVolume = 65
+export const defaultNotificationVolume = 85
 let sharedAudioContext: AudioContext | null = null
 export const maxNotificationSoundBytes = 2 * 1024 * 1024
 export const supportedNotificationSoundTypes = [
@@ -26,11 +26,11 @@ function volumeStorageKey(userId: string) {
 export function getNotificationVolume(userId: string) {
   try {
     const stored = window.localStorage.getItem(volumeStorageKey(userId))
-    if (stored === null) return defaultVolume
+    if (stored === null) return defaultNotificationVolume
     const value = Number(stored)
-    return Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : defaultVolume
+    return Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : defaultNotificationVolume
   } catch {
-    return defaultVolume
+    return defaultNotificationVolume
   }
 }
 
@@ -134,9 +134,9 @@ async function playDefaultChime(volume: number): Promise<boolean> {
     const now = context.currentTime
     const level = volume / 100
     const partials = [
-      { frequency: 1046.5, volume: 0.09, decay: 1.1 },
-      { frequency: 2093, volume: 0.035, decay: 0.7 },
-      { frequency: 2920, volume: 0.018, decay: 0.4 },
+      { frequency: 1046.5, volume: 0.18, decay: 1.1 },
+      { frequency: 2093, volume: 0.07, decay: 0.7 },
+      { frequency: 2920, volume: 0.036, decay: 0.4 },
     ]
     partials.forEach(({ frequency, volume: partialVolume, decay }) => {
       const oscillator = context.createOscillator()

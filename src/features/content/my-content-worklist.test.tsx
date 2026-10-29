@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
+vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), refresh: vi.fn() }) }))
 
 const actionMocks = vi.hoisted(() => ({ archiveContentItem: vi.fn(), recordExternalClientDecision: vi.fn(), restoreContentItem: vi.fn(), sendApprovedContentToClient: vi.fn() }))
 vi.mock("@/app/content/actions", () => ({ ...actionMocks, saveContentItem: vi.fn(), setContentCategory: vi.fn() }))
@@ -83,9 +84,22 @@ describe("unified content tracker", () => {
     expect(screen.queryByRole("button", { name: "Record response" })).not.toBeInTheDocument()
     assignedManager.unmount()
 
-    renderTracker(["client-1"], { ...approvedItem, status: "waiting_client", client_approval_status: "pending", client_handoff_version_id: "version-2" })
+    const pending = renderTracker(["client-1"], { ...approvedItem, status: "waiting_client", client_approval_status: "pending", client_handoff_version_id: "version-2" })
+    expect(screen.getByRole("button", { name: "Mark sent to client" })).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Record response" })).not.toBeInTheDocument()
+    pending.unmount()
+    renderTracker(["client-1"], { ...approvedItem, status: "waiting_client", client_approval_status: "pending", client_handoff_version_id: "version-2", client_sent_at: "2026-10-29T08:00:00Z" })
     expect(screen.queryByRole("button", { name: "Mark sent to client" })).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Record response" })).toBeInTheDocument()
+  })
+
+  it("opens the schedule panel after recorded client approval and permits deferring", () => {
+    render(<ContentTracker clients={[]} campaigns={[]} assignees={{}} items={[{ ...items[0], status: "waiting_client", client_approval_status: "approved", client_handoff_version_id: "version-2", latest_approved_version_id: "version-2" }]} canCreate={false} canEdit canCreateTask={false} currentUserId="manager-1" canAssignContent={false} clientHandoffClientIds={["client-1"]} scheduleItemId="item-1" />)
+    expect(screen.getByRole("dialog", { name: "Set posting schedule" })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Schedule later" }))
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Set posting schedule" }))
+    expect(screen.getByRole("dialog", { name: "Set posting schedule" })).toBeInTheDocument()
   })
 
   it("does not load file workspaces until a content disclosure is opened", () => {

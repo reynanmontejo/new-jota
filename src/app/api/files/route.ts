@@ -32,6 +32,7 @@ export async function GET(request: NextRequest) {
   const clientId = request.nextUrl.searchParams.get("clientId")
   const taskId = request.nextUrl.searchParams.get("taskId")
   const contentItemId = request.nextUrl.searchParams.get("contentItemId")
+  let approvedSnapshotId: string | null = null
   if (taskId && contentItemId) return NextResponse.json({ error: "Choose a task or a content item, not both." }, { status: 400 })
   let query = actor.supabase.from("attachments").select("id,file_name,mime_type,size_bytes,uploaded_by,created_at,task_id,content_item_id").is("deleted_at", null).order("created_at", { ascending: false })
   if (taskId) {
@@ -43,10 +44,11 @@ export async function GET(request: NextRequest) {
     if (!clientId) return NextResponse.json({ error: "Client is required for content files." }, { status: 400 })
     const { data: client } = await actor.supabase.from("clients").select("id").eq("id", clientId).is("deleted_at", null).maybeSingle()
     if (!client) return NextResponse.json({ error: "Client files are unavailable." }, { status: 404 })
-    let contentItemQuery = actor.supabase.from("content_items").select("id").eq("id", contentItemId).eq("client_id", clientId)
+    let contentItemQuery = actor.supabase.from("content_items").select("id,client_handoff_version_id").eq("id", contentItemId).eq("client_id", clientId)
     if (!await hasStoragePermission(actor, ["content.update"])) contentItemQuery = contentItemQuery.is("deleted_at", null)
     const { data: contentItem } = await contentItemQuery.maybeSingle()
     if (!contentItem) return NextResponse.json({ error: "Content files are unavailable." }, { status: 404 })
+    approvedSnapshotId = contentItem.client_handoff_version_id
     query = query.eq("content_item_id", contentItemId).is("task_id", null)
   } else {
     if (!clientId) return NextResponse.json({ error: "Client is required." }, { status: 400 })
@@ -56,8 +58,23 @@ export async function GET(request: NextRequest) {
   }
   const { data, error } = await query
   if (error) return NextResponse.json({ error: "Could not load files." }, { status: 503 })
+  const files = new Map((data ?? []).map((file) => [file.id, file]))
+  if (contentItemId && approvedSnapshotId) {
+    const { data: links, error: linksError } = await actor.supabase.from("content_submission_version_files")
+      .select("attachment_id").eq("submission_version_id", approvedSnapshotId)
+    if (linksError) return NextResponse.json({ error: "Approved content files could not be loaded." }, { status: 503 })
+    const attachmentIds = (links ?? []).map((link) => link.attachment_id)
+    if (attachmentIds.length) {
+      // Use the exact reviewed snapshot; retain attachment RLS and client scope.
+      const { data: approvedFiles, error: approvedFilesError } = await actor.supabase.from("attachments")
+        .select("id,file_name,mime_type,size_bytes,uploaded_by,created_at,task_id,content_item_id")
+        .in("id", attachmentIds).eq("client_id", clientId).is("deleted_at", null)
+      if (approvedFilesError) return NextResponse.json({ error: "Approved content files could not be loaded." }, { status: 503 })
+      for (const file of approvedFiles ?? []) files.set(file.id, file)
+    }
+  }
   const driveStatus = await getGoogleDriveStatus(actor.organizationId).catch(() => ({ connected: false as const, email: null }))
-  return NextResponse.json({ files: data ?? [], storageConnected: driveStatus.connected }, { headers: { "cache-control": "private, no-store" } })
+  return NextResponse.json({ files: [...files.values()], storageConnected: driveStatus.connected }, { headers: { "cache-control": "private, no-store" } })
 }
 
 export async function POST(request: NextRequest) {

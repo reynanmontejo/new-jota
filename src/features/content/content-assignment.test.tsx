@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
+vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), refresh: vi.fn() }) }))
 
 vi.mock("@/app/content/actions", () => ({ saveContentItem: vi.fn(), archiveContentItem: vi.fn(), recordExternalClientDecision: vi.fn(), restoreContentItem: vi.fn(), sendApprovedContentToClient: vi.fn() }))
 vi.mock("@/features/clients/client-files", () => ({ ClientFiles: () => null }))

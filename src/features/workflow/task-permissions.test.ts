@@ -22,6 +22,13 @@ describe("task review permissions", () => {
     expect(taskStatusOptions(employeeTask, currentEmployee)).not.toContain("completed")
   })
 
+  it("keeps approved linked work pending until the content has client approval", () => {
+    const approvedTask = { ...employeeTask, status: "approved" as const, contentItemId: "content-1", contentClientApproval: "pending" }
+    expect(taskStatusOptions(approvedTask, currentSupervisor)).not.toContain("completed")
+    expect(taskStatusOptions({ ...approvedTask, contentClientApproval: "approved" }, currentSupervisor)).toContain("completed")
+    expect(taskStatusOptions({ ...approvedTask, contentItemId: null }, currentSupervisor)).toContain("completed")
+  })
+
   it("lets a manager view a task they handed to an editor without starting it", () => {
     const delegatedVideoTask = {
       ...employeeTask,

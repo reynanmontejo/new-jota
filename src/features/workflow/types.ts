@@ -38,6 +38,7 @@ export type WorkflowTask = {
   clientName: string
   campaign: string
   contentItem: string
+  contentClientApproval?: string | null
   contentItemId?: string | null
   createdById?: string | null
   priority: "low" | "medium" | "high" | "urgent"

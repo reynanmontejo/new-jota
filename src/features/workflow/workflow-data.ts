@@ -17,7 +17,7 @@ type DbTask = {
   due_at: string | null
   completed_at: string | null
   created_by: string | null
-  linked_content: { title: string } | null
+  linked_content: { title: string; status: string; client_approval_status: string | null } | null
   active_assignees: Array<{ user_id: string; is_primary: boolean }>
 }
 type DbClient = {
@@ -57,7 +57,7 @@ export async function loadWorkflowData(): Promise<{ tasks: WorkflowTask[]; clien
   const { supabase } = context
   const [taskResult, clientResult, contentWorkResult, profileResult] = await Promise.all([
     supabase.from("tasks")
-      .select("id,title,description,client_id,campaign_id,content_item_id,status,priority,start_at,due_at,completed_at,created_by,linked_content:content_items(title),active_assignees:task_assignees(user_id,is_primary)")
+      .select("id,title,description,client_id,campaign_id,content_item_id,status,priority,start_at,due_at,completed_at,created_by,linked_content:content_items(title,status,client_approval_status),active_assignees:task_assignees(user_id,is_primary)")
       .is("deleted_at", null).is("archived_at", null)
       .is("active_assignees.removed_at", null)
       .order("due_at", { ascending: true, nullsFirst: false }),
@@ -146,6 +146,7 @@ export async function loadWorkflowData(): Promise<{ tasks: WorkflowTask[]; clien
       campaign: (row.campaign_id && campaignById.get(row.campaign_id)) ?? "General work",
       contentItem: row.linked_content?.title ?? "General campaign work",
       contentItemId: row.content_item_id,
+      contentClientApproval: ["for_review", "revision_requested"].includes(row.linked_content?.status ?? "") ? "pending" : row.linked_content?.client_approval_status ?? null,
       createdById: row.created_by,
       priority: row.priority,
       status: row.status,

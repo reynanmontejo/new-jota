@@ -38,7 +38,7 @@ export function taskStatusOptions(task: WorkflowTask, actor: DemoUser): TaskStat
     if (task.primaryOwner.id === actor.id && ["todo", "in_progress", "revision_requested"].includes(task.status)) {
       return ["completed", "cancelled"].filter((status) => status !== task.status) as TaskStatus[]
     }
-    return task.status === "approved" ? ["completed", "cancelled"] : ["cancelled"]
+    return task.status === "approved" && (!task.contentItemId || task.contentClientApproval === "approved") ? ["completed", "cancelled"] : ["cancelled"]
   }
   return employeeStatusOptions(task, actor.id)
 }

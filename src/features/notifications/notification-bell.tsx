@@ -17,6 +17,7 @@ import type { DemoUser } from "@/features/workflow/task-permissions"
 import { isSupabaseConfigured } from "@/lib/env"
 import { createClient as createSupabaseClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
+import { playNotificationChime, primeNotificationAudio } from "@/features/notifications/notification-sound"
 
 type NotificationItem = {
   id: string
@@ -51,6 +52,10 @@ export function NotificationBell({
   const soundEnabled = useRef(false)
   const unreadCountRef = useRef(0)
   const toastTimers = useRef(new Map<string, number>())
+  const readRequests = useRef(new Set<string>())
+  const allReadRequest = useRef(false)
+  const listRevision = useRef(0)
+  const loadSequence = useRef(0)
 
   const dismissToast = useCallback((id: string) => {
     const timer = toastTimers.current.get(id)
@@ -93,11 +98,16 @@ export function NotificationBell({
     }
   }, [])
 
-  const loadNotifications = useCallback(async () => {
+  const loadNotifications = useCallback(async function reloadNotifications(): Promise<void> {
+    const sequence = ++loadSequence.current
+    const revision = listRevision.current
     try {
       const response = await fetch("/api/notifications", { cache: "no-store" })
       const payload = await response.json() as { notifications?: NotificationItem[]; unreadCount?: number; error?: string }
       if (!response.ok) throw new Error(payload.error ?? "Notifications could not be loaded.")
+      // A response started before a live event or read action must not undo it.
+      if (sequence !== loadSequence.current) return
+      if (revision !== listRevision.current) return reloadNotifications()
       const next = payload.notifications ?? []
       knownIds.current = new Set(next.map((item) => item.id))
       setNotifications(next)
@@ -106,6 +116,7 @@ export function NotificationBell({
       setUnreadCount(count)
       setError(null)
     } catch (loadError) {
+      if (sequence !== loadSequence.current) return
       setError(loadError instanceof Error ? loadError.message : "Notifications could not be loaded.")
     }
   }, [])
@@ -115,12 +126,16 @@ export function NotificationBell({
     let active = true
     let refreshTimer: number | undefined
     const supabase = createSupabaseClient()
+    const unlockAudio = () => { primeNotificationAudio() }
+    window.addEventListener("pointerdown", unlockAudio, { passive: true })
+    window.addEventListener("keydown", unlockAudio)
     const channel = supabase.channel(`notifications:${currentUser.id}`)
       .on("postgres_changes", {
         event: "INSERT", schema: "public", table: "notifications", filter: `recipient_id=eq.${currentUser.id}`,
       }, (event) => {
         const incoming = event.new as NotificationItem
         if (incoming.recipient_id !== currentUser.id || knownIds.current.has(incoming.id)) return
+        listRevision.current += 1
         knownIds.current.add(incoming.id)
         setNotifications((current) => [incoming, ...current.filter((item) => item.id !== incoming.id)].slice(0, 25))
         if (!incoming.read_at) {
@@ -129,18 +144,19 @@ export function NotificationBell({
         }
         showToast(incoming)
         void showDesktopNotification(incoming)
-        if (soundEnabled.current) import("@/features/notifications/notification-sound").then(({ playNotificationChime }) => playNotificationChime(currentUser.id))
+        if (soundEnabled.current) void playNotificationChime(currentUser.id)
       })
       .on("postgres_changes", {
         event: "UPDATE", schema: "public", table: "notifications", filter: `recipient_id=eq.${currentUser.id}`,
       }, () => {
+        listRevision.current += 1
         if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
         refreshTimer = window.setTimeout(() => { if (active) void loadNotifications() }, 200)
       })
       .on("postgres_changes", {
         event: "*", schema: "public", table: "notification_preferences", filter: `user_id=eq.${currentUser.id}`,
       }, (event) => { soundEnabled.current = Boolean((event.new as { sound_enabled?: boolean }).sound_enabled) })
-      .subscribe()
+      .subscribe((status) => { if (active && status === "SUBSCRIBED") void loadNotifications() })
 
     const loadTimer = window.setTimeout(() => { void loadNotifications() }, 0)
     void fetch("/api/notifications/preferences", { cache: "no-store" })
@@ -160,14 +176,19 @@ export function NotificationBell({
       if (preview?.recipient_id === currentUser.id) showToast(preview)
     }
     window.addEventListener("focus", refreshWhenVisible)
+    window.addEventListener("online", refreshWhenVisible)
     window.addEventListener("jota-notification-sound-changed", refreshSoundPreference)
     window.addEventListener("storage", refreshSoundPreferenceFromStorage)
     window.addEventListener("jota-notification-preview", showNotificationPreview)
     return () => {
       active = false
+      loadSequence.current += 1
       window.clearTimeout(loadTimer)
       if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
       window.removeEventListener("focus", refreshWhenVisible)
+      window.removeEventListener("online", refreshWhenVisible)
+      window.removeEventListener("pointerdown", unlockAudio)
+      window.removeEventListener("keydown", unlockAudio)
       window.removeEventListener("jota-notification-sound-changed", refreshSoundPreference)
       window.removeEventListener("storage", refreshSoundPreferenceFromStorage)
       window.removeEventListener("jota-notification-preview", showNotificationPreview)
@@ -177,28 +198,49 @@ export function NotificationBell({
 
   async function markRead(id: string) {
     const target = notifications.find((item) => item.id === id)
-    if (!target || target.read_at) return
-    const response = await fetch("/api/notifications", {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ notificationId: id }),
-    })
-    const payload = await response.json() as { error?: string }
-    if (!response.ok) { setError(payload.error ?? "Could not mark this notification as read."); return }
-    setNotifications((current) => current.map((item) => item.id === id ? { ...item, read_at: new Date().toISOString() } : item))
-    unreadCountRef.current = Math.max(0, unreadCountRef.current - 1)
-    setUnreadCount(unreadCountRef.current)
+    if (!target || target.read_at || readRequests.current.has(id) || allReadRequest.current) return
+    readRequests.current.add(id)
+    const revision = listRevision.current
+    try {
+      const response = await fetch("/api/notifications", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ notificationId: id }),
+      })
+      const payload = await response.json() as { error?: string }
+      if (!response.ok) { setError(payload.error ?? "Could not mark this notification as read."); return }
+      const countIsCurrent = revision === listRevision.current
+      listRevision.current += 1
+      setNotifications((current) => current.map((item) => item.id === id ? { ...item, read_at: new Date().toISOString() } : item))
+      if (countIsCurrent) {
+        unreadCountRef.current = Math.max(0, unreadCountRef.current - 1)
+        setUnreadCount(unreadCountRef.current)
+      }
+      setError(null)
+      void loadNotifications()
+    } catch {
+      setError("Could not mark this notification as read. Check your connection and try again.")
+    } finally { readRequests.current.delete(id) }
   }
 
   async function markAllRead() {
-    if (!unreadCount) return
-    const response = await fetch("/api/notifications", {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ markAllRead: true }),
-    })
-    const payload = await response.json() as { error?: string }
-    if (!response.ok) { setError(payload.error ?? "Could not mark notifications as read."); return }
-    const readAt = new Date().toISOString()
-    setNotifications((current) => current.map((item) => item.read_at ? item : { ...item, read_at: readAt }))
-    unreadCountRef.current = 0
-    setUnreadCount(0)
+    if (!unreadCount || allReadRequest.current) return
+    allReadRequest.current = true
+    try {
+      const response = await fetch("/api/notifications", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ markAllRead: true }),
+      })
+      const payload = await response.json() as { error?: string }
+      if (!response.ok) { setError(payload.error ?? "Could not mark notifications as read."); return }
+      listRevision.current += 1
+      const readAt = new Date().toISOString()
+      setNotifications((current) => current.map((item) => item.read_at ? item : { ...item, read_at: readAt }))
+      unreadCountRef.current = 0
+      setUnreadCount(0)
+      setError(null)
+      // Reconcile notifications arriving while the request was in flight.
+      void loadNotifications()
+    } catch {
+      setError("Could not mark notifications as read. Check your connection and try again.")
+    } finally { allReadRequest.current = false }
   }
 
   function activate(item: NotificationItem) {
@@ -221,7 +263,7 @@ export function NotificationBell({
       <Bell className="size-[18px]" />
       {unreadCount > 0 && <span aria-hidden="true" className="absolute -right-1 -top-1 grid h-[18px] min-w-[18px] place-items-center rounded-full border-2 border-background bg-destructive px-1 text-[9px] font-bold leading-none text-destructive-foreground shadow-sm">{unreadCount > 99 ? "99+" : unreadCount}</span>}
     </DropdownMenuTrigger>
-    <DropdownMenuContent align="end" className="w-80 rounded-lg p-1.5">
+    <DropdownMenuContent align="end" className="max-h-[min(70dvh,34rem)] w-80 overflow-y-auto rounded-lg p-1.5">
       <div className="flex items-center justify-between px-2 py-1.5">
         <DropdownMenuLabel className="p-0 text-xs text-foreground">Notifications</DropdownMenuLabel>
         <span className="text-[10px] text-muted-foreground">{unreadCount} unread</span>

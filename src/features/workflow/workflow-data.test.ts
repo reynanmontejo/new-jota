@@ -12,7 +12,7 @@ function mockSummaryQuery(overrides: Record<string, { data: unknown; error: { me
       id: "task-1", title: "Edit launch video", description: null, client_id: "client-1",
       campaign_id: "campaign-1", content_item_id: "content-1", status: "todo", priority: "high",
       start_at: null, due_at: null, completed_at: null, created_by: "user-1",
-      linked_content: { title: "Launch video" },
+      linked_content: { title: "Launch video", client_approval_status: "pending" },
       active_assignees: [
         { user_id: "user-1", is_primary: true },
         { user_id: "user-2", is_primary: false },
@@ -61,7 +61,7 @@ describe("workflow summary loading", () => {
     expect(summary.clients[0].campaigns).toEqual([{ id: "campaign-1", name: "Launch" }])
     expect(summary.clients[0].members?.map(({ id }) => id)).toEqual(["user-1", "user-2"])
     expect(summary.tasks[0]).toMatchObject({
-      clientName: "Client One", campaign: "Launch", contentItem: "Launch video",
+      clientName: "Client One", campaign: "Launch", contentItem: "Launch video", contentClientApproval: "pending",
       primaryOwner: { id: "user-1", name: "Editor One" },
       collaborators: [{ id: "user-2", name: "Manager Two" }],
     })

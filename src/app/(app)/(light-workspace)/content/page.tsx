@@ -5,7 +5,7 @@ import { isSupabaseConfigured } from "@/lib/env"
 import { getWorkspaceRequestContext } from "@/lib/supabase/request-context"
 import { redirect } from "next/navigation"
 
-export default async function ContentPage({ searchParams }: { searchParams: Promise<{ notice?: string | string[]; added?: string; duplicates?: string; view?: string }> }) {
+export default async function ContentPage({ searchParams }: { searchParams: Promise<{ notice?: string | string[]; added?: string; duplicates?: string; view?: string; schedule?: string }> }) {
   const params = await searchParams
   const isArchivedView = params.view === "archived"
   const importedCount = params.added && /^\d+$/.test(params.added) ? Number(params.added) : undefined
@@ -102,5 +102,5 @@ export default async function ContentPage({ searchParams }: { searchParams: Prom
     return campaign && client ? [{ ...item, client_name: client.name, campaign_name: campaign.name, assignee_name: assignee?.display_name ?? null, latest_approved_version_id: approvedVersionByContent.get(item.id) ?? null }] : []
   })
 
-  return <DashboardShell><ContentTracker clients={clients} campaigns={campaigns} assignees={assignees} videoEditorByClient={videoEditorByClient} clientHandoffClientIds={clientHandoffClientIds} items={items} canCreate={canCreate} canEdit={canEdit} canCreateTask={canCreateTask} currentUserId={context.userId} canAssignContent={canAssignContent} notice={typeof params.notice === "string" ? params.notice : undefined} importedCount={importedCount} skippedCount={skippedCount} isArchivedView={isArchivedView} /></DashboardShell>
+  return <DashboardShell><ContentTracker clients={clients} campaigns={campaigns} assignees={assignees} videoEditorByClient={videoEditorByClient} clientHandoffClientIds={clientHandoffClientIds} items={items} canCreate={canCreate} canEdit={canEdit} canCreateTask={canCreateTask} currentUserId={context.userId} canAssignContent={canAssignContent} scheduleItemId={typeof params.schedule === "string" ? params.schedule : undefined} notice={typeof params.notice === "string" ? params.notice : undefined} importedCount={importedCount} skippedCount={skippedCount} isArchivedView={isArchivedView} /></DashboardShell>
 }

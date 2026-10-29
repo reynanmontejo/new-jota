@@ -5,6 +5,7 @@ import { BellRing, Mail, MonitorCheck, Music2, Trash2, Upload, Volume2 } from "l
 
 import { Button } from "@/components/ui/button"
 import {
+  defaultNotificationVolume,
   getCustomNotificationSound,
   getNotificationVolume,
   maxNotificationSoundBytes,
@@ -43,7 +44,7 @@ export function NotificationSettings({ userId, demoMode }: { userId: string; dem
   const [emailSaving, setEmailSaving] = useState(false)
   const [pushSaving, setPushSaving] = useState(false)
   const [testingBrowser, setTestingBrowser] = useState(false)
-  const [volume, setVolume] = useState(65)
+  const [volume, setVolume] = useState(defaultNotificationVolume)
   const [customSoundName, setCustomSoundName] = useState<string | null>(null)
   const [customSoundSaving, setCustomSoundSaving] = useState(false)
   const [message, setMessage] = useState<string | null>(null)

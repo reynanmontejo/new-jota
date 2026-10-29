@@ -218,7 +218,21 @@ export async function recordExternalClientDecision(formData: FormData) {
   revalidatePath("/tasks")
   revalidatePath("/reviews")
   revalidatePath("/")
-  redirect(`/content?notice=client_decision_updated#content-item-${encodeURIComponent(parsed.data.contentItemId)}`)
+  const scheduling = parsed.data.decision === "approved" ? `&schedule=${encodeURIComponent(parsed.data.contentItemId)}` : ""
+  redirect(`/content?notice=client_decision_updated${scheduling}#content-item-${encodeURIComponent(parsed.data.contentItemId)}`)
+}
+
+export async function scheduleClientApprovedContent(contentItemId: string, publishAt: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const parsed = z.object({ contentItemId: z.string().uuid(), publishAt: z.iso.datetime({ offset: true }) }).safeParse({ contentItemId, publishAt })
+  if (!parsed.success || new Date(publishAt).getTime() <= Date.now()) return { ok: false, error: "Choose a future posting date and time." }
+  const supabase = await createClient()
+  const { error } = await supabase.rpc("schedule_client_approved_content", { p_content_item_id: parsed.data.contentItemId, p_publish_at: parsed.data.publishAt })
+  if (error?.code === "PGRST202") return { ok: false, error: "Apply the client approval scheduling migration, then try again." }
+  if (error?.code === "42501") return { ok: false, error: "Only the client's Account Manager or a supervisor can set this posting schedule." }
+  if (error?.code === "22023") return { ok: false, error: error.message }
+  if (error) return { ok: false, error: "The schedule could not be saved. Refresh and try again." }
+  for (const path of ["/content", "/calendar", "/tasks", "/insights", "/"]) revalidatePath(path)
+  return { ok: true }
 }
 
 type ContentArchiveActionResult = { ok: true } | { ok: false; error: string }
