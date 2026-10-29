@@ -114,10 +114,10 @@ export const helpGuides: HelpGuide[] = [
       { title: "Find the task", body: "Use Kanban for status columns or List for a compact table. Search and filter by client, status, or priority to narrow the view." },
       { title: "Open task details", body: "Select a card to open its details. The task page contains its owner, due date, checklist, comments, files, submissions, and review history." },
       { title: "Move work through allowed statuses", body: "Typical stages are To do, In progress, For review, Revision, Approved, and Completed. Some transitions are controlled by submitting or reviewing work, so they cannot be dragged manually. A Supervisor or Administrator completes an approved employee task; their own primary-assignee task can be completed directly without review." },
-      { title: "Finish or remove work safely", body: "Completed tasks can be moved to Task archive and restored later. Use Trash for mistaken tasks; cancel work that should stop but whose history must remain available." },
+      { title: "Finish or remove work safely", body: "Use Move to Trash for completed or mistaken tasks. Restore tasks within 30 days, or use Empty now to permanently remove them sooner. Cancel work that should stop while keeping it on the board." },
     ],
     remember: "Approved is not the same as Completed. An approved employee task still needs a Supervisor or Administrator to mark it complete when the work is finished.",
-    actions: [{ label: "Open My Work", href: "/tasks" }, { label: "Open Task archive", href: "/tasks/archive" }, { label: "Open Trash", href: "/tasks/trash" }],
+    actions: [{ label: "Open My Work", href: "/tasks" }, { label: "Open Trash", href: "/tasks/trash" }],
     related: ["submit-and-revise-work", "supervisor-review", "manage-files"],
   },
   {
@@ -206,7 +206,7 @@ export const helpGuides: HelpGuide[] = [
       { title: "Check the connection if upload fails", body: "If Drive uploads fail, verify the workspace’s Drive connection and retry. If the error persists, contact the administrator rather than repeatedly submitting the same file." },
     ],
     remember: "Archiving hides a file from normal views while retaining its stored copy. A task archive is separate and preserves that task’s review history.",
-    actions: [{ label: "Open Files", href: "/clients?tab=files" }, { label: "Open Task archive", href: "/tasks/archive" }],
+    actions: [{ label: "Open Files", href: "/clients?tab=files" }, { label: "Open Task Trash", href: "/tasks/trash" }],
     related: ["submit-and-revise-work", "task-board-basics", "administrator-setup"],
   },
   {

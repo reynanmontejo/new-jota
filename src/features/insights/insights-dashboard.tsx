@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { ArrowRight, CalendarClock, CheckCircle2, CircleAlert, ClipboardCheck, ListTodo, Users } from "lucide-react"
+import { ArrowRight, CalendarClock, CheckCircle2, CircleAlert, ClipboardCheck, Files, ImageIcon, Layers, ListTodo, Users, Video } from "lucide-react"
 
 import { useTaskDrawer } from "@/features/tasks/task-drawer"
 import { deadlineStyles, getDeadlineUrgencyForDays, type DeadlineUrgency } from "@/features/calendar/deadline-urgency"
@@ -200,7 +200,8 @@ export function InsightsDashboard() {
         </div>}
       </div>
 
-      <section className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Work metrics">
+      <h2 className="mt-5 text-xs font-medium text-muted-foreground">Task overview</h2>
+      <section className="mt-2 grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Work metrics">
         <MetricCard label="Active tasks" value={activeTasks.length} detail="Not completed or cancelled" icon={<ListTodo className="size-4" />} />
         <MetricCard label="Overdue" value={overdueTasks.length} detail={overdueTasks.length ? "Needs attention" : "No overdue tasks"} icon={<CircleAlert className="size-4" />} alert={overdueTasks.length > 0} />
         <MetricCard label="Waiting for review" value={reviewTasks.length} detail="Submitted for supervisor review" icon={<ClipboardCheck className="size-4" />} />
@@ -261,7 +262,7 @@ export function InsightsDashboard() {
   )
 }
 
-function ContentReportingSummary({ items, loading, error, demoMode, range, onRangeChange, status, onStatusChange, clientId, onClientChange, clients, now }: {
+export function ContentReportingSummary({ items, loading, error, demoMode, range, onRangeChange, status, onStatusChange, clientId, onClientChange, clients, now }: {
   items: InsightsContentItem[]
   loading: boolean
   error: string | null
@@ -275,13 +276,16 @@ function ContentReportingSummary({ items, loading, error, demoMode, range, onRan
   clients: Array<{ id: string; name: string }>
   now: Date
 }) {
+  const [category, setCategory] = useState<InsightsContentItem["category"] | "all">("all")
   const counts = getContentCategoryCounts(items)
-  const formats = getContentFormatBreakdown(items)
-  const trend = getPublishedContentTrend(items, now)
+  const breakdownItems = category === "all" ? items : items.filter((item) => item.category === category)
+  const breakdownCounts = getContentCategoryCounts(breakdownItems)
+  const formats = getContentFormatBreakdown(breakdownItems)
+  const trend = getPublishedContentTrend(breakdownItems, now)
   const maxTrend = Math.max(1, ...trend.map((period) => period.count))
-  const staticEnd = counts.total ? counts.static / counts.total * 100 : 0
-  const videoEnd = counts.total ? (counts.static + counts.video) / counts.total * 100 : 0
-  const background = counts.total
+  const staticEnd = breakdownCounts.total ? breakdownCounts.static / breakdownCounts.total * 100 : 0
+  const videoEnd = breakdownCounts.total ? (breakdownCounts.static + breakdownCounts.video) / breakdownCounts.total * 100 : 0
+  const background = breakdownCounts.total
     ? `conic-gradient(var(--chart-1) 0% ${staticEnd}%, var(--chart-2) ${staticEnd}% ${videoEnd}%, var(--chart-3) ${videoEnd}% 100%)`
     : "var(--secondary)"
 
@@ -298,19 +302,28 @@ function ContentReportingSummary({ items, loading, error, demoMode, range, onRan
       : error ? <p role="alert" className="mt-4 rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-3 text-xs text-destructive">{error}</p>
       : demoMode ? <p className="mt-4 rounded-lg border border-dashed px-3 py-5 text-center text-xs text-muted-foreground">Content reporting is available in a connected workspace.</p>
       : <>
-        <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4" aria-label="Content counts">
-          <MetricCard label="Total content" value={counts.total} detail="All categories" icon={<ListTodo className="size-4" />} />
-          <MetricCard label="Static" value={counts.static} detail="Images, carousels and graphics" icon={<CheckCircle2 className="size-4" />} />
-          <MetricCard label="Video" value={counts.video} detail="Reels and video formats" icon={<CheckCircle2 className="size-4" />} />
-          <MetricCard label="Other" value={counts.other} detail="Ambiguous or manually classified" icon={<CircleAlert className="size-4" />} />
+        <div className="mt-4 grid gap-3 rounded-xl border border-border/80 bg-background/40 p-3 sm:p-4 xl:grid-cols-[minmax(9rem,.7fr)_minmax(0,2.3fr)] xl:items-center" role="group" aria-label="Content counts and category filters">
+          <button type="button" aria-label={`All categories, ${counts.total} total content`} aria-pressed={category === "all"} onClick={() => setCategory("all")} className="flex min-w-0 items-center gap-3 rounded-lg p-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring xl:mr-1 xl:rounded-none xl:border-r xl:border-border/80 xl:pr-4">
+            <span className="grid size-10 shrink-0 place-items-center rounded-full bg-primary/10 text-primary"><Files className="size-5" aria-hidden="true" /></span><span><span className="block text-xs font-medium text-muted-foreground">Total content</span><span className="mt-0.5 block text-2xl font-semibold leading-none tabular-nums">{counts.total}</span></span>
+          </button>
+          <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-3">
+            {([
+              { value: "static", label: "Static", Icon: ImageIcon, tone: "border-emerald-600/25 bg-emerald-600/5 text-emerald-900 dark:text-emerald-200", selectedTone: "border-emerald-600/60 bg-emerald-600/12 ring-1 ring-emerald-600/35", iconTone: "bg-emerald-600/10 text-emerald-700 dark:text-emerald-300" },
+              { value: "video", label: "Video", Icon: Video, tone: "border-violet-500/25 bg-violet-500/5 text-violet-950 dark:text-violet-200", selectedTone: "border-violet-500/60 bg-violet-500/12 ring-1 ring-violet-500/35", iconTone: "bg-violet-500/10 text-violet-700 dark:text-violet-300" },
+              { value: "other", label: "Other", Icon: Layers, tone: "border-border bg-muted/25 text-foreground", selectedTone: "border-primary/50 bg-primary/10 ring-1 ring-primary/25", iconTone: "bg-muted text-muted-foreground" },
+            ] as const).map(({ value, label, Icon, tone, selectedTone, iconTone }) => <button key={value} type="button" aria-label={`Filter by ${label.toLowerCase()}, ${counts[value]} content`} aria-pressed={category === value} onClick={() => setCategory((current) => current === value ? "all" : value)} className={`flex min-w-0 items-center gap-2 rounded-lg border px-2.5 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none sm:gap-3 ${tone} ${category === value ? selectedTone : "hover:brightness-95 dark:hover:brightness-110"}`}>
+              <span className={`grid size-8 shrink-0 place-items-center rounded-full ${iconTone}`}><Icon className="size-4" aria-hidden="true" /></span><span className="text-xs font-medium">{label}</span><span className={`ml-auto grid min-w-7 shrink-0 place-items-center rounded-full px-1.5 py-1 text-sm font-semibold tabular-nums ${iconTone}`}>{counts[value]}</span>
+            </button>)}
+          </div>
         </div>
+        <div className="mt-2 flex flex-wrap items-center justify-end gap-2 text-[10px] text-muted-foreground" aria-live="polite">{category === "all" ? "Select a category to filter the breakdown." : <><span>Showing {category} content in the breakdown and published trend.</span><button type="button" onClick={() => setCategory("all")} className="rounded px-1 py-0.5 font-semibold text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Clear category filter</button></>}</div>
         <p className="mt-2 text-[11px] text-muted-foreground">All dates includes undated and future-scheduled content. A date range uses the saved publish date; content without one is excluded from that range. User scope uses the assigned creator, or the creator of an unassigned item.</p>
-        {counts.total ? <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[.8fr_1.2fr]">
+        {breakdownCounts.total ? <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[.8fr_1.2fr]">
           <div className="rounded-lg border border-border/70 p-3">
             <h3 className="text-xs font-semibold">Category split</h3>
             <div className="mt-3 flex flex-wrap items-center gap-4">
-              <div role="img" aria-label={`${counts.static} static, ${counts.video} video, ${counts.other} other; ${counts.total} total`} className="size-32 shrink-0 rounded-full border border-border/50" style={{ background }}><div aria-hidden="true" className="m-[22%] size-[56%] rounded-full bg-card" /></div>
-              <dl className="grid min-w-32 flex-1 gap-2 text-xs">{([ ["Static", counts.static, "var(--chart-1)"], ["Video", counts.video, "var(--chart-2)"], ["Other", counts.other, "var(--chart-3)"] ] as const).map(([label, count, color]) => <div key={label} className="flex items-center gap-2"><span aria-hidden="true" className="size-2.5 rounded-sm" style={{ backgroundColor: color }} /><dt className="flex-1">{label}</dt><dd className="font-semibold tabular-nums">{count}</dd></div>)}</dl>
+              <div role="img" aria-label={`${breakdownCounts.static} static, ${breakdownCounts.video} video, ${breakdownCounts.other} other; ${breakdownCounts.total} total`} className="size-32 shrink-0 rounded-full border border-border/50" style={{ background }}><div aria-hidden="true" className="m-[22%] size-[56%] rounded-full bg-card" /></div>
+              <dl className="grid min-w-32 flex-1 gap-2 text-xs">{([ ["Static", breakdownCounts.static, "var(--chart-1)"], ["Video", breakdownCounts.video, "var(--chart-2)"], ["Other", breakdownCounts.other, "var(--chart-3)"] ] as const).map(([label, count, color]) => <div key={label} className="flex items-center gap-2"><span aria-hidden="true" className="size-2.5 rounded-sm" style={{ backgroundColor: color }} /><dt className="flex-1">{label}</dt><dd className="font-semibold tabular-nums">{count}</dd></div>)}</dl>
             </div>
           </div>
           <div className="rounded-lg border border-border/70 p-3"><h3 className="text-xs font-semibold">Saved formats</h3><p className="mt-1 text-[11px] text-muted-foreground">The original subtype remains visible alongside the reporting category.</p><dl className="mt-2 grid gap-1.5 sm:grid-cols-2">{formats.slice(0, 8).map((entry) => <div key={entry.label} className="flex justify-between gap-2 rounded bg-secondary/25 px-2 py-1.5 text-xs"><dt className="truncate">{entry.label}</dt><dd className="font-semibold tabular-nums">{entry.count}</dd></div>)}{formats.length > 8 && <div className="flex justify-between gap-2 rounded bg-secondary/25 px-2 py-1.5 text-xs"><dt>Remaining formats</dt><dd className="font-semibold tabular-nums">{formats.slice(8).reduce((sum, entry) => sum + entry.count, 0)}</dd></div>}</dl></div>

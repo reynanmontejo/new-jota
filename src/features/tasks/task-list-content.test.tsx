@@ -29,12 +29,12 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/features/workflow/workflow-provider", () => ({ useWorkflow: () => mocks.workflow }))
 vi.mock("@/features/tasks/task-drawer", () => ({ useTaskDrawer: () => ({ openTask: mocks.openTask, openNewTask: mocks.openNewTask }) }))
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
-vi.mock("@/app/tasks/actions", () => ({ archiveCompletedTaskAction: vi.fn(), undoTaskArchiveAction: vi.fn(), trashTaskAction: vi.fn(), undoTaskTrashAction: vi.fn() }))
+vi.mock("@/app/tasks/actions", () => ({ trashTaskAction: vi.fn(), undoTaskTrashAction: vi.fn() }))
 
 import { hideContentAlreadyTrackedByTasks, TaskList } from "@/features/tasks/task-list"
 import { initialWorkflowState } from "@/features/workflow/mock-data"
 import type { WorkflowTask } from "@/features/workflow/types"
-import { archiveCompletedTaskAction, trashTaskAction, undoTaskArchiveAction, undoTaskTrashAction } from "@/app/tasks/actions"
+import { trashTaskAction, undoTaskTrashAction } from "@/app/tasks/actions"
 
 afterEach(() => {
   cleanup()
@@ -220,40 +220,4 @@ describe("My Work calendar content", () => {
     await waitFor(() => expect(undoTaskTrashAction).toHaveBeenCalledWith("task-completed"))
   })
 
-  it("offers Archive for a completed task and supports Undo", async () => {
-    mocks.workflow.tasks = [{
-      id: "task-completed",
-      title: "Completed task to archive",
-      description: "",
-      clientId: "client-1",
-      clientName: "Northwind",
-      campaign: "October",
-      contentItem: "General campaign work",
-      contentItemId: null,
-      createdById: "account-manager-1",
-      priority: "medium",
-      status: "completed",
-      startDate: "Oct 1, 2026",
-      dueDate: "Oct 2, 2026",
-      dueAt: "2026-10-02T09:00:00.000Z",
-      primaryOwner: { id: "account-manager-1", name: "Account Manager", initials: "AM", role: "Account Manager" },
-      collaborators: [],
-      checklist: [],
-      comments: [],
-      versions: [],
-      activity: [],
-    } satisfies WorkflowTask]
-    vi.mocked(archiveCompletedTaskAction).mockResolvedValue({ error: null })
-    vi.mocked(undoTaskArchiveAction).mockResolvedValue({ error: null })
-
-    render(<TaskList />)
-    fireEvent.click(screen.getByRole("button", { name: /Closed/ }))
-    fireEvent.click(screen.getByRole("button", { name: "Task actions for Completed task to archive" }))
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Move to archive" }))
-
-    await waitFor(() => expect(archiveCompletedTaskAction).toHaveBeenCalledWith("task-completed"))
-    expect(await screen.findByRole("status")).toHaveTextContent(/moved to Task archive/)
-    fireEvent.click(screen.getByRole("button", { name: "Undo" }))
-    await waitFor(() => expect(undoTaskArchiveAction).toHaveBeenCalledWith("task-completed"))
-  })
 })

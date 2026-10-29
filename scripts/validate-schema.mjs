@@ -1,6 +1,7 @@
 import fs from "node:fs/promises"
 
 import { PGlite } from "@electric-sql/pglite"
+import { validateTaskTrash } from "./validate-task-trash.mjs"
 
 const migrationPath = "supabase/migrations/202609250001_initial_schema.sql"
 const authMigrationPath = "supabase/migrations/202609300001_auth_rls_policies.sql"
@@ -1990,6 +1991,8 @@ const revisedStatic = (await database.query(`select ci.status::text as status, c
 if (revisedStatic.status !== 'revision_requested' || revisedStatic.client_approval_status !== 'revision_requested' || revisedStatic.task_status !== 'todo') throw new Error('Client revision did not reopen linked work')
 const pendingNotices = (await database.query(`select count(*)::int as count from public.notifications where recipient_id = '${employeeTwo}' and entity_id in ('${staticContentId}', '${videoContentId.id}') and dedupe_key like 'content-client-approval:%'`)).rows[0].count
 if (pendingNotices !== 2) throw new Error('Account Manager did not receive deduplicated pending-client notifications')
+
+await validateTaskTrash(database, asUser, { manager: employeeTwo, supervisor, outsider: videoEditor })
 
 const tableResult = await database.query(
   "select count(*)::int as count from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE'",

@@ -10,7 +10,7 @@ import {
   ChartNoAxesCombined,
   ClipboardList,
   CircleHelp,
-  Archive,
+  Trash2,
   FileStack,
   HardDrive,
   Gauge,
@@ -42,7 +42,7 @@ const accountManagerNavigation: NavigationItem[] = [
   { name: "Insights", href: "/insights", icon: ChartNoAxesCombined },
   { name: "Campaigns", href: "/clients?tab=campaigns", icon: Megaphone },
   { name: "Files", href: "/clients?tab=files", icon: FileStack },
-  { name: "Task archive", href: "/tasks/archive", icon: Archive },
+  { name: "Task Trash", href: "/tasks/trash", icon: Trash2 },
 ]
 
 const accountManagerWorkspace: NavigationItem[] = [
@@ -59,7 +59,7 @@ const supervisorNavigation: NavigationItem[] = [
   { name: "Insights", href: "/insights", icon: ChartNoAxesCombined },
   { name: "Campaigns", href: "/clients?tab=campaigns", icon: Megaphone },
   { name: "Files", href: "/clients?tab=files", icon: FileStack },
-  { name: "Task archive", href: "/tasks/archive", icon: Archive },
+  { name: "Task Trash", href: "/tasks/trash", icon: Trash2 },
 ]
 
 const employeeManagementItem: NavigationItem = { name: "Employees", href: "/employees", icon: Users }

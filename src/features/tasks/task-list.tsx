@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import {
-  Archive,
   ArrowDownAZ,
   ArrowUpRight,
   CalendarDays,
@@ -42,7 +41,7 @@ import { taskStatusOptions, type DemoUser } from "@/features/workflow/task-permi
 import type { TaskStatus, WorkflowContentWorkItem, WorkflowTask } from "@/features/workflow/types"
 import { useWorkflow } from "@/features/workflow/workflow-provider"
 import { getTaskDueTimestamp } from "@/features/workflow/task-dates"
-import { archiveCompletedTaskAction, trashTaskAction, undoTaskArchiveAction, undoTaskTrashAction } from "@/app/tasks/actions"
+import { trashTaskAction, undoTaskTrashAction } from "@/app/tasks/actions"
 import { markScheduledContentPublished } from "@/app/content/actions"
 import { cn } from "@/lib/utils"
 
@@ -96,13 +95,7 @@ function canMoveTaskToTrash(task: WorkflowTask, actor: DemoUser) {
   return canManage && ["todo", "in_progress", "cancelled", "completed"].includes(task.status)
 }
 
-function canArchiveTask(task: WorkflowTask, actor: DemoUser) {
-  const canManage = actor.role === "supervisor" || task.primaryOwner.id === actor.id || task.createdById === actor.id
-  return canManage && task.status === "completed"
-}
-
 type TaskTrashNotice = { taskId: string; title: string; error?: string }
-type TaskArchiveNotice = { taskId: string; title: string; error?: string }
 
 export function filterAndSortTasks(tasks: WorkflowTask[], filters: TaskFilters) {
   const query = filters.query.trim().toLowerCase()
@@ -140,8 +133,6 @@ export function TaskList() {
   const [filters, setFilters] = useState<TaskFilters>({ query: "", client: "all", owner: "all", status: "all", priority: "all", sort: "due" })
   const [trashNotice, setTrashNotice] = useState<TaskTrashNotice | null>(null)
   const [trashPending, setTrashPending] = useState(false)
-  const [archiveNotice, setArchiveNotice] = useState<TaskArchiveNotice | null>(null)
-  const [archivePending, setArchivePending] = useState(false)
   const [reviewContent, setReviewContent] = useState<WorkflowContentWorkItem | null>(null)
   const [publishingContentId, setPublishingContentId] = useState<string | null>(null)
   const [contentNotice, setContentNotice] = useState<{ message: string; error?: boolean } | null>(null)
@@ -153,11 +144,6 @@ export function TaskList() {
     return () => window.clearTimeout(timeout)
   }, [trashNotice, trashPending])
 
-  useEffect(() => {
-    if (!archiveNotice || archivePending) return
-    const timeout = window.setTimeout(() => setArchiveNotice(null), trashUndoDurationMs)
-    return () => window.clearTimeout(timeout)
-  }, [archiveNotice, archivePending])
 
   const myTasks = useMemo(() => currentUser.role === "supervisor" ? tasks : tasks.filter((task) => task.primaryOwner.id === currentUser.id || task.createdById === currentUser.id), [tasks, currentUser.id, currentUser.role])
   // This list is already scoped by Supabase RLS to the user's accessible clients.
@@ -255,45 +241,6 @@ export function TaskList() {
     }
   }
 
-  async function archiveTask(task: WorkflowTask) {
-    if (demoMode || archivePending) return
-    setArchivePending(true)
-    setArchiveNotice(null)
-    try {
-      const result = await archiveCompletedTaskAction(task.id)
-      if (result.error) {
-        setArchiveNotice({ taskId: task.id, title: task.title, error: result.error.includes("completed")
-          ? "Only completed tasks can be archived."
-          : "Could not archive this task. Check your access and try again." })
-        return
-      }
-      setArchiveNotice({ taskId: task.id, title: task.title })
-      router.refresh()
-    } catch {
-      setArchiveNotice({ taskId: task.id, title: task.title, error: "Could not reach the server. The task was not archived." })
-    } finally {
-      setArchivePending(false)
-    }
-  }
-
-  async function undoTaskArchive() {
-    if (!archiveNotice || archiveNotice.error || archivePending) return
-    setArchivePending(true)
-    try {
-      const result = await undoTaskArchiveAction(archiveNotice.taskId)
-      if (result.error) {
-        setArchiveNotice({ ...archiveNotice, error: "Undo failed. Restore the task from Task archive." })
-        return
-      }
-      setArchiveNotice(null)
-      router.refresh()
-    } catch {
-      setArchiveNotice({ ...archiveNotice, error: "Could not reach the server. Restore the task from Task archive." })
-    } finally {
-      setArchivePending(false)
-    }
-  }
-
   return (
     <main className="mx-auto max-w-[1480px] px-4 py-4 sm:px-6 lg:px-8">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -376,16 +323,11 @@ export function TaskList() {
         </SheetContent>
       </Sheet>
 
-      {view === "kanban" ? <KanbanBoard tasks={visibleTasks} onMove={moveTask} onOpen={openTask} onTrash={moveTaskToTrash} onArchive={archiveTask} trashPending={trashPending} archivePending={archivePending} actor={currentUser} demoMode={demoMode} /> : <ListView tasks={visibleTasks} onMove={moveTask} onOpen={openTask} onTrash={moveTaskToTrash} onArchive={archiveTask} trashPending={trashPending} archivePending={archivePending} actor={currentUser} demoMode={demoMode} />}
+      {view === "kanban" ? <KanbanBoard tasks={visibleTasks} onMove={moveTask} onOpen={openTask} onTrash={moveTaskToTrash} trashPending={trashPending} actor={currentUser} demoMode={demoMode} /> : <ListView tasks={visibleTasks} onMove={moveTask} onOpen={openTask} onTrash={moveTaskToTrash} trashPending={trashPending} actor={currentUser} demoMode={demoMode} />}
       {trashNotice && <div role={trashNotice.error ? "alert" : "status"} aria-live="polite" className="fixed bottom-5 right-5 z-[100] flex max-w-[min(92vw,420px)] items-center gap-3 rounded-xl border border-primary/20 bg-popover/95 px-4 py-3 text-sm shadow-2xl backdrop-blur-xl">
         <Trash2 className={cn("size-4 shrink-0", trashNotice.error ? "text-destructive" : "text-primary")} />
-        <div className="min-w-0 flex-1"><p className="truncate text-xs font-semibold">{trashNotice.error ?? `“${trashNotice.title}” moved to Trash.`}</p>{!trashNotice.error && <p className="mt-0.5 text-[10px] text-muted-foreground">Undo available for 8 seconds. Task history is preserved.</p>}</div>
+        <div className="min-w-0 flex-1"><p className="truncate text-xs font-semibold">{trashNotice.error ?? `“${trashNotice.title}” moved to Trash.`}</p>{!trashNotice.error && <p className="mt-0.5 text-[10px] text-muted-foreground">Undo available for 8 seconds. Restore from Trash within 30 days.</p>}</div>
         {!trashNotice.error && <button type="button" disabled={trashPending} onClick={() => void undoTaskTrash()} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-xs font-bold text-primary hover:bg-primary/10 disabled:opacity-50"><Undo2 className="size-3.5" />{trashPending ? "Working…" : "Undo"}</button>}
-      </div>}
-      {archiveNotice && <div role={archiveNotice.error ? "alert" : "status"} aria-live="polite" className="fixed bottom-5 right-5 z-[100] flex max-w-[min(92vw,420px)] items-center gap-3 rounded-xl border border-primary/20 bg-popover/95 px-4 py-3 text-sm shadow-2xl backdrop-blur-xl">
-        <Archive className={cn("size-4 shrink-0", archiveNotice.error ? "text-destructive" : "text-primary")} />
-        <div className="min-w-0 flex-1"><p className="truncate text-xs font-semibold">{archiveNotice.error ?? `“${archiveNotice.title}” moved to Task archive.`}</p>{!archiveNotice.error && <p className="mt-0.5 text-[10px] text-muted-foreground">Undo available for 8 seconds. Files and review history are preserved.</p>}</div>
-        {!archiveNotice.error && <button type="button" disabled={archivePending} onClick={() => void undoTaskArchive()} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-xs font-bold text-primary hover:bg-primary/10 disabled:opacity-50"><Undo2 className="size-3.5" />{archivePending ? "Working…" : "Undo"}</button>}
       </div>}
     </main>
   )
@@ -464,7 +406,7 @@ function FilterItem({ selected, onSelect, children }: { selected: boolean; onSel
   return <DropdownMenuItem onClick={onSelect} className="min-h-8 rounded-lg px-2 text-xs"><span className="grid size-4 place-items-center">{selected && <Check className="size-3.5 text-primary" />}</span><span className="flex-1">{children}</span></DropdownMenuItem>
 }
 
-function KanbanBoard({ tasks, onMove, onOpen, onTrash, onArchive, trashPending, archivePending, actor, demoMode }: { tasks: WorkflowTask[]; onMove: (taskId: string, status: TaskStatus) => void; onOpen: (taskId: string) => void; onTrash: (task: WorkflowTask) => void; onArchive: (task: WorkflowTask) => void; trashPending: boolean; archivePending: boolean; actor: DemoUser; demoMode: boolean }) {
+function KanbanBoard({ tasks, onMove, onOpen, onTrash, trashPending, actor, demoMode }: { tasks: WorkflowTask[]; onMove: (taskId: string, status: TaskStatus) => void; onOpen: (taskId: string) => void; onTrash: (task: WorkflowTask) => void; trashPending: boolean; actor: DemoUser; demoMode: boolean }) {
   const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null)
   const [dropTarget, setDropTarget] = useState<TaskStatus | null>(null)
   const [boardView, setBoardView] = useState<KanbanBoardView>("active")
@@ -509,7 +451,7 @@ function KanbanBoard({ tasks, onMove, onOpen, onTrash, onArchive, trashPending, 
               className={cn("glass-panel flex max-h-[min(62vh,600px)] min-h-[max(260px,min(55vh,480px))] flex-col rounded-xl border p-2.5 transition-colors", dropTarget === targetStatus && canDrop && "border-primary/50 bg-primary/5")}
             >
               <div className="flex shrink-0 items-center justify-between px-1 pb-2"><div className="flex items-center gap-2"><span className={cn("size-2 rounded-full", column.accent)} /><h2 className="text-[11px] font-bold uppercase tracking-wide">{column.label}</h2></div><Badge variant="outline" className="h-5 bg-background/65 px-1.5 text-[9px]">{columnTasks.length}</Badge></div>
-              <div className="kanban-column-scroll min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain px-0.5 pr-1.5">{columnTasks.map((task, index) => <KanbanCard key={task.id} task={task} onOpen={onOpen} onMove={onMove} onTrash={onTrash} onArchive={onArchive} trashPending={trashPending} archivePending={archivePending} actor={actor} demoMode={demoMode} delayMs={Math.min(index, 5) * 45} dragging={draggingTaskId === task.id} onDragStart={() => setDraggingTaskId(task.id)} onDragEnd={() => { setDraggingTaskId(null); setDropTarget(null) }} />)}{columnTasks.length === 0 && <div className={cn("grid min-h-56 place-items-center rounded-lg border border-dashed border-primary/18 bg-background/28 px-2.5 text-center text-[11px] text-muted-foreground", dropTarget === targetStatus && "border-primary/45 bg-primary/5 text-primary")}>{canDrop ? "Drop an eligible task here" : "No matching tasks"}</div>}</div>
+              <div className="kanban-column-scroll min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain px-0.5 pr-1.5">{columnTasks.map((task, index) => <KanbanCard key={task.id} task={task} onOpen={onOpen} onMove={onMove} onTrash={onTrash} trashPending={trashPending} actor={actor} demoMode={demoMode} delayMs={Math.min(index, 5) * 45} dragging={draggingTaskId === task.id} onDragStart={() => setDraggingTaskId(task.id)} onDragEnd={() => { setDraggingTaskId(null); setDropTarget(null) }} />)}{columnTasks.length === 0 && <div className={cn("grid min-h-56 place-items-center rounded-lg border border-dashed border-primary/18 bg-background/28 px-2.5 text-center text-[11px] text-muted-foreground", dropTarget === targetStatus && "border-primary/45 bg-primary/5 text-primary")}>{canDrop ? "Drop an eligible task here" : "No matching tasks"}</div>}</div>
             </div>
           )
         })}
@@ -518,13 +460,13 @@ function KanbanBoard({ tasks, onMove, onOpen, onTrash, onArchive, trashPending, 
   )
 }
 
-function KanbanCard({ task, onOpen, onMove, onTrash, onArchive, trashPending, archivePending, actor, demoMode, delayMs, dragging, onDragStart, onDragEnd }: { task: WorkflowTask; onOpen: (taskId: string) => void; onMove: (taskId: string, status: TaskStatus) => void; onTrash: (task: WorkflowTask) => void; onArchive: (task: WorkflowTask) => void; trashPending: boolean; archivePending: boolean; actor: DemoUser; demoMode: boolean; delayMs: number; dragging: boolean; onDragStart: () => void; onDragEnd: () => void }) {
+function KanbanCard({ task, onOpen, onMove, onTrash, trashPending, actor, demoMode, delayMs, dragging, onDragStart, onDragEnd }: { task: WorkflowTask; onOpen: (taskId: string) => void; onMove: (taskId: string, status: TaskStatus) => void; onTrash: (task: WorkflowTask) => void; trashPending: boolean; actor: DemoUser; demoMode: boolean; delayMs: number; dragging: boolean; onDragStart: () => void; onDragEnd: () => void }) {
   const canMove = taskStatusOptions(task, actor).length > 0
   return (
     <article draggable={canMove} onDragStart={(event) => { if (!canMove) { event.preventDefault(); return }; event.dataTransfer.setData("text/plain", task.id); event.dataTransfer.effectAllowed = "move"; onDragStart() }} onDragEnd={onDragEnd} title={canMove ? "Drag to a status you are allowed to change" : "Status is controlled by the review workflow"} className={cn("sticky-note rounded-lg border p-2.5", canMove && "cursor-grab active:cursor-grabbing", dragging && "opacity-45")} style={{ animationDelay: `${delayMs}ms` }}>
       <div className="mb-1.5 flex items-start justify-between gap-2">
         <PriorityBadge priority={task.priority} />
-        <KanbanCardActions task={task} onOpen={onOpen} onMove={onMove} onTrash={onTrash} onArchive={onArchive} trashPending={trashPending} archivePending={archivePending} actor={actor} demoMode={demoMode} />
+        <KanbanCardActions task={task} onOpen={onOpen} onMove={onMove} onTrash={onTrash} trashPending={trashPending} actor={actor} demoMode={demoMode} />
       </div>
       <button
         type="button"
@@ -543,10 +485,9 @@ function KanbanCard({ task, onOpen, onMove, onTrash, onArchive, trashPending, ar
   )
 }
 
-function KanbanCardActions({ task, onOpen, onMove, onTrash, onArchive, trashPending, archivePending, actor, demoMode }: { task: WorkflowTask; onOpen: (taskId: string) => void; onMove: (taskId: string, status: TaskStatus) => void; onTrash: (task: WorkflowTask) => void; onArchive: (task: WorkflowTask) => void; trashPending: boolean; archivePending: boolean; actor: DemoUser; demoMode: boolean }) {
+function KanbanCardActions({ task, onOpen, onMove, onTrash, trashPending, actor, demoMode }: { task: WorkflowTask; onOpen: (taskId: string) => void; onMove: (taskId: string, status: TaskStatus) => void; onTrash: (task: WorkflowTask) => void; trashPending: boolean; actor: DemoUser; demoMode: boolean }) {
   const moves = taskStatusOptions(task, actor)
   const canTrash = !demoMode && canMoveTaskToTrash(task, actor)
-  const canArchive = !demoMode && canArchiveTask(task, actor)
   return (
     <DropdownMenu>
       <DropdownMenuTrigger render={<Button type="button" variant="ghost" size="icon-sm" draggable={false} aria-label={`Task actions for ${task.title}`} className="-mr-1 -mt-1 size-7 rounded-full text-muted-foreground hover:bg-background/80 hover:text-foreground" />}>
@@ -559,14 +500,13 @@ function KanbanCardActions({ task, onOpen, onMove, onTrash, onArchive, trashPend
         {moves.map((status) => <DropdownMenuItem key={status} onClick={() => onMove(task.id, status)} className={cn("min-h-8 rounded-lg px-2 text-xs", status === "cancelled" && "text-destructive focus:text-destructive")}>
           {status === "in_progress" ? "Start work" : status === "todo" ? "Move to To do" : status === "cancelled" ? "Cancel task" : getStatusLabel(status)}
         </DropdownMenuItem>)}
-        {canArchive && <><DropdownMenuSeparator /><DropdownMenuItem disabled={archivePending} onClick={() => onArchive(task)} className="min-h-8 rounded-lg px-2 text-xs"><Archive className="size-3.5" />{archivePending ? "Archiving…" : "Move to archive"}</DropdownMenuItem></>}
         {canTrash && <><DropdownMenuSeparator /><DropdownMenuItem disabled={trashPending} onClick={() => onTrash(task)} className="min-h-8 rounded-lg px-2 text-xs text-destructive focus:text-destructive"><Trash2 className="size-3.5" />{trashPending ? "Moving…" : "Move to Trash"}</DropdownMenuItem></>}
       </DropdownMenuContent>
     </DropdownMenu>
   )
 }
 
-function ListView({ tasks, onMove, onOpen, onTrash, onArchive, trashPending, archivePending, actor, demoMode }: { tasks: WorkflowTask[]; onMove: (taskId: string, status: TaskStatus) => void; onOpen: (taskId: string) => void; onTrash: (task: WorkflowTask) => void; onArchive: (task: WorkflowTask) => void; trashPending: boolean; archivePending: boolean; actor: DemoUser; demoMode: boolean }) {
+function ListView({ tasks, onMove, onOpen, onTrash, trashPending, actor, demoMode }: { tasks: WorkflowTask[]; onMove: (taskId: string, status: TaskStatus) => void; onOpen: (taskId: string) => void; onTrash: (task: WorkflowTask) => void; trashPending: boolean; actor: DemoUser; demoMode: boolean }) {
   return (
     <section className="glass-panel mt-3 overflow-hidden rounded-xl border" aria-label="Task table">
       <div className="overflow-x-auto">
@@ -585,7 +525,7 @@ function ListView({ tasks, onMove, onOpen, onTrash, onArchive, trashPending, arc
                 <td className="px-2 py-2"><span className="flex min-w-0 items-center gap-1.5"><Avatar className="size-5 shrink-0"><AvatarFallback className="bg-secondary/40 text-[8px]">{task.primaryOwner.initials}</AvatarFallback></Avatar><span className="truncate text-[11px]">{task.primaryOwner.name}</span></span></td>
                 <td className="px-2 py-2"><span className="flex items-center gap-1 whitespace-nowrap text-[10px] text-muted-foreground"><CalendarDays className="size-3 shrink-0" />{task.dueDate.split(" · ")[0]}</span></td>
                 <td className="px-2 py-2"><StatusBadge status={task.status} className="max-w-full px-1.5 py-0.5 text-[9px]" /></td>
-                <td className="px-1 py-2"><TaskStatusMenu task={task} onMove={onMove} onTrash={onTrash} onArchive={onArchive} trashPending={trashPending} archivePending={archivePending} actor={actor} demoMode={demoMode} /></td>
+                <td className="px-1 py-2"><TaskStatusMenu task={task} onMove={onMove} onTrash={onTrash} trashPending={trashPending} actor={actor} demoMode={demoMode} /></td>
               </tr>)}
           </tbody>
         </table>
@@ -594,17 +534,15 @@ function ListView({ tasks, onMove, onOpen, onTrash, onArchive, trashPending, arc
   )
 }
 
-function TaskStatusMenu({ task, onMove, onTrash, onArchive, trashPending, archivePending, actor, demoMode }: { task: WorkflowTask; onMove: (taskId: string, status: TaskStatus) => void; onTrash: (task: WorkflowTask) => void; onArchive: (task: WorkflowTask) => void; trashPending: boolean; archivePending: boolean; actor: DemoUser; demoMode: boolean }) {
+function TaskStatusMenu({ task, onMove, onTrash, trashPending, actor, demoMode }: { task: WorkflowTask; onMove: (taskId: string, status: TaskStatus) => void; onTrash: (task: WorkflowTask) => void; trashPending: boolean; actor: DemoUser; demoMode: boolean }) {
   const moves = taskStatusOptions(task, actor)
   const canTrash = !demoMode && canMoveTaskToTrash(task, actor)
-  const canArchive = !demoMode && canArchiveTask(task, actor)
-  if (moves.length === 0 && !canTrash && !canArchive) return null
+  if (moves.length === 0 && !canTrash) return null
   return (
     <DropdownMenu>
       <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={`Move ${task.title}`} />}><MoreHorizontal /></DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-44 rounded-xl border border-primary/16 bg-popover/95 p-1.5 shadow-xl backdrop-blur-xl">
         {moves.map((status) => <DropdownMenuItem key={status} onClick={() => onMove(task.id, status)} className="min-h-8 rounded-lg px-2 text-xs">{status === "in_progress" ? "Start work" : status === "completed" ? "Mark completed" : status === "cancelled" ? "Cancel task" : "Move to do"}</DropdownMenuItem>)}
-        {canArchive && <><DropdownMenuSeparator /><DropdownMenuItem disabled={archivePending} onClick={() => onArchive(task)} className="min-h-8 rounded-lg px-2 text-xs"><Archive className="size-3.5" />{archivePending ? "Archiving…" : "Move to archive"}</DropdownMenuItem></>}
         {canTrash && <><DropdownMenuSeparator /><DropdownMenuItem disabled={trashPending} onClick={() => onTrash(task)} className="min-h-8 rounded-lg px-2 text-xs text-destructive focus:text-destructive"><Trash2 className="size-3.5" />{trashPending ? "Moving…" : "Move to Trash"}</DropdownMenuItem></>}
       </DropdownMenuContent>
     </DropdownMenu>

@@ -579,7 +579,16 @@
 }
 
 .calendar-details-panel {
-  transition: opacity 240ms ease-out, transform 240ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition: opacity 300ms ease-out, transform 300ms cubic-bezier(0.22, 1, 0.36, 1), padding 300ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes calendar-details-arrive {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.calendar-details-content {
+  animation: calendar-details-arrive 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @starting-style {
@@ -596,6 +605,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .calendar-month-enter,
+  .calendar-details-content,
   .calendar-details-panel {
     animation: none;
     transition: none;

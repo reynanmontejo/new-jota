@@ -42,6 +42,15 @@ describe("calendar day preview", () => {
 })
 
 describe("ContentCalendar", () => {
+  it("returns to the current month using the Today control", () => {
+    const onMonthChange = vi.fn()
+    const now = new Date()
+    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
+    render(<ContentCalendar contentPosts={[]} monthKey="2025-01" onMonthChange={onMonthChange} />)
+    fireEvent.click(screen.getByRole("button", { name: "Go to current month" }))
+    expect(onMonthChange).toHaveBeenCalledWith(currentMonth)
+  })
+
   it("follows the selected URL month and requests another month without showing stale content", () => {
     const onMonthChange = vi.fn()
     const { rerender } = render(<ContentCalendar contentPosts={[]} monthKey="2026-10" onMonthChange={onMonthChange} />)
@@ -90,6 +99,7 @@ describe("ContentCalendar", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Close" }))
     expect(details).toHaveAttribute("data-closing", "true")
+    expect(dateButton).toHaveFocus()
     await waitFor(() => expect(screen.queryByRole("region", { name: `Details for ${dateLabel}` })).not.toBeInTheDocument())
   })
 

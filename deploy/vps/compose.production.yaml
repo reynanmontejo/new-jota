@@ -1,0 +1,24 @@
+name: jota-production
+
+services:
+  web:
+    image: jota-production:${JOTA_RELEASE:?Set JOTA_RELEASE to the release commit}
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:?Set production Supabase URL}
+        NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:?Set production publishable key}
+    env_file:
+      - /etc/jota-production/app.env
+    ports:
+      - "127.0.0.1:3103:3000"
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/login',{redirect:'manual'}).then(r=>process.exit(r.status===200?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3

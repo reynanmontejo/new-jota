@@ -103,36 +103,28 @@ export async function listTaskTrashAction() {
 }
 
 export async function archiveCompletedTaskAction(taskId: string) {
-  if (!uuid.safeParse(taskId).success) return { error: "Invalid task." }
-  const supabase = await createClient()
-  const { error } = await supabase.rpc("workflow_archive_completed_task", { p_task_id: taskId })
-  if (error) return { error: error.message }
-  revalidatePath("/")
-  revalidatePath("/tasks")
-  revalidatePath("/tasks/archive")
-  return { error: null }
+  return trashTaskAction(taskId)
 }
 
 export async function restoreTaskFromArchiveAction(taskId: string) {
-  if (!uuid.safeParse(taskId).success) redirect("/tasks/archive?notice=restore-failed")
-  const supabase = await createClient()
-  const { error } = await supabase.rpc("workflow_restore_task_from_archive", { p_task_id: taskId })
-  if (error) redirect("/tasks/archive?notice=restore-failed")
-  revalidatePath("/")
-  revalidatePath("/tasks")
-  revalidatePath("/tasks/archive")
-  redirect("/tasks/archive?notice=restored")
+  return restoreTaskFromTrashAction(taskId)
 }
 
 export async function undoTaskArchiveAction(taskId: string) {
-  if (!uuid.safeParse(taskId).success) return { error: "Invalid task." }
+  return undoTaskTrashAction(taskId)
+}
+
+export async function manageTaskTrashAction(taskIds: string[], action: "restore" | "delete"): Promise<{ count: number; error: null } | { error: string }> {
+  const parsed = z.object({ taskIds: z.array(uuid).min(1).max(5000), action: z.enum(["restore", "delete"]) }).safeParse({ taskIds, action })
+  if (!parsed.success) return { error: "Choose valid tasks and try again." }
   const supabase = await createClient()
-  const { error } = await supabase.rpc("workflow_restore_task_from_archive", { p_task_id: taskId })
-  if (error) return { error: error.message }
-  revalidatePath("/")
-  revalidatePath("/tasks")
-  revalidatePath("/tasks/archive")
-  return { error: null }
+  const { data, error } = await supabase.rpc("workflow_manage_task_trash", { p_task_ids: [...new Set(parsed.data.taskIds)], p_action: parsed.data.action })
+  if (error?.code === "PGRST202") return { error: "Apply the unified Task Trash migration, then refresh this page." }
+  if (error?.code === "42501") return { error: "You do not have access to manage one or more of these tasks." }
+  if (error?.code === "22023" && error.message.includes("expired")) return { error: "The 30-day restore window has expired for one or more tasks. Refresh the list and try again." }
+  if (error) return { error: "The Trash action could not be completed. Refresh and try again." }
+  for (const path of ["/", "/tasks", "/tasks/trash", "/tasks/archive", "/insights", "/calendar"]) revalidatePath(path)
+  return { count: typeof data === "number" ? data : 0, error: null }
 }
 
 export async function updateTaskStatusAction(taskId: string, status: string) {
