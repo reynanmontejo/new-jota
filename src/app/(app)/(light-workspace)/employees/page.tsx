@@ -8,6 +8,8 @@ import { getEmployeeManagementAccess } from "@/lib/supabase/employee-admin"
 import { createClient } from "@/lib/supabase/server"
 import { createServiceClient } from "@/lib/supabase/service"
 import { EmployeeRowActions } from "@/features/employees/employee-row-actions"
+import { EmployeePasswordFields } from "@/features/employees/employee-password-fields"
+import { EmployeeFormActions } from "@/features/employees/employee-form-actions"
 import { createEmployee, restoreEmployeeFromTrash, updateEmployee } from "@/app/employees/actions"
 import { decidePasswordChangeRequest } from "@/app/profile/password-actions"
 
@@ -37,6 +39,7 @@ const notices: Record<string, string> = {
   deactivated: "Employee deactivated; their records remain available.",
   reactivated: "Employee reactivated.",
   invalid: "Check the form fields and try again.",
+  password_mismatch: "The initial password and confirmation do not match. Please try again.",
   setup: "Account creation needs the server-side Supabase service role key configured.",
   create_failed: "The account could not be created. The email may already be in use or the server configuration needs attention.",
   update_failed: "The employee could not be updated. Refresh the page and try again.",
@@ -207,7 +210,7 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
           <section className="rounded-lg border bg-card p-4">
             <h2 className="text-sm font-semibold">Create employee account</h2>
             <p className="mt-1 text-[11px] text-muted-foreground">The employee can sign in immediately. Share their initial password privately; it is never shown again.</p>
-            <form action={createEmployee} className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <form action={createEmployee} className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <label className="grid gap-1 text-[11px] font-medium">Full name
                 <input className={inputClass} name="displayName" autoComplete="name" required minLength={2} maxLength={120} />
               </label>
@@ -223,11 +226,9 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
                   <option value="supervisor">Supervisor</option>
                 </select>
               </label>
-              <label className="grid gap-1 text-[11px] font-medium">Initial password
-                <input className={inputClass} name="password" type="password" autoComplete="new-password" required minLength={8} maxLength={72} />
-              </label>
-              <div className="sm:col-span-2 lg:col-span-5">
-                <Button type="submit" size="sm">Create account</Button>
+              <EmployeePasswordFields inputClass={inputClass} />
+              <div className="sm:col-span-2 lg:col-span-3">
+                <EmployeeFormActions operation="create" />
                 <span className="ml-2 text-[10px] text-muted-foreground">At least 8 characters; share out of band.</span>
               </div>
             </form>

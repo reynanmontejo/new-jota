@@ -15,6 +15,7 @@ const employeeSchema = z.object({
   jobTitle: z.string().trim().max(120),
   roleCode: z.enum(["account_manager", "supervisor"]),
   password: z.string().min(8).max(72),
+  confirmPassword: z.string().min(8).max(72),
 })
 const updateSchema = z.object({
   employeeId: z.uuid(),
@@ -39,8 +40,10 @@ export async function createEmployee(formData: FormData) {
     displayName: field(formData, "displayName"), email: field(formData, "email"),
     jobTitle: field(formData, "jobTitle"), roleCode: field(formData, "roleCode"),
     password: field(formData, "password"),
+    confirmPassword: field(formData, "confirmPassword"),
   })
   if (!parsed.success) redirect("/employees?notice=invalid")
+  if (parsed.data.password !== parsed.data.confirmPassword) redirect("/employees?notice=password_mismatch")
 
   let admin
   try { admin = serviceClient() } catch { redirect("/employees?notice=setup") }

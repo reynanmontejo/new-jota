@@ -5,6 +5,7 @@ import { MoreHorizontal, Pencil, Power, Trash2 } from "lucide-react"
 
 import { moveEmployeeToTrash, setEmployeeActiveState } from "@/app/employees/actions"
 import { Button } from "@/components/ui/button"
+import { EmployeeFormActions } from "@/features/employees/employee-form-actions"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -82,8 +83,7 @@ export function EmployeeRowActions({
           <input className="h-9 rounded-md border border-input bg-background px-2.5 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring" name="confirmationEmail" type="email" required autoComplete="off" placeholder={employeeEmail} />
         </label>
         <div className="flex justify-end gap-2">
-          <Button type="button" size="sm" variant="outline" onClick={() => deleteDialog.current?.close()}>Cancel</Button>
-          <Button type="submit" size="sm" variant="destructive">Move to Trash</Button>
+          <EmployeeFormActions operation="trash" onCancel={() => deleteDialog.current?.close()} />
         </div>
       </form>
     </dialog>

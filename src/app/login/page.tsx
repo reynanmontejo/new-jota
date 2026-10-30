@@ -2,6 +2,7 @@ import Link from "next/link"
 import Image from "next/image"
 
 import { Button } from "@/components/ui/button"
+import { PasswordInput } from "@/components/ui/password-input"
 import { isSupabaseConfigured } from "@/lib/env"
 import { signIn } from "@/app/auth/actions"
 import { SignInSubmitButton } from "./submit-button"
@@ -38,10 +39,10 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
               <span>Work email</span>
               <input name="email" type="email" autoComplete="username" required className="h-10 w-full border border-input bg-background px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/15" />
             </label>
-            <label className="block space-y-1.5 text-xs font-medium">
-              <span>Password</span>
-              <input name="password" type="password" autoComplete="current-password" required className="h-10 w-full border border-input bg-background px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/15" />
-            </label>
+            <div className="space-y-1.5 text-xs font-medium">
+              <label htmlFor="login-password" className="block">Password</label>
+              <PasswordInput id="login-password" name="password" autoComplete="current-password" required className="h-10 w-full border border-input bg-background px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/15" />
+            </div>
             <SignInSubmitButton />
           </form>
         ) : (
