@@ -71,6 +71,7 @@ describe("notification settings key change", () => {
     const writes = vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST").map(([, init]) => JSON.parse(String(init?.body)))
     expect(writes.map((body) => body.action)).toEqual(["unsubscribe", "subscribe"])
     expect(writes[0].endpoint).toBe("https://fcm.googleapis.com/test-endpoint")
+    expect(writes[1].publicKey).toBe(publicKey)
   })
 
   it("shows a matching subscription as enabled without reconnecting", async () => {

@@ -291,7 +291,7 @@ export function NotificationSettings({ userId, demoMode }: { userId: string; dem
         async (subscription) => {
           const response = await fetch("/api/notifications/push", {
             method: "POST", headers: { "content-type": "application/json" },
-            body: JSON.stringify({ action: "subscribe", subscription: subscription.toJSON() }),
+            body: JSON.stringify({ action: "subscribe", publicKey: vapidPublicKey, subscription: subscription.toJSON() }),
           })
           const payload = await response.json() as { error?: string }
           if (!response.ok) throw new Error(payload.error ?? "Could not enable browser notifications.")

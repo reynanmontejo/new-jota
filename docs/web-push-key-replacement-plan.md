@@ -1,7 +1,7 @@
 # Production web-push key replacement plan
 
 Prepared October 30, 2026. Status: implementation in progress. The reconnection
-fix passed 174 tests, lint, TypeScript, and a production build. One replacement
+fix passed 179 tests, lint, TypeScript, and a production build. One replacement
 pair has been generated and validated, with a protected local recovery copy;
 it has not yet been installed on a host. No production registrations were reset.
 
@@ -11,6 +11,12 @@ for two users, three preference rows, and nine queue rows. None were pending or
 leased at preflight. A private snapshot is stored outside the repository. The
 replacement public-key SHA-256 fingerprint is
 `98a6911e732cfb29bb1303e238bca12f8d5c3f498566a56be23e300b4631dfdd`.
+
+The registration API also rejects an absent or outdated public-key identifier
+with HTTP 409, so a browser page left open during rotation must refresh Settings
+before it can save a registration. Deploy client and API together; old clients
+can still remove their own endpoint. The user approved the two-registration
+production reset and coordinated KVM/Vercel cutover on October 30, 2026.
 
 Production: https://jota.joynoadmin.tech, using Jota New Supabase. The Vercel
 deployment remains available for application rollback. Both deployments use the

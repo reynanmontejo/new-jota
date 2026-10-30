@@ -20,6 +20,7 @@ export async function POST(request: NextRequest) {
 
   let payload: {
     action?: unknown
+    publicKey?: unknown
     subscription?: { endpoint?: unknown; keys?: { p256dh?: unknown; auth?: unknown } }
     endpoint?: unknown
   }
@@ -28,6 +29,11 @@ export async function POST(request: NextRequest) {
   if (payload.action === "subscribe") {
     if (!process.env.WEB_PUSH_VAPID_PUBLIC_KEY || !process.env.WEB_PUSH_VAPID_PRIVATE_KEY || !process.env.WEB_PUSH_SUBJECT) {
       return NextResponse.json({ error: "Browser push is not configured on this Jota server yet." }, { status: 503 })
+    }
+    if (payload.publicKey !== process.env.WEB_PUSH_VAPID_PUBLIC_KEY.trim()) {
+      return NextResponse.json({ error: "Notification keys changed. Refresh Settings, then reconnect desktop notifications." }, {
+        status: 409, headers: { "cache-control": "private, no-store" },
+      })
     }
     const subscription = payload.subscription
     const endpoint = typeof subscription?.endpoint === "string" ? subscription.endpoint : ""
