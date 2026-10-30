@@ -1,9 +1,10 @@
 "use client"
 
-import { useEffect, useState, type ChangeEvent } from "react"
+import { useEffect, useRef, useState, type ChangeEvent } from "react"
 import { BellRing, Mail, MonitorCheck, Music2, Trash2, Upload, Volume2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { enablePushSubscription, subscriptionMatchesKey } from "@/features/notifications/push-subscription"
 import {
   defaultNotificationVolume,
   getCustomNotificationSound,
@@ -36,6 +37,9 @@ export function NotificationSettings({ userId, demoMode }: { userId: string; dem
   const [emailEnabled, setEmailEnabled] = useState(false)
   const [emailAvailable, setEmailAvailable] = useState(true)
   const [pushEnabled, setPushEnabled] = useState(false)
+  const [pushNeedsReconnect, setPushNeedsReconnect] = useState(false)
+  const pushOperation = useRef(false)
+  const pushStatusSequence = useRef(0)
   const [pushAvailable, setPushAvailable] = useState(false)
   const [browserPermission, setBrowserPermission] = useState<NotificationPermission | "unsupported">("default")
   const [vapidPublicKey, setVapidPublicKey] = useState<string | null>(null)
@@ -86,6 +90,8 @@ export function NotificationSettings({ userId, demoMode }: { userId: string; dem
   useEffect(() => {
     let active = true
     const refreshBrowserStatus = async () => {
+      if (pushOperation.current) return
+      const sequence = ++pushStatusSequence.current
       const permission = "Notification" in window && window.isSecureContext ? Notification.permission : "unsupported"
       setBrowserPermission(permission)
       const supported = window.isSecureContext && "serviceWorker" in navigator
@@ -93,6 +99,7 @@ export function NotificationSettings({ userId, demoMode }: { userId: string; dem
       if (!supported || demoMode) {
         setPushAvailable(false)
         setPushEnabled(false)
+        setPushNeedsReconnect(false)
         setVapidPublicKey(null)
         return
       }
@@ -105,12 +112,16 @@ export function NotificationSettings({ userId, demoMode }: { userId: string; dem
           ? await response.json() as { available?: boolean; publicKey?: string | null }
           : null
         const subscription = await registration?.pushManager.getSubscription()
-        if (!active) return
+        if (!active || pushOperation.current || sequence !== pushStatusSequence.current) return
         setPushAvailable(Boolean(payload?.available && payload.publicKey))
         setVapidPublicKey(payload?.publicKey ?? null)
-        setPushEnabled(Boolean(subscription))
+        const matches = Boolean(subscription && payload?.publicKey && subscriptionMatchesKey(subscription, payload.publicKey))
+        setPushEnabled(matches && permission === "granted")
+        setPushNeedsReconnect(Boolean(subscription && payload?.available && !matches))
       } catch {
-        if (active) { setPushAvailable(false); setPushEnabled(false); setVapidPublicKey(null) }
+        if (active && !pushOperation.current && sequence === pushStatusSequence.current) {
+          setPushAvailable(false); setPushEnabled(false); setPushNeedsReconnect(false); setVapidPublicKey(null)
+        }
       }
     }
     void refreshBrowserStatus()
@@ -230,6 +241,9 @@ export function NotificationSettings({ userId, demoMode }: { userId: string; dem
   }
 
   async function updatePush(enabled: boolean) {
+    if (pushOperation.current) return
+    pushOperation.current = true
+    ++pushStatusSequence.current
     setPushSaving(true)
     setMessage(null)
     try {
@@ -248,6 +262,7 @@ export function NotificationSettings({ userId, demoMode }: { userId: string; dem
         if (!response.ok) throw new Error(payload.error ?? "Could not turn off browser notifications.")
         await subscription?.unsubscribe()
         setPushEnabled(false)
+        setPushNeedsReconnect(false)
         setMessage("Browser notifications are off for this device.")
         return
       }
@@ -263,22 +278,30 @@ export function NotificationSettings({ userId, demoMode }: { userId: string; dem
       }
       await navigator.serviceWorker.register("/sw.js", { scope: "/" })
       const registration = await waitForServiceWorkerReady()
-      const existing = await registration.pushManager.getSubscription()
-      const subscription = existing ?? await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: toApplicationServerKey(vapidPublicKey),
-      })
-      const response = await fetch("/api/notifications/push", {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "subscribe", subscription: subscription.toJSON() }),
-      })
-      const payload = await response.json() as { error?: string }
-      if (!response.ok) throw new Error(payload.error ?? "Could not enable browser notifications.")
+      setPushEnabled(false)
+      await enablePushSubscription(registration.pushManager, vapidPublicKey,
+        async (endpoint) => {
+          const response = await fetch("/api/notifications/push", {
+            method: "POST", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ action: "unsubscribe", endpoint }),
+          })
+          const payload = await response.json() as { error?: string }
+          if (!response.ok) throw new Error(payload.error ?? "Could not disconnect the previous browser subscription.")
+        },
+        async (subscription) => {
+          const response = await fetch("/api/notifications/push", {
+            method: "POST", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ action: "subscribe", subscription: subscription.toJSON() }),
+          })
+          const payload = await response.json() as { error?: string }
+          if (!response.ok) throw new Error(payload.error ?? "Could not enable browser notifications.")
+        })
       setPushEnabled(true)
+      setPushNeedsReconnect(false)
       setMessage("Browser notifications are on for this device.")
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not update browser notification settings.")
-    } finally { setPushSaving(false) }
+    } finally { pushOperation.current = false; setPushSaving(false) }
   }
 
   async function testBrowserNotification() {
@@ -349,13 +372,6 @@ export function NotificationSettings({ userId, demoMode }: { userId: string; dem
     } finally { setPushSaving(false) }
   }
 
-  function toApplicationServerKey(base64Url: string) {
-    const normalized = base64Url.replace(/-/g, "+").replace(/_/g, "/")
-    const padded = normalized + "=".repeat((4 - normalized.length % 4) % 4)
-    const binary = window.atob(padded)
-    return Uint8Array.from(binary, (character) => character.charCodeAt(0))
-  }
-
   const desktopStatus = demoMode
     ? "Sign in to enable desktop notifications."
     : browserPermission === "unsupported"
@@ -366,9 +382,11 @@ export function NotificationSettings({ userId, demoMode }: { userId: string; dem
           ? "Browser access hasn't been granted yet."
           : !pushAvailable
             ? "Browser access is allowed, but desktop alerts aren't configured for this workspace yet."
-            : pushEnabled
-              ? "Desktop notifications are on for this device."
-              : "Browser access is allowed; desktop notifications are off on this device."
+            : pushNeedsReconnect
+              ? "Reconnect required. This device uses a previous notification key. Reconnect to receive desktop alerts."
+              : pushEnabled
+                ? "Desktop notifications are on for this device."
+                : "Browser access is allowed; desktop notifications are off on this device."
 
   return <section className="mt-5 rounded-lg border bg-card/80 p-5">
     <div className="flex items-start gap-3">
@@ -423,7 +441,8 @@ export function NotificationSettings({ userId, demoMode }: { userId: string; dem
         <p className="mt-1 text-xs leading-5 text-muted-foreground" role="status">{desktopStatus}</p>
       </div>
       {!demoMode && !pushAvailable && browserPermission === "default" && <Button type="button" variant="outline" size="sm" disabled={pushSaving} onClick={() => void requestBrowserAccess()}>{pushSaving ? "Requesting…" : "Allow notifications"}</Button>}
-      {pushAvailable && <Button type="button" role="switch" aria-checked={pushEnabled} aria-label="Computer notifications" variant="ghost" className={`relative h-6 w-11 shrink-0 rounded-full border p-0 text-transparent hover:text-transparent before:absolute before:left-1 before:top-1/2 before:size-4 before:-translate-y-1/2 before:rounded-full before:bg-background before:shadow-sm before:transition-transform ${pushEnabled ? "border-primary bg-primary hover:bg-primary before:translate-x-5" : "border-input bg-muted hover:bg-muted before:translate-x-0"}`} disabled={pushSaving || loading || (!pushEnabled && (!pushAvailable || demoMode || browserPermission === "unsupported" || browserPermission === "denied"))} onClick={() => void updatePush(!pushEnabled)}>
+      {pushAvailable && pushNeedsReconnect && <Button type="button" variant="outline" size="sm" disabled={pushSaving || loading || browserPermission === "denied"} onClick={() => void updatePush(true)}>{pushSaving ? "Reconnecting…" : "Reconnect notifications"}</Button>}
+      {pushAvailable && !pushNeedsReconnect && <Button type="button" role="switch" aria-checked={pushEnabled} aria-label="Computer notifications" variant="ghost" className={`relative h-6 w-11 shrink-0 rounded-full border p-0 text-transparent hover:text-transparent before:absolute before:left-1 before:top-1/2 before:size-4 before:-translate-y-1/2 before:rounded-full before:bg-background before:shadow-sm before:transition-transform ${pushEnabled ? "border-primary bg-primary hover:bg-primary before:translate-x-5" : "border-input bg-muted hover:bg-muted before:translate-x-0"}`} disabled={pushSaving || loading || (!pushEnabled && (!pushAvailable || demoMode || browserPermission === "unsupported" || browserPermission === "denied"))} onClick={() => void updatePush(!pushEnabled)}>
         {pushSaving ? "Saving…" : pushEnabled ? "On" : browserPermission === "default" ? "Allow & enable" : browserPermission === "denied" ? "Blocked" : browserPermission === "granted" ? "Off" : "Unavailable"}
       </Button>}
     </div>
