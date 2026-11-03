@@ -66,7 +66,7 @@ export function TaskDrawerProvider({ children }: { children: ReactNode }) {
             <SheetTitle>{task?.title ?? "Task details"}</SheetTitle>
             <SheetDescription>Task details and work submission</SheetDescription>
           </SheetHeader>
-          {taskId && <TaskDetail taskId={taskId} embedded />}
+          {taskId && <TaskDetail taskId={taskId} embedded onTrashed={() => setTaskId(null)} />}
         </SheetContent>
       </Sheet>
     </TaskDrawerContext.Provider>

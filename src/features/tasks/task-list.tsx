@@ -125,7 +125,7 @@ function parseDueDate(value: string) {
 }
 
 export function TaskList() {
-  const { tasks, contentWorkItems, clients: workflowClients, updateStatus, currentUser, demoMode } = useWorkflow()
+  const { tasks, contentWorkItems, clients: workflowClients, updateStatus, currentUser, demoMode, removeTask, refreshWorkflowQuietly } = useWorkflow()
   const contentPreviewLimit = currentUser.role === "supervisor" ? teamContentPreviewLimit : myContentPreviewLimit
   const { openTask } = useTaskDrawer()
   const router = useRouter()
@@ -201,7 +201,7 @@ export function TaskList() {
     if (demoMode || trashPending) return
     setTrashPending(true)
     try {
-      const result = await trashTaskAction(task.id)
+      const result = await trashTaskAction(task.id, false)
       if (result.error) {
         setTrashNotice({
           taskId: task.id,
@@ -215,7 +215,8 @@ export function TaskList() {
         return
       }
       setTrashNotice({ taskId: task.id, title: task.title })
-      router.refresh()
+      removeTask(task.id)
+      void refreshWorkflowQuietly()
     } catch {
       setTrashNotice({ taskId: task.id, title: task.title, error: "Could not reach the server. The task was not moved to Trash." })
     } finally {
@@ -227,13 +228,13 @@ export function TaskList() {
     if (!trashNotice || trashNotice.error || trashPending) return
     setTrashPending(true)
     try {
-      const result = await undoTaskTrashAction(trashNotice.taskId)
+      const result = await undoTaskTrashAction(trashNotice.taskId, false)
       if (result.error) {
         setTrashNotice({ ...trashNotice, error: "Undo failed. The task is still in Trash and can be restored from the Trash page." })
         return
       }
-      setTrashNotice(null)
-      router.refresh()
+      const refreshed = await refreshWorkflowQuietly()
+      setTrashNotice(refreshed ? null : { ...trashNotice, error: "The task was restored, but the board could not be synchronized. Check your connection and reopen Team work." })
     } catch {
       setTrashNotice({ ...trashNotice, error: "Could not reach the server. The task remains in Trash and can be restored there." })
     } finally {

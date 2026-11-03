@@ -1,6 +1,8 @@
 import Link from "next/link"
 import { redirect } from "next/navigation"
+import { CircleAlert, CircleCheck, CloudOff } from "lucide-react"
 
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { getStorageActor, hasStoragePermission } from "@/lib/storage/authorization"
 import { getDriveConfig, googleDriveOwnerEmail, verifyGoogleDriveConnection } from "@/lib/storage/google-drive"
@@ -25,12 +27,29 @@ export default async function StorageSettingsPage({ searchParams }: { searchPara
           : status.health === "configuration_error" ? "OAuth configuration needs attention"
             : status.health === "unavailable" ? "Authorization could not be verified right now"
               : "Not connected"
+  const verified = configured && status.available && status.connected && status.health === "ready"
+  const indicatorLabel = verified ? "Connected"
+    : !configured || status.health === "configuration_error" ? "Setup required"
+      : !status.available || status.health === "unavailable" ? "Unable to verify"
+        : status.health === "reauthorization_required" ? "Reconnect required"
+          : "Not connected"
+  const needsAttention = indicatorLabel === "Setup required" || indicatorLabel === "Reconnect required"
+  const StatusIcon = verified ? CircleCheck : needsAttention ? CircleAlert : CloudOff
 
   return <main className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6 lg:px-8">
     <Link href="/clients" className="text-xs font-medium text-muted-foreground hover:text-foreground">← Back to clients</Link>
     <header className="mt-4"><h1 className="text-2xl font-semibold tracking-tight">File storage</h1></header>
     <section className="mt-5 rounded-lg border bg-card/80 p-5">
-      <h2 className="text-sm font-semibold">Google Drive connection</h2>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-sm font-semibold">Google Drive connection</h2>
+        <Badge variant="outline" role="status" aria-label="Google Drive connection status" className={verified
+          ? "border-emerald-600/25 bg-emerald-600/10 text-emerald-800 dark:text-emerald-300"
+          : needsAttention
+            ? "border-amber-600/25 bg-amber-600/10 text-amber-800 dark:text-amber-300"
+            : "border-border bg-muted/50 text-muted-foreground"}>
+          <StatusIcon aria-hidden="true" />{indicatorLabel}
+        </Badge>
+      </div>
       <p className="mt-1 text-xs leading-5 text-muted-foreground">The app creates a private Jota folder and one subfolder per client. Files are downloaded through the signed-in app; no public Drive links are created.</p>
       <div className="mt-4 rounded-md border bg-background/60 p-3 text-xs"><span className="font-medium">Approved account:</span> {googleDriveOwnerEmail}<br /><span className="font-medium">Connection status:</span> {connectionLabel}</div>
       {status.health === "reauthorization_required" && <p role="alert" className="mt-3 text-xs leading-5 text-amber-800">Google Drive&apos;s saved authorization has expired or been revoked. Previews and uploads may fail until an administrator reconnects the approved account. Reconnecting keeps Jota&apos;s existing folder and file records.</p>}

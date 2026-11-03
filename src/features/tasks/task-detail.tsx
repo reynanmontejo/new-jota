@@ -33,7 +33,7 @@ import type { TaskStatus, WorkflowFile } from "@/features/workflow/types"
 import { useWorkflow } from "@/features/workflow/workflow-provider"
 import { cn } from "@/lib/utils"
 
-export function TaskDetail({ taskId, embedded = false }: { taskId: string; embedded?: boolean }) {
+export function TaskDetail({ taskId, embedded = false, onTrashed }: { taskId: string; embedded?: boolean; onTrashed?: () => void }) {
   const { tasks, currentUser, demoMode, toggleChecklist, addComment, updateStatus, createVersion, submitLatestVersion, loadTaskDetails } = useWorkflow()
   const task = tasks.find((item) => item.id === taskId)
   const [comment, setComment] = useState("")
@@ -118,7 +118,7 @@ export function TaskDetail({ taskId, embedded = false }: { taskId: string; embed
 
       {!demoMode && canManageTrash && <div className="mt-3">{trashUnavailableMessage
         ? <p className="max-w-lg rounded-lg border border-primary/15 bg-background/45 px-3 py-2 text-xs text-muted-foreground">{trashUnavailableMessage}</p>
-        : <TaskTrashButton taskId={task.id} />}</div>}
+        : <TaskTrashButton taskId={task.id} onTrashed={onTrashed} />}</div>}
 
       {task.status === "approved" && task.contentItemId && task.contentClientApproval !== "approved" && <p role="status" className="mt-3 rounded-lg border border-primary/20 bg-primary/5 p-3 text-xs">Internal review approved. The Account Manager will record client approval on the linked content before this task can be completed.</p>}
       {!taskDetailsReady && <p role={detailsError ? "alert" : "status"} className={cn("mt-3 rounded-lg border px-3 py-2 text-xs", detailsError ? "border-destructive/25 bg-destructive/5 text-destructive" : "border-primary/15 bg-background/55 text-muted-foreground")}>

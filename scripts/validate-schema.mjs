@@ -2,6 +2,7 @@ import fs from "node:fs/promises"
 
 import { PGlite } from "@electric-sql/pglite"
 import { validateTaskTrash } from "./validate-task-trash.mjs"
+import { validateEmployeeDeletion } from "./validate-employee-deletion.mjs"
 
 const migrationPath = "supabase/migrations/202609250001_initial_schema.sql"
 const authMigrationPath = "supabase/migrations/202609300001_auth_rls_policies.sql"
@@ -1993,6 +1994,7 @@ const pendingNotices = (await database.query(`select count(*)::int as count from
 if (pendingNotices !== 2) throw new Error('Account Manager did not receive deduplicated pending-client notifications')
 
 await validateTaskTrash(database, asUser, { manager: employeeTwo, supervisor, outsider: videoEditor })
+await validateEmployeeDeletion(database, { administrator, supervisor, foreignAdministrator: firstAdministrator })
 
 const tableResult = await database.query(
   "select count(*)::int as count from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE'",

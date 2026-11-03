@@ -36,6 +36,7 @@ function formatTaskDate(value: string) {
 
 type WorkflowAction =
   | { type: "replace_tasks"; tasks: WorkflowState["tasks"] }
+  | { type: "remove_task"; taskId: string }
   | { type: "sync_task_summaries"; tasks: WorkflowState["tasks"] }
   | { type: "hydrate_task_details"; taskId: string; details: WorkflowTaskDetails }
   | { type: "toggle_checklist"; taskId: string; itemId: string; actor: DemoUser }
@@ -48,6 +49,7 @@ type WorkflowAction =
 
 export function workflowReducer(state: WorkflowState, action: WorkflowAction): WorkflowState {
   if (action.type === "replace_tasks") return { tasks: action.tasks }
+  if (action.type === "remove_task") return { tasks: state.tasks.filter((task) => task.id !== action.taskId) }
   if (action.type === "sync_task_summaries") {
     const detailsById = new Map(state.tasks.filter((task) => task.detailsLoaded).map((task) => [task.id, task]))
     return { tasks: action.tasks.map((task) => {
@@ -170,6 +172,8 @@ type WorkflowContextValue = {
   realtimeRevision: number
   realtimeStatus: RealtimeStatus
   refreshWorkflowNow: () => void
+  refreshWorkflowQuietly: () => Promise<boolean>
+  removeTask: (taskId: string) => void
   error: string | null
   clearError: () => void
   switchDemoUser: (role: DemoUser["role"]) => void
@@ -236,6 +240,28 @@ export function WorkflowProvider({
   const summaryRequest = useRef<Promise<boolean> | null>(null)
   const lazyWorkflow = initialTasks === undefined
   const taskDetailsRequests = useRef(new Map<string, Promise<boolean>>())
+  const quietRefreshRevision = useRef(0)
+  const refreshWorkflowQuietly = useCallback(async () => {
+    const revision = ++quietRefreshRevision.current
+    try {
+      const response = await fetch("/api/workflow-summary", { cache: "no-store" })
+      if (!response.ok) return false
+      const payload = await response.json() as { summary?: WorkflowSummary }
+      if (!payload.summary) return false
+      // A newer synchronization owns the visible result; this request succeeded.
+      if (revision !== quietRefreshRevision.current) return true
+      setDeferredSummary(payload.summary)
+      dispatch({ type: "sync_task_summaries", tasks: payload.summary.tasks })
+      setRealtimeRevision((value) => value + 1)
+      return true
+    } catch { return false }
+  }, [])
+  const removeTask = useCallback((taskId: string) => {
+    // Ignore an older summary that began before this successful mutation.
+    quietRefreshRevision.current += 1
+    dispatch({ type: "remove_task", taskId })
+  }, [])
+  useEffect(() => () => { quietRefreshRevision.current += 1 }, [])
   const router = useRouter()
   const refreshWorkflowNow = useCallback(() => {
     if (lazyWorkflow) {
@@ -273,28 +299,14 @@ export function WorkflowProvider({
     let isSubscribed = false
     let hasSubscribed = false
     let disposed = false
-    let recoveryRequest: Promise<void> | null = null
-    const recoveryController = new AbortController()
-    const refreshWorkflowQuietly = () => {
-      if (recoveryRequest) return
-      recoveryRequest = (async () => {
-        try {
-          const response = await fetch("/api/workflow-summary", { cache: "no-store", signal: recoveryController.signal })
-          if (!response.ok) return
-          const payload = await response.json() as { summary?: WorkflowSummary }
-          if (disposed || !payload.summary) return
-          setDeferredSummary(payload.summary)
-          dispatch({ type: "sync_task_summaries", tasks: payload.summary.tasks })
-          setRealtimeRevision((revision) => revision + 1)
-        } catch { /* Keep existing work visible until the next retry or live update. */ }
-        finally { recoveryRequest = null }
-      })()
-    }
     const refreshWorkflow = () => {
       if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
       refreshTimer = window.setTimeout(() => {
         refreshTimer = undefined
-        refreshWorkflowNow()
+        // Task canvases already consume the provider; do not clear them or
+        // refresh the page when their own database mutation arrives over Realtime.
+        if (/^\/tasks(?:\/[0-9a-f-]{36})?\/?$/i.test(window.location.pathname)) void refreshWorkflowQuietly()
+        else refreshWorkflowNow()
       }, 200)
     }
 
@@ -368,7 +380,6 @@ export function WorkflowProvider({
 
     return () => {
       disposed = true
-      recoveryController.abort()
       if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
       if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer)
       if (connectWatchdog !== undefined) window.clearTimeout(connectWatchdog)
@@ -378,7 +389,7 @@ export function WorkflowProvider({
       window.removeEventListener("online", refreshOnReturn)
       if (channel) void supabase.removeChannel(channel)
     }
-  }, [demoMode, initialUser?.id, refreshWorkflowNow])
+  }, [demoMode, initialUser?.id, refreshWorkflowNow, refreshWorkflowQuietly])
 
   useEffect(() => {
     if (!demoMode && initialTasks) dispatch({ type: "replace_tasks", tasks: initialTasks })
@@ -449,6 +460,8 @@ export function WorkflowProvider({
     realtimeRevision,
     realtimeStatus,
     refreshWorkflowNow,
+    refreshWorkflowQuietly,
+    removeTask,
     error,
     clearError: () => setError(null),
     switchDemoUser: (role) => {
@@ -554,7 +567,7 @@ export function WorkflowProvider({
       return id
     },
     loadTaskDetails,
-  }), [state.tasks, clients, assignableUsers, currentUser, demoMode, error, deferredSummary, initialUpcomingContent, initialContentWorkItems, workflowDataReady, workflowDataLoading, ensureWorkflowData, realtimeRevision, realtimeStatus, refreshWorkflowNow, loadTaskDetails])
+  }), [state.tasks, clients, assignableUsers, currentUser, demoMode, error, deferredSummary, initialUpcomingContent, initialContentWorkItems, workflowDataReady, workflowDataLoading, ensureWorkflowData, realtimeRevision, realtimeStatus, refreshWorkflowNow, refreshWorkflowQuietly, removeTask, loadTaskDetails])
 
   return <WorkflowContext.Provider value={value}>{children}</WorkflowContext.Provider>
 }

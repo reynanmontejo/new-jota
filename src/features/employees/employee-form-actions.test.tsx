@@ -9,6 +9,7 @@ describe("employee account pending actions", () => {
   it.each([
     ["create", "Create account", "Creating account…"],
     ["trash", "Move to Trash", "Moving to Trash…"],
+    ["delete", "Delete permanently", "Deleting account…"],
   ] as const)("shows progress and prevents repeat %s requests until the action finishes", async (operation, idle, pending) => {
     let finish!: () => void
     const request = new Promise<void>((resolve) => { finish = resolve })

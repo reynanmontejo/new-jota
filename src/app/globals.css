@@ -63,6 +63,9 @@
 }
 
 :root {
+  --motion-page-duration: 360ms;
+  --motion-panel-duration: 300ms;
+  --motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
   --background: #fdfcfb;
   --foreground: #141311;
   --card: rgb(253 252 251 / 86%);
@@ -569,17 +572,29 @@
   }
 }
 
+/* Every page, including streamed/loading reveals, uses the same light entrance.
+   No fill mode: release the transform after arrival so fixed dialogs and sticky
+   elements keep their normal viewport positioning. No layout/blur animation. */
+@keyframes page-arrive {
+  from { opacity: 0; transform: translate3d(0, 10px, 0); }
+  to { opacity: 1; transform: none; }
+}
+
+main {
+  animation: page-arrive var(--motion-page-duration) var(--motion-ease);
+}
+
 @keyframes calendar-month-arrive {
   from { opacity: 0.55; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
 .calendar-month-enter {
-  animation: calendar-month-arrive 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: calendar-month-arrive var(--motion-page-duration) var(--motion-ease);
 }
 
 .calendar-details-panel {
-  transition: opacity 300ms ease-out, transform 300ms cubic-bezier(0.22, 1, 0.36, 1), padding 300ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition: opacity var(--motion-panel-duration) ease-out, transform var(--motion-panel-duration) var(--motion-ease), padding var(--motion-panel-duration) var(--motion-ease);
 }
 
 @keyframes calendar-details-arrive {
@@ -588,7 +603,7 @@
 }
 
 .calendar-details-content {
-  animation: calendar-details-arrive 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: calendar-details-arrive var(--motion-panel-duration) var(--motion-ease);
 }
 
 @starting-style {
@@ -604,6 +619,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  main,
   .calendar-month-enter,
   .calendar-details-content,
   .calendar-details-panel {

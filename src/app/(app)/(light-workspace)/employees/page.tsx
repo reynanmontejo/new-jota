@@ -10,6 +10,7 @@ import { createServiceClient } from "@/lib/supabase/service"
 import { EmployeeRowActions } from "@/features/employees/employee-row-actions"
 import { EmployeePasswordFields } from "@/features/employees/employee-password-fields"
 import { EmployeeFormActions } from "@/features/employees/employee-form-actions"
+import { EmployeeTrashDelete } from "@/features/employees/employee-trash-delete"
 import { createEmployee, restoreEmployeeFromTrash, updateEmployee } from "@/app/employees/actions"
 import { decidePasswordChangeRequest } from "@/app/profile/password-actions"
 
@@ -46,6 +47,10 @@ const notices: Record<string, string> = {
   protected: "Administrator accounts are protected from this screen.",
   trashed: "Account moved to Trash. Sign-in is blocked; it can be restored within 30 days.",
   restored: "Account restored. The employee can sign in again.",
+  purged: "Sign-in account permanently deleted. The profile is anonymized and past work history is preserved.",
+  purge_setup: "Permanent deletion requires migration 202611040002_employee_trash_delete_now.sql. No account was deleted.",
+  purge_failed: "The account could not be permanently deleted. It remains in Trash. Try again or ask an administrator to check its dependencies.",
+  not_in_trash: "Move the account to Trash before permanently deleting it.",
   confirmation: "The confirmation email did not match the employee account.",
   delete_failed: "The account could not be moved to Trash. Refresh and try again.",
   restore_failed: "The account could not be restored. It may have passed the 30-day period.",
@@ -247,9 +252,11 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
                 if (view === "trash") return (
                   <article key={employee.id} className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0"><p className="truncate text-xs font-semibold">{employee.display_name}</p><p className="truncate text-[11px] text-muted-foreground">{employee.email} · {role.name}</p><p className="mt-1 text-[11px] text-amber-800 dark:text-amber-300">Scheduled for permanent removal {employee.purge_after_at ? new Date(employee.purge_after_at).toLocaleDateString("en-US", { dateStyle: "medium", timeZone: "UTC" }) : "after 30 days"}</p></div>
-                    {isRestorePeriodExpired(employee.purge_after_at)
+                    <div className="flex flex-wrap items-center gap-2">{isRestorePeriodExpired(employee.purge_after_at)
                       ? <span className="text-xs text-muted-foreground">Restore period expired · purge pending</span>
                       : <form action={restoreEmployeeFromTrash}><input type="hidden" name="employeeId" value={employee.id} /><Button type="submit" size="sm" variant="outline">Restore account</Button></form>}
+                      {isAdministrator && !protectedAdmin && employee.id !== viewer.actorId && <EmployeeTrashDelete employeeId={employee.id} employeeName={employee.display_name} employeeEmail={employee.email} />}
+                    </div>
                   </article>
                 )
                 return (

@@ -6,9 +6,11 @@ import { Trash2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { trashTaskAction } from "@/app/tasks/actions"
+import { useWorkflow } from "@/features/workflow/workflow-provider"
 
-export function TaskTrashButton({ taskId }: { taskId: string }) {
+export function TaskTrashButton({ taskId, onTrashed }: { taskId: string; onTrashed?: () => void }) {
   const router = useRouter()
+  const { removeTask, refreshWorkflowQuietly } = useWorkflow()
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
@@ -16,17 +18,23 @@ export function TaskTrashButton({ taskId }: { taskId: string }) {
   function moveToTrash() {
     setError(null)
     startTransition(async () => {
-      const result = await trashTaskAction(taskId)
-      if (result.error) {
-        setError(result.error.includes("work history or files")
-          ? "The database still blocks tasks with files or history. Apply migration 202610240001_allow_task_trash_with_history.sql in Supabase, then try again."
-          : result.error.includes("review or approval")
-            ? "Resolve its review first; tasks awaiting review or approval must remain on the active board."
-            : "You do not have permission to move this task to Trash.")
-        return
+      try {
+        const result = await trashTaskAction(taskId, false)
+        if (result.error) {
+          setError(result.error.includes("work history or files")
+            ? "The database still blocks tasks with files or history. Apply migration 202610240001_allow_task_trash_with_history.sql in Supabase, then try again."
+            : result.error.includes("review or approval")
+              ? "Resolve its review first; tasks awaiting review or approval must remain on the active board."
+              : "You do not have permission to move this task to Trash.")
+          return
+        }
+        onTrashed?.()
+        removeTask(taskId)
+        void refreshWorkflowQuietly()
+        if (!onTrashed) router.replace("/tasks")
+      } catch {
+        setError("Could not reach the server. Please try again.")
       }
-      router.push("/tasks/trash?notice=trashed")
-      router.refresh()
     })
   }
 

@@ -21,14 +21,17 @@ const mocks = vi.hoisted(() => ({
     }],
     currentUser: { id: "account-manager-1", name: "Account Manager", role: "employee" },
     updateStatus: vi.fn(),
+    removeTask: vi.fn(),
+    refreshWorkflowQuietly: vi.fn().mockResolvedValue(true),
   },
+  refresh: vi.fn(),
   openTask: vi.fn(),
   openNewTask: vi.fn(),
 }))
 
 vi.mock("@/features/workflow/workflow-provider", () => ({ useWorkflow: () => mocks.workflow }))
 vi.mock("@/features/tasks/task-drawer", () => ({ useTaskDrawer: () => ({ openTask: mocks.openTask, openNewTask: mocks.openNewTask }) }))
-vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: mocks.refresh }) }))
 vi.mock("@/app/tasks/actions", () => ({ trashTaskAction: vi.fn(), undoTaskTrashAction: vi.fn() }))
 
 import { hideContentAlreadyTrackedByTasks, TaskList } from "@/features/tasks/task-list"
@@ -214,10 +217,31 @@ describe("My Work calendar content", () => {
     fireEvent.click(screen.getByRole("button", { name: "Task actions for Completed task to clean up" }))
     fireEvent.click(await screen.findByRole("menuitem", { name: "Move to Trash" }))
 
-    await waitFor(() => expect(trashTaskAction).toHaveBeenCalledWith("task-completed"))
+    await waitFor(() => expect(trashTaskAction).toHaveBeenCalledWith("task-completed", false))
+    expect(mocks.workflow.removeTask).toHaveBeenCalledWith("task-completed")
+    expect(mocks.workflow.refreshWorkflowQuietly).toHaveBeenCalledTimes(1)
+    expect(mocks.refresh).not.toHaveBeenCalled()
     expect(await screen.findByRole("status")).toHaveTextContent(/Undo available for 8 seconds/)
     fireEvent.click(screen.getByRole("button", { name: "Undo" }))
-    await waitFor(() => expect(undoTaskTrashAction).toHaveBeenCalledWith("task-completed"))
+    await waitFor(() => expect(undoTaskTrashAction).toHaveBeenCalledWith("task-completed", false))
+    expect(mocks.workflow.refreshWorkflowQuietly).toHaveBeenCalledTimes(2)
+    expect(mocks.refresh).not.toHaveBeenCalled()
+  })
+
+  it("keeps the board and task unchanged when moving to Trash fails", async () => {
+    mocks.workflow.tasks = [{
+      ...initialWorkflowState.tasks[0], id: "task-denied", title: "Keep this task",
+      createdById: "account-manager-1", status: "todo",
+    }]
+    vi.mocked(trashTaskAction).mockResolvedValue({ error: "permission denied" })
+    render(<TaskList />)
+    fireEvent.click(screen.getByRole("button", { name: "Task actions for Keep this task" }))
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Move to Trash" }))
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not move this task")
+    expect(screen.getByText("Keep this task")).toBeInTheDocument()
+    expect(mocks.workflow.removeTask).not.toHaveBeenCalled()
+    expect(mocks.workflow.refreshWorkflowQuietly).not.toHaveBeenCalled()
+    expect(mocks.refresh).not.toHaveBeenCalled()
   })
 
 })

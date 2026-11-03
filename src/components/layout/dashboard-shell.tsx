@@ -9,6 +9,7 @@ import { Suspense, createContext, useCallback, useContext, useEffect, useMemo, u
 import { AppSidebar } from "@/components/layout/app-sidebar"
 import { MobileNavigation } from "@/components/layout/mobile-navigation"
 import { ThemeModeToggle } from "@/components/layout/theme-mode-toggle"
+import { PageTransition } from "@/components/layout/page-transition"
 import { useTaskDrawer } from "@/features/tasks/task-drawer"
 import { useWorkflow } from "@/features/workflow/workflow-provider"
 import { NotificationBell } from "@/features/notifications/notification-bell"
@@ -114,12 +115,12 @@ function DashboardShellContent({ children, compact = false }: DashboardShellProp
         isAdministrator={isAdministrator}
         onToggle={() => setSidebarCollapsed((current) => !current)}
         className={cn(
-          "fixed inset-y-0 left-0 z-30 hidden border-r border-background/70 transition-[width] duration-200 lg:flex",
+          "fixed inset-y-0 left-0 z-30 hidden border-r border-background/70 transition-[width] duration-[var(--motion-panel-duration)] ease-[var(--motion-ease)] motion-reduce:transition-none lg:flex",
           sidebarCollapsed ? "w-20" : "w-64",
         )}
       />
 
-      <div className={cn("transition-[padding] duration-200", sidebarCollapsed ? "lg:pl-20" : "lg:pl-64")}>
+      <div className={cn("transition-[padding] duration-[var(--motion-panel-duration)] ease-[var(--motion-ease)] motion-reduce:transition-none", sidebarCollapsed ? "lg:pl-20" : "lg:pl-64")}>
         <header className={cn("glass-header sticky top-0 z-20 flex items-center gap-3 border-b px-4 sm:px-6", compact ? "h-14 lg:px-6" : "h-16 lg:px-8")}>
           <MobileNavigation variant={navigationVariant} isAdministrator={isAdministrator} />
           <div className={cn("relative max-w-lg flex-1", mobileSearchOpen ? "absolute left-3 right-3 top-full z-40 max-w-none rounded-lg border bg-background p-2 shadow-lg md:static md:block md:max-w-lg md:border-0 md:bg-transparent md:p-0 md:shadow-none" : "hidden md:block")}>
@@ -222,7 +223,7 @@ function DashboardShellContent({ children, compact = false }: DashboardShellProp
 
         {!demoMode && realtimeStatus === "reconnecting" && <div role="status" className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-500/25 bg-amber-50/80 px-4 py-2 text-xs text-amber-950 dark:bg-amber-950/30 dark:text-amber-100 sm:px-6 lg:px-8"><span>Live updates are interrupted. Jota is reconnecting and refreshes work every 30 seconds while this tab is visible.</span><button type="button" className="font-semibold underline underline-offset-2" onClick={refreshWorkflowNow}>Refresh data now</button></div>}
         {workflowError && <div className="fixed right-4 top-[4.5rem] z-50 flex max-w-md items-center gap-3 border border-destructive/25 bg-background px-4 py-3 text-xs text-foreground shadow-lg" role="alert"><span>{workflowError}</span><button className="font-semibold text-primary" onClick={clearError}>Dismiss</button></div>}
-        {children}
+        <PageTransition>{children}</PageTransition>
       </div>
       {newTaskOpen && (workflowDataReady || demoMode)
         ? <NewTaskSheet open={newTaskOpen} seed={newTaskSeed} onOpenChange={(open) => { if (!open) closeNewTask() }} />

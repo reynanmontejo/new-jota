@@ -62,14 +62,17 @@ export async function createTaskAction(input: {
   return { id: data, error: null }
 }
 
-export async function trashTaskAction(taskId: string) {
+export async function trashTaskAction(taskId: string, refresh = true) {
   if (!uuid.safeParse(taskId).success) return { error: "Invalid task." }
   const supabase = await createClient()
   const { error } = await supabase.rpc("workflow_trash_task_for_current_user", { p_task_id: taskId })
   if (error) return { error: error.message }
-  revalidatePath("/")
-  revalidatePath("/tasks")
-  revalidatePath("/tasks/trash")
+  // The live board synchronizes its own state without replacing the route.
+  if (refresh) {
+    revalidatePath("/")
+    revalidatePath("/tasks")
+    revalidatePath("/tasks/trash")
+  }
   return { error: null }
 }
 
@@ -84,14 +87,16 @@ export async function restoreTaskFromTrashAction(taskId: string) {
   redirect("/tasks/trash?notice=restored")
 }
 
-export async function undoTaskTrashAction(taskId: string) {
+export async function undoTaskTrashAction(taskId: string, refresh = true) {
   if (!uuid.safeParse(taskId).success) return { error: "Invalid task." }
   const supabase = await createClient()
   const { error } = await supabase.rpc("workflow_restore_task_from_trash", { p_task_id: taskId })
   if (error) return { error: error.message }
-  revalidatePath("/")
-  revalidatePath("/tasks")
-  revalidatePath("/tasks/trash")
+  if (refresh) {
+    revalidatePath("/")
+    revalidatePath("/tasks")
+    revalidatePath("/tasks/trash")
+  }
   return { error: null }
 }
 

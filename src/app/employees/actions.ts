@@ -155,3 +155,28 @@ export async function restoreEmployeeFromTrash(formData: FormData) {
   revalidatePath("/employees")
   redirect("/employees?view=trash&notice=restored")
 }
+
+export async function permanentlyDeleteEmployee(formData: FormData) {
+  const employeeId = z.uuid().safeParse(field(formData, "employeeId"))
+  const confirmationEmail = z.email().trim().toLowerCase().safeParse(field(formData, "confirmationEmail"))
+  if (!employeeId.success || !confirmationEmail.success) redirect("/employees?view=trash&notice=invalid")
+  const authorized = await getEmployeeManagementContext("employees.delete")
+  if (!authorized || employeeId.data === authorized.actorId) redirect("/employees?view=trash&notice=protected")
+  let admin
+  try { admin = serviceClient() } catch { redirect("/employees?view=trash&notice=setup") }
+  const { error } = await admin.rpc("admin_permanently_delete_employee", {
+    p_actor_id: authorized.actorId,
+    p_employee_id: employeeId.data,
+    p_confirmation_email: confirmationEmail.data,
+  })
+  if (error) {
+    const notice = error.code === "PGRST202" ? "purge_setup"
+      : error.code === "42501" ? "protected"
+        : error.code === "22023" ? "confirmation"
+          : error.code === "55000" ? "not_in_trash" : "purge_failed"
+    redirect(`/employees?view=trash&notice=${notice}`)
+  }
+  revalidatePath("/employees")
+  revalidatePath("/tasks")
+  redirect("/employees?view=trash&notice=purged")
+}
