@@ -4,6 +4,7 @@ import { ArrowRight, BookOpenText, Clock3, Compass, LifeBuoy } from "lucide-reac
 import { DashboardShell } from "@/components/layout/dashboard-shell"
 import { getAuthenticatedAppUser } from "@/lib/supabase/profile"
 import { helpGuideSections, helpGuides, recommendedHelpGuideSlugs } from "@/features/help/help-guides"
+import { WorkflowTutorial } from "@/features/help/workflow-tutorial"
 
 const sectionDescriptions: Record<(typeof helpGuideSections)[number], string> = {
   "Start here": "Learn the basic pieces before following a workflow.",
@@ -24,6 +25,8 @@ export default async function HelpPage() {
         <span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary"><LifeBuoy className="size-6" /></span>
         <div className="min-w-0 flex-1"><h1 className="text-2xl font-semibold tracking-tight">Help center</h1><p className="mt-1 text-xs leading-5 text-muted-foreground">New to Jota? Follow the client-to-published-content guide, then explore the shorter guides for each part of the workflow.</p></div>
       </header>
+
+      <WorkflowTutorial />
 
       <section className="mt-5 rounded-2xl border border-primary/15 bg-secondary/12 p-4 sm:p-5" aria-labelledby="learning-path-heading">
         <div className="flex items-center gap-2"><Compass className="size-4 text-primary" /><h2 id="learning-path-heading" className="text-sm font-semibold">Recommended learning path</h2></div>
