@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import type { DemoUser } from "@/features/workflow/task-permissions"
 import { isSupabaseConfigured } from "@/lib/env"
+import { brandAssets } from "@/lib/branding"
 import { createClient as createSupabaseClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
 import { playNotificationChime, primeNotificationAudio } from "@/features/notifications/notification-sound"
@@ -89,8 +90,8 @@ export function NotificationBell({
       await registration.showNotification(item.title, {
         body: item.body ?? "You have a new workspace update.",
         tag: item.id,
-        icon: "/jota-notification-icon.svg",
-        badge: "/jota-notification-icon.svg",
+        icon: brandAssets.notificationIcon,
+        badge: brandAssets.notificationBadge,
         data: { path: href },
       })
     } catch {

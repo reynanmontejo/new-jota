@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { brandAssets } from "@/lib/branding";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -14,12 +15,12 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Jota — Joyno Task",
+  title: "Joyno Task — by Joyno Media",
   description: "Joyno Task: client work, campaigns, tasks, and reviews in one focused workspace.",
   icons: {
-    icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
-    shortcut: "/icon.svg",
-    apple: "/icon.svg",
+    icon: [{ url: brandAssets.appIcon, type: "image/png", sizes: "512x512" }],
+    shortcut: "/favicon.ico?v=lion-v1",
+    apple: [{ url: "/apple-icon.png", sizes: "180x180", type: "image/png" }],
   },
 };
 

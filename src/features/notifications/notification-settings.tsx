@@ -1,5 +1,7 @@
 "use client"
 
+import { brandAssets } from "@/lib/branding"
+
 import { useEffect, useRef, useState, type ChangeEvent } from "react"
 import { BellRing, Mail, MonitorCheck, Music2, Trash2, Upload, Volume2 } from "lucide-react"
 
@@ -338,8 +340,8 @@ export function NotificationSettings({ userId, demoMode }: { userId: string; dem
           body: `Jota successfully sent this test at ${new Date(createdAt).toLocaleTimeString()}.`,
           tag: testTag,
           silent: false,
-          icon: "/jota-notification-icon.svg",
-          badge: "/jota-notification-icon.svg",
+          icon: brandAssets.notificationIcon,
+          badge: brandAssets.notificationBadge,
           data: { path: "/settings" },
         })
         setMessage("The in-app banner appeared and the browser accepted the device notification. If no desktop banner appeared, check your computer's notification and Do Not Disturb settings.")

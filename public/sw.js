@@ -1,4 +1,4 @@
-/* Jota web-push service worker. Keep notification content concise and links same-origin. */
+/* Joyno Task web-push service worker. Keep notification content concise and links same-origin. */
 self.addEventListener("push", (event) => {
   let payload = {};
   try { payload = event.data ? event.data.json() : {}; } catch { payload = { body: event.data?.text() ?? "" }; }
@@ -9,8 +9,8 @@ self.addEventListener("push", (event) => {
   event.waitUntil(self.registration.showNotification(title, {
     body,
     tag: id,
-    icon: "/jota-notification-icon.svg",
-    badge: "/jota-notification-icon.svg",
+    icon: "/brand/joyno-task-notification-v1.png",
+    badge: "/brand/joyno-task-badge-v1.png",
     data: { path },
   }));
 });

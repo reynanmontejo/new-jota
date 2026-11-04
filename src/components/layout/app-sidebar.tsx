@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
-import Image from "next/image"
+import { BrandLogo } from "@/components/brand-logo"
 import {
   BriefcaseBusiness,
   CalendarDays,
@@ -155,14 +155,8 @@ export function AppSidebar({ className, collapsed = false, onToggle, onNavigate,
   return (
     <aside className={cn("sidebar-glass relative flex h-full flex-col text-foreground", className)}>
       <div className={cn("flex h-16 items-center border-b border-primary/10 px-4", collapsed ? "justify-center" : "justify-start")}>
-        <Link href="/" onClick={onNavigate} className="flex items-center gap-2.5" aria-label="Jota home">
-          <span className="grid size-10 shrink-0 place-items-center rounded-lg">
-            <Image src="/jota-logo.svg" width={40} height={31} alt="" priority className="h-auto w-10 object-contain" />
-          </span>
-          <span className={cn(collapsed && "hidden")}>
-            <span className="block text-sm font-semibold leading-4 tracking-tight">Jota</span>
-            <span className="block text-[10px] font-semibold tracking-[0.14em] text-primary">JOYNO TASK</span>
-          </span>
+        <Link href="/" onClick={onNavigate} className="flex items-center" aria-label="Joyno Task home">
+          <BrandLogo compact={collapsed} />
         </Link>
       </div>
 

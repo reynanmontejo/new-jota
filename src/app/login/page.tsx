@@ -1,5 +1,5 @@
 import Link from "next/link"
-import Image from "next/image"
+import { BrandLogo } from "@/components/brand-logo"
 
 import { Button } from "@/components/ui/button"
 import { PasswordInput } from "@/components/ui/password-input"
@@ -20,12 +20,8 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   return (
     <main className="dashboard-canvas grid min-h-screen place-items-center p-5">
       <section className="w-full max-w-sm border border-border bg-card p-6 shadow-sm sm:p-7">
-        <div className="mb-6 flex items-center gap-3">
-          <span className="grid h-9 w-11 shrink-0 place-items-center"><Image src="/jota-logo.svg" width={44} height={34} alt="Jota logo" priority className="h-auto w-11 object-contain" /></span>
-          <div>
-            <p className="text-sm font-semibold">Jota</p>
-            <p className="text-[11px] text-muted-foreground">Joyno Task</p>
-          </div>
+        <div className="mb-6 flex justify-center">
+          <BrandLogo showParentBrand className="w-56 max-w-full" />
         </div>
         <h1 className="text-xl font-semibold tracking-tight">Sign in</h1>
         <p className="mt-1 text-sm text-muted-foreground">Use your company account to continue.</p>
