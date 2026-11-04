@@ -61,7 +61,7 @@ export default async function StorageSettingsPage({ searchParams }: { searchPara
         {status.connected && <form action={disconnectDriveAction}><Button type="submit" variant="outline">Disconnect account</Button></form>}
         <Button variant="outline" render={<Link href="/settings/storage/files" />}>Manage uploaded files</Button>
       </div>
-      {(!configured || !status.available) && <p className="mt-3 text-[11px] text-muted-foreground">Setup guide: <code>docs/google-drive-setup.md</code> in the repository. Add OAuth credentials and apply the local Drive migration before connecting. Never paste the client secret into chat or browser code.</p>}
+      {(!configured || !status.available) && <p className="mt-3 text-[11px] text-muted-foreground">Ask an administrator to configure the server-side Google OAuth settings and apply the Drive migration before connecting. The project owner maintains the setup guide locally. Never paste the client secret into chat or browser code.</p>}
     </section>
     <section className="mt-4 rounded-lg border border-amber-700/15 bg-amber-700/5 p-4 text-xs leading-5 text-muted-foreground"><strong className="text-foreground">Current limits:</strong> {MAX_UPLOAD_SIZE_LABEL} per upload; images, common documents, CSV, MP4 and MOV. Executables and archives are blocked. Administrators can archive and restore unsubmitted files; this hides the file in Jota but retains its private Drive copy. Submitted review history is protected, and files are not permanently deleted automatically. The deployed hosting provider may impose a lower request-size limit.</section>
   </main>

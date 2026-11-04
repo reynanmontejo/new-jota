@@ -34,9 +34,8 @@ provider when configured.
   roles. Accounts can be deactivated or moved to Trash, with restoration during
   the configured retention period.
 - **Notifications:** persist task assignment, submission/review, comment, and
-  due-date alerts. Sound and email are optional; email uses the setup in
-  [Email notifications](docs/email-notification-setup.md). Browser push remains
-  opt-in and has separate server setup in [Notifications](docs/notifications-setup.md).
+  due-date alerts. Sound and email are optional. Email and opt-in browser push
+  have separate server configuration maintained in the owner's local guides.
 
 ## Roles at a glance
 
@@ -57,7 +56,7 @@ permissions, and row-level security—not by hiding or showing UI controls alone
 - A Supabase project for authenticated, persistent use.
 - Optional: Supabase CLI and Docker for local Supabase development.
 - Optional: a Google Cloud OAuth Web application and Google Drive API for file
-  storage. See [Google Drive setup](docs/google-drive-setup.md).
+  storage. Ask the project owner for the local Google Drive setup guide.
 
 ## Run locally
 
@@ -78,8 +77,8 @@ On macOS/Linux, use `cp .env.example .env.local`. If `.env.local` already
 exists, open and edit it instead of overwriting it. Add your Supabase project
 URL and publishable key. The
 service key is required for trusted server-side employee administration; keep
-it private and do not add a `NEXT_PUBLIC_` prefix. See
-[Supabase environment setup](docs/supabase-environment-setup.md) for details.
+it private and do not add a `NEXT_PUBLIC_` prefix. Variable names are listed in
+`.env.example`; the project owner maintains the detailed setup guide locally.
 
 Start the app:
 
@@ -112,10 +111,8 @@ the seed. Do not run it against a hosted or production project.
 For an existing hosted project, first check which migrations and database
 objects are already present. Apply only missing migrations, in timestamp order,
 using an appropriately privileged database role. Never replay migrations or
-repair migration history blindly. Review
-[the database schema guide](docs/database-schema.md) and
-[the Supabase environment guide](docs/supabase-environment-setup.md) before
-changing a hosted database.
+repair migration history blindly. Review the owner's local database schema and
+environment setup guides before changing a hosted database.
 
 The development seed creates example organization data but does not create
 Supabase Auth users. Sign-in accounts and their profile/role memberships are
@@ -126,8 +123,8 @@ managed separately.
 Google Drive configuration is optional for running the app, but required for
 the private upload/download workflows. The integration uses the approved
 storage account `joynojohn@gmail.com`; OAuth credentials and a 32-byte token
-encryption key belong in the server-only `.env.local` variables documented in
-[Google Drive setup](docs/google-drive-setup.md). Restart the dev server after
+encryption key belong in the server-only `.env.local` variables listed in
+`.env.example`. Restart the dev server after
 editing environment variables. Apply the Drive storage migration before
 connecting the account to a hosted database.
 
@@ -222,8 +219,6 @@ GitHub Actions release gate for pushes to `master` and pull requests.
 
 ## Further documentation
 
-- [Supabase environment setup](docs/supabase-environment-setup.md)
-- [Google Drive setup](docs/google-drive-setup.md)
-- [Database schema and security](docs/database-schema.md)
-- [Remaining implementation plan](docs/remaining-phases-implementation-plan.md)
-- [Account Manager content workflow plan](docs/account-manager-content-workflow-plan.md)
+The project owner maintains setup, deployment, schema, and planning guides
+locally. They are not published with this repository. User-facing workflow
+guides and the tutorial remain available in the app's Help Center at `/help`.
