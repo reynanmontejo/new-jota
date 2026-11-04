@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 const mocks = vi.hoisted(() => ({
   createTask: vi.fn(),
   openTask: vi.fn(),
-  clients: [{ id: "client-1", name: "Northwind", campaigns: [], members: [{ id: "employee-1", name: "Employee One", role: "Employee" }] }],
+  clients: [{ id: "client-1", name: "Northwind", campaigns: [], members: [{ id: "employee-1", name: "Employee One", role: "Employee" }] as Array<{ id: string; name: string; role: string; clientRoles?: string[] }> }],
   assignableUsers: [{ id: "employee-1", name: "Employee One", role: "Employee" }],
   currentUser: { id: "admin-1", name: "Admin User", role: "supervisor", title: "Administrator" },
 }))
@@ -28,9 +28,9 @@ describe("new task sheet for supervisors and administrators", () => {
     mocks.createTask.mockResolvedValue("task-video-1")
     render(<NewTaskSheet open seed={{ contentItemId: "content-1", contentItemTitle: "Product reel", title: "Edit product reel", clientId: "client-1", clientName: "Northwind", campaignName: "General / Ongoing", deadlineAt: null, contentCategory: "video", contentType: "Reel", contentDescription: "Cut the launch footage", videoEditorId: "employee-1" }} onOpenChange={vi.fn()} />)
 
-    expect(screen.getByText("Video editor")).toBeInTheDocument()
-    expect(screen.getByText(/Employee One/)).toBeInTheDocument()
-    expect(screen.getByText(/Only the editor can start and progress/)).toBeInTheDocument()
+    expect(screen.getByLabelText("Video producer")).toHaveValue("employee-1")
+    expect(screen.getByRole("option", { name: /Employee One.*Primary editor/ })).toBeInTheDocument()
+    expect(screen.getByText(/Only the assigned producer can progress/)).toBeInTheDocument()
     expect(screen.queryByLabelText("Assign to")).not.toBeInTheDocument()
     expect((screen.getByLabelText(/Task brief \/ instructions/) as HTMLTextAreaElement).value).toBe("Cut the launch footage")
     fireEvent.change(screen.getByLabelText(/Checklist/), { target: { value: "Prepare draft\nExport final" } })
@@ -43,10 +43,14 @@ describe("new task sheet for supervisors and administrators", () => {
     })))
   })
 
-  it("requires a designated video editor before a linked video task can be created", () => {
+  it("allows unassigned video work when no editor is selected, with supervisor self-assignment available", async () => {
+    mocks.createTask.mockResolvedValue("task-unassigned")
     render(<NewTaskSheet open seed={{ contentItemId: "content-1", contentItemTitle: "Product reel", title: "Edit product reel", clientId: "client-1", clientName: "Northwind", campaignName: "General / Ongoing", deadlineAt: null, contentCategory: "video", videoEditorId: null }} onOpenChange={vi.fn()} />)
-    expect(screen.getByText(/No active video editor/)).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Create task" })).toBeDisabled()
+    expect(screen.getByLabelText("Video producer")).toHaveValue("")
+    expect(screen.getByRole("option", { name: /Admin User.*You/ })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Create task" })).toBeEnabled()
+    fireEvent.click(screen.getByRole("button", { name: "Create task" }))
+    await waitFor(() => expect(mocks.createTask).toHaveBeenCalledWith(expect.objectContaining({ assigneeId: null, contentCategory: "video" })))
   })
 
   it("suggests the linked content creator while allowing a task-level override", () => {
@@ -57,6 +61,17 @@ describe("new task sheet for supervisors and administrators", () => {
     expect(screen.getByText(/Suggested from the content item/)).toBeInTheDocument()
     fireEvent.change(assignee, { target: { value: "admin-1" } })
     expect(assignee.value).toBe("admin-1")
+  })
+
+  it("preserves an explicitly selected backup and lets the client manager cover video work", async () => {
+    mocks.currentUser = { id: "manager-1", name: "Account Manager", role: "employee", title: "Account Manager" }
+    mocks.clients[0].members.push({ id: "backup-1", name: "Backup Editor", role: "Employee", clientRoles: ["video_backup"] }, { id: "manager-1", name: "Account Manager", role: "Manager", clientRoles: ["account_manager"] })
+    mocks.createTask.mockResolvedValue("task-covered")
+    render(<NewTaskSheet open seed={{ contentItemId: "content-1", contentItemTitle: "Reel", title: "Edit reel", clientId: "client-1", clientName: "Northwind", campaignName: "General / Ongoing", deadlineAt: null, contentCategory: "video", videoEditorId: "employee-1", backupVideoEditorId: "backup-1", assigneeId: "backup-1" }} onOpenChange={vi.fn()} />)
+    expect(screen.getByLabelText("Video producer")).toHaveValue("backup-1")
+    fireEvent.change(screen.getByLabelText("Video producer"), { target: { value: "manager-1" } })
+    fireEvent.click(screen.getByRole("button", { name: "Create task" }))
+    await waitFor(() => expect(mocks.createTask).toHaveBeenCalledWith(expect.objectContaining({ assigneeId: "manager-1" })))
   })
 
   it("lists a client member once when they hold multiple client roles", () => {

@@ -24,7 +24,7 @@ export function canEditTask(task: WorkflowTask, actorId: string) {
 }
 
 export function isSupervisorOwnedTask(task: WorkflowTask, actor: DemoUser) {
-  return actor.role === "supervisor" && task.primaryOwner.id === actor.id
+  return actor.role === "supervisor" && task.primaryOwner.id === actor.id && !task.requiresReview
 }
 
 export function employeeStatusOptions(task: WorkflowTask, actorId: string): TaskStatus[] {
@@ -34,6 +34,7 @@ export function employeeStatusOptions(task: WorkflowTask, actorId: string): Task
 
 export function taskStatusOptions(task: WorkflowTask, actor: DemoUser): TaskStatus[] {
   if (actor.role === "supervisor") {
+    if (task.requiresReview && task.primaryOwner.id === actor.id && ["todo", "in_progress", "revision_requested"].includes(task.status)) return employeeStatusOptions(task, actor.id)
     if (["completed", "cancelled"].includes(task.status)) return []
     if (task.primaryOwner.id === actor.id && ["todo", "in_progress", "revision_requested"].includes(task.status)) {
       return ["completed", "cancelled"].filter((status) => status !== task.status) as TaskStatus[]

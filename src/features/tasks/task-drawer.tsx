@@ -24,6 +24,7 @@ export type ContentTaskSeed = {
   contentType?: string
   contentDescription?: string | null
   videoEditorId?: string | null
+  backupVideoEditorId?: string | null
 }
 
 type TaskDrawerContextValue = {

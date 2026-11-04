@@ -7,13 +7,19 @@ vi.mock("@/features/clients/client-files", () => ({ ClientFiles: () => null }))
 vi.mock("@/features/content/content-import", () => ({ ContentImport: () => null }))
 vi.mock("@/features/tasks/task-drawer", () => ({ useTaskDrawer: () => ({ openNewTask: vi.fn() }) }))
 
-import { isVideoContentFormat, suggestedContentAssignee } from "@/features/content/content-assignment"
+import { isVideoContentFormat, suggestedContentAssignee, videoProductionOptions } from "@/features/content/content-assignment"
 import { ContentTracker } from "@/features/content/content-tracker"
 
 afterEach(cleanup)
 
 describe("client Video Editor defaults", () => {
   const members = [{ id: "manager-1", display_name: "Account Manager" }, { id: "editor-1", display_name: "Video Editor" }]
+
+  it("offers explicit primary, backup, and self choices without adding unrelated members", () => {
+    const choices = videoProductionOptions([...members, { id: "backup-1", display_name: "Backup" }, { id: "writer", display_name: "Writer" }, members[0]], "editor-1", "backup-1", "manager-1")
+    expect(choices.map(({ id }) => id)).toEqual(["manager-1", "editor-1", "backup-1"])
+    expect(choices.map(({ assignmentLabel }) => assignmentLabel)).toEqual(["You", "Primary editor", "Backup editor"])
+  })
 
   it("suggests an active client editor for clear video formats and keeps unknown formats unclassified", () => {
     expect(isVideoContentFormat("Instagram Reel")).toBe(true)

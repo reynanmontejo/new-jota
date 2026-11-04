@@ -18,6 +18,14 @@ describe("task review permissions", () => {
     expect(taskStatusOptions(employeeTask, currentSupervisor)).not.toContain("completed")
   })
 
+  it("lets assigned supervisors produce video but requires an independent review", () => {
+    const task = { ...employeeTask, requiresReview: true, primaryOwner: { ...employeeTask.primaryOwner, id: currentSupervisor.id } }
+    expect(isSupervisorOwnedTask(task, currentSupervisor)).toBe(false)
+    expect(taskStatusOptions(task, currentSupervisor)).toContain("in_progress")
+    expect(taskStatusOptions(task, currentSupervisor)).not.toContain("completed")
+    expect(taskStatusOptions({ ...task, status: "for_review" }, currentSupervisor)).not.toContain("completed")
+  })
+
   it("does not let employees bypass review by completing a task", () => {
     expect(taskStatusOptions(employeeTask, currentEmployee)).not.toContain("completed")
   })

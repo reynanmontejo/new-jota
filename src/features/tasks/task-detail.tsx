@@ -28,6 +28,7 @@ import { Button } from "@/components/ui/button"
 import { StatusBadge, getStatusLabel } from "@/features/workflow/status-badge"
 import { ClientFiles } from "@/features/clients/client-files"
 import { TaskTrashButton } from "@/features/tasks/task-trash-button"
+import { TaskReassignControl } from "@/features/tasks/task-reassign-control"
 import { canEditTask, canViewTask, isSupervisorOwnedTask, taskStatusOptions } from "@/features/workflow/task-permissions"
 import type { TaskStatus, WorkflowFile } from "@/features/workflow/types"
 import { useWorkflow } from "@/features/workflow/workflow-provider"
@@ -136,6 +137,8 @@ export function TaskDetail({ taskId, embedded = false, onTrashed }: { taskId: st
               <Detail icon={UserRound} label="Owner" value={task.primaryOwner.name} compact={embedded} />
               <Detail icon={Users} label="Team" value={task.collaborators.map((member) => member.name).join(", ") || "None"} compact={embedded} />
             </div>
+            <TaskReassignControl task={task} />
+            {task.requiresReview && <p className="mt-3 text-xs text-muted-foreground">Production work requires review by another Supervisor or Administrator, followed by external client approval.</p>}
           </section>
 
           {!demoMode && latestVersion?.status === "revision_requested" && latestVersion.reviewComment && <div className="rounded-xl border border-[#9a6242]/25 bg-[#9a6242]/10 px-3 py-2.5"><p className="text-xs font-semibold text-[#7f5136] dark:text-secondary">Changes requested{latestVersion.reviewedBy ? ` · ${latestVersion.reviewedBy}` : ""}</p><p className="mt-1 text-xs leading-5 text-muted-foreground">{latestVersion.reviewComment}</p></div>}

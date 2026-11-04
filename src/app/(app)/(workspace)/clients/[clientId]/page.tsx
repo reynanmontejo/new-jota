@@ -145,7 +145,7 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
     const profile = profileById.get(member.user_id)
     const candidate = videoEditorById.get(member.user_id)
     if (profile && (profile.status !== "active" || profile.deactivated_at)) return []
-    if (!profile && !candidate && member.client_role !== "video_editor") return []
+    if (!profile && !candidate && !["video_editor", "video_backup"].includes(member.client_role)) return []
     return [{ id: member.user_id, name: profile?.display_name ?? candidate?.name ?? "Assigned Video Editor", jobTitle: profile?.job_title ?? candidate?.jobTitle ?? null, role: member.client_role, isPrimary: member.is_primary, avatarUrl: profile?.avatar_url ?? null }]
   })
   const entityNames = new Map<string, string>()

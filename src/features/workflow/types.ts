@@ -38,6 +38,8 @@ export type WorkflowTask = {
   clientName: string
   campaign: string
   contentItem: string
+  requiresReview?: boolean
+  contentCategory?: "static" | "video" | "other"
   contentClientApproval?: string | null
   contentItemId?: string | null
   createdById?: string | null
@@ -74,7 +76,7 @@ export type WorkflowClient = {
   id: string
   name: string
   campaigns?: Array<{ id: string; name: string }>
-  members?: Array<{ id: string; name: string; role: string }>
+  members?: Array<{ id: string; name: string; role: string; clientRoles?: string[] }>
 }
 
 export type WorkflowAssignableUser = { id: string; name: string; role: string }
@@ -99,6 +101,7 @@ export type WorkflowContentWorkItem = {
   category?: "static" | "video" | "other"
   description?: string | null
   videoEditorId?: string | null
+  backupVideoEditorId?: string | null
   status: string
   publishAt: string | null
   deadlineAt: string | null

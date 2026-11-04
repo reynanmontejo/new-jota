@@ -72,4 +72,10 @@ describe("workflow summary loading", () => {
 
     await expect(loadWorkflowData()).rejects.toThrow("Could not load tasks: relationship unavailable")
   })
+
+  it("keeps an unassigned task unassigned instead of treating its creator as owner", async () => {
+    mockSummaryQuery({ tasks: { data: [{ id: "task-1", title: "Unassigned video", client_id: "client-1", content_item_id: "content-1", created_by: "user-1", requires_review: true, active_assignees: [], linked_content: { content_category: "video" } }], error: null } })
+    const summary = await loadWorkflowData()
+    expect(summary.tasks[0]).toMatchObject({ requiresReview: true, contentCategory: "video", createdById: "user-1", primaryOwner: { id: "unassigned", name: "Unassigned" } })
+  })
 })

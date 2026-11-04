@@ -14,6 +14,7 @@ import {
 import { useWorkflow } from "@/features/workflow/workflow-provider"
 import { useTaskDrawer, type ContentTaskSeed } from "@/features/tasks/task-drawer"
 import { currentEmployee } from "@/features/workflow/task-permissions"
+import { videoProductionOptions } from "@/features/content/content-assignment"
 
 type NewTaskSheetProps = {
   open: boolean
@@ -59,7 +60,13 @@ export function NewTaskSheet({ open, seed, onOpenChange }: NewTaskSheetProps & {
   const [submitting, setSubmitting] = useState(false)
   const initialClientId = seed?.clientId ?? ""
   const isVideoTask = seed?.contentCategory === "video"
-  const suggestedAssigneeId = isVideoTask ? seed.videoEditorId ?? "" : currentUser.role === "supervisor" && seed?.assigneeId
+  const initialClient = clients.find((client) => client.id === initialClientId)
+  const selfCanProduce = currentUser.role === "supervisor" || initialClient?.members?.some((member) => member.id === currentUser.id && member.clientRoles?.some((role) => ["account_manager", "video_editor", "video_backup"].includes(role)))
+  const videoOptions = videoProductionOptions((initialClient?.members ?? []).map((member) => ({ id: member.id, display_name: member.name })), seed?.videoEditorId, seed?.backupVideoEditorId, selfCanProduce ? currentUser.id : undefined)
+  if (selfCanProduce && !videoOptions.some((person) => person.id === currentUser.id)) videoOptions.push({ id: currentUser.id, display_name: currentUser.name, assignmentLabel: "You" })
+  const suggestedVideoAssignee = videoOptions.find((person) => person.id === seed?.assigneeId)?.id
+    ?? videoOptions.find((person) => person.id === seed?.videoEditorId)?.id ?? ""
+  const suggestedAssigneeId = isVideoTask ? suggestedVideoAssignee : currentUser.role === "supervisor" && seed?.assigneeId
     && clients.find((client) => client.id === seed.clientId)?.members?.some((member) => member.id === seed.assigneeId)
     ? seed.assigneeId : currentUser.id
   const [selectedClientId, setSelectedClientId] = useState(initialClientId)
@@ -75,7 +82,6 @@ export function NewTaskSheet({ open, seed, onOpenChange }: NewTaskSheetProps & {
     ? [{ id: currentEmployee.id, name: currentEmployee.name, role: "Account Manager" }]
     : selectedClient?.members ?? []).filter((member, index, members) =>
       members.findIndex((candidate) => candidate.id === member.id) === index)
-  const videoEditor = isVideoTask ? clientMembers.find((member) => member.id === seed.videoEditorId) : null
   const organizationMembers = demoMode ? clientMembers : (assignableUsers ?? [])
   const assignableMembers = currentUser.role === "supervisor"
     ? [...(seed ? clientMembers : organizationMembers).filter((member) => member.id !== currentUser.id), { id: currentUser.id, name: currentUser.name, role: currentUser.title ?? "Supervisor" }]
@@ -83,8 +89,8 @@ export function NewTaskSheet({ open, seed, onOpenChange }: NewTaskSheetProps & {
   const checklist = checklistText.split("\n").map((item) => item.trim()).filter(Boolean)
   const checklistValid = checklist.length <= 20 && checklist.every((item) => item.length <= 240)
   const datesValid = !startDate || new Date(startDate).getTime() <= new Date(dueDate).getTime()
-  const canCreate = Boolean(assigneeId) && (!seed || Boolean(selectedClient))
-    && (!isVideoTask || Boolean(videoEditor && assigneeId === videoEditor.id))
+  const canCreate = (isVideoTask || Boolean(assigneeId)) && (!seed || Boolean(selectedClient))
+    && (!isVideoTask || !assigneeId || videoOptions.some((person) => person.id === assigneeId))
     && checklistValid && datesValid
 
   async function submitTask(event: FormEvent<HTMLFormElement>) {
@@ -94,7 +100,7 @@ export function NewTaskSheet({ open, seed, onOpenChange }: NewTaskSheetProps & {
     const clientId = String(form.get("clientId") ?? "")
     const client = clients.find((entry) => entry.id === clientId)
     const selectedAssignee = assignableMembers.find((member) => member.id === assigneeId)
-    if (!canCreate || (seed && !client) || (currentUser.role === "supervisor" && !selectedAssignee)) return
+    if (!canCreate || (seed && !client) || (!isVideoTask && currentUser.role === "supervisor" && !selectedAssignee)) return
 
     setSubmitting(true)
     try {
@@ -104,7 +110,8 @@ export function NewTaskSheet({ open, seed, onOpenChange }: NewTaskSheetProps & {
         clientName: client?.name ?? "No client",
         campaign: client ? String(form.get("campaign") ?? "").trim() : "",
         priority: String(form.get("priority")) as "low" | "medium" | "high" | "urgent",
-        assigneeId,
+        assigneeId: assigneeId || null,
+        contentCategory: seed?.contentCategory,
         dueAt: new Date(String(form.get("dueDate"))).toISOString(),
         ...(seed ? { description: description.trim(), startAt: startDate ? new Date(startDate).toISOString() : null, checklist } : {}),
         contentItemId: seed?.contentItemId,
@@ -180,9 +187,8 @@ export function NewTaskSheet({ open, seed, onOpenChange }: NewTaskSheetProps & {
             </label>
 
             {isVideoTask ? <div className="rounded-lg border border-violet-300/60 bg-violet-50/60 px-3 py-2.5 text-xs dark:border-violet-800/60 dark:bg-violet-950/25">
-              <p className="font-semibold">Video editor</p>
-              <p className="mt-1">{videoEditor ? `${videoEditor.name} · ${videoEditor.role}` : "No active video editor is assigned to this client."}</p>
-              <p className="mt-1 text-muted-foreground">Creating this task notifies the editor. Only the editor can start and progress the production task.</p>
+              <label className="font-semibold">Video producer<select aria-label="Video producer" className={fieldClassName} value={assigneeId} onChange={(event) => setAssigneeId(event.target.value)}><option value="">Unassigned - assign later</option>{videoOptions.map((person) => <option key={person.id} value={person.id}>{person.display_name} - {person.assignmentLabel}</option>)}</select></label>
+              <p className="mt-2 text-muted-foreground">Only the assigned producer can progress this task. Assignment sends a notification. Unassigned work stays in To do until a manager assigns it. All video work requires another reviewer.</p>
             </div> : currentUser.role === "supervisor" ? <label className="text-xs font-semibold">
               Assign to
               <select aria-label="Assign to" className={fieldClassName} value={assigneeId} onChange={(event) => setAssigneeId(event.target.value)} required disabled={!assignableMembers.length}>

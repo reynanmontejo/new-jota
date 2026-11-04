@@ -99,17 +99,18 @@ export async function updateClientVideoEditor(formData: FormData) {
   const clientId = field(formData, "clientId")
   const parsed = z.object({
     clientId: z.uuid(),
-    videoEditorId: z.union([z.uuid(), z.literal("")]),
+    videoEditorId: z.union([z.uuid(), z.literal("")]), backupVideoEditorId: z.union([z.uuid(), z.literal("")]),
   }).safeParse({
     clientId,
-    videoEditorId: field(formData, "videoEditorId"),
+    videoEditorId: field(formData, "videoEditorId"), backupVideoEditorId: field(formData, "backupVideoEditorId"),
   })
   if (!parsed.success) redirect(`/clients/${encodeURIComponent(clientId)}?tab=team&notice=video-editor-invalid`)
 
   const supabase = await createClient()
-  const { error } = await supabase.rpc("set_client_video_editor", {
+  const { error } = await supabase.rpc("set_client_video_team", {
     p_client_id: parsed.data.clientId,
     p_video_editor_id: parsed.data.videoEditorId || null,
+    p_backup_id: parsed.data.backupVideoEditorId || null,
   })
   if (error?.code === "42501") redirect(`/clients/${encodeURIComponent(clientId)}?tab=team&notice=video-editor-forbidden`)
   if (error?.code === "PGRST202") redirect(`/clients/${encodeURIComponent(clientId)}?tab=team&notice=video-editor-migration-missing`)

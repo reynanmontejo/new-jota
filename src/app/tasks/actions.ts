@@ -8,13 +8,31 @@ import { createClient } from "@/lib/supabase/server"
 
 const uuid = z.string().uuid()
 
+export async function listVideoTaskAssigneesAction(taskId: string): Promise<{ people: Array<{ user_id: string; display_name: string; job_title: string | null }>; error: string | null }> {
+  if (!uuid.safeParse(taskId).success) return { people: [], error: "Invalid task." }
+  const supabase = await createClient()
+  const { data, error } = await supabase.rpc("workflow_list_video_task_assignees", { p_task_id: taskId })
+  return { people: data ?? [], error: error?.code === "PGRST202" ? "Apply the video coverage migration first." : error?.message ?? null }
+}
+
+export async function reassignVideoTaskAction(input: { taskId: string; assigneeId: string | null; expectedOwner: string | null; reason: string }) {
+  const parsed = z.object({ taskId: uuid, assigneeId: uuid.nullable(), expectedOwner: uuid.nullable(), reason: z.string().trim().min(2).max(1000) }).safeParse(input)
+  if (!parsed.success) return { error: "Choose an assignee and include a reason (2–1000 characters)." }
+  const supabase = await createClient()
+  const { error } = await supabase.rpc("workflow_reassign_video_task", {
+    p_task_id: parsed.data.taskId, p_assigned_to: parsed.data.assigneeId,
+    p_expected_owner: parsed.data.expectedOwner, p_reason: parsed.data.reason,
+  })
+  return { error: error?.code === "PGRST202" ? "Apply the video coverage migration first." : error?.message ?? null }
+}
+
 export async function createTaskAction(input: {
   title: string
   clientId: string | null
   campaign: string
   priority: "low" | "medium" | "high" | "urgent"
   dueAt: string
-  assigneeId: string
+  assigneeId: string | null
   contentItemId?: string | null
   description?: string
   startAt?: string | null
@@ -26,13 +44,13 @@ export async function createTaskAction(input: {
     campaign: z.string().trim().max(160),
     priority: z.enum(["low", "medium", "high", "urgent"]),
     dueAt: z.iso.datetime(),
-    assigneeId: uuid,
+    assigneeId: uuid.nullable(),
     contentItemId: uuid.nullable().optional(),
     description: z.string().max(5000).optional(),
     startAt: z.iso.datetime().nullable().optional(),
     checklist: z.array(z.string().trim().min(1).max(240)).max(20).optional(),
   }).safeParse(input)
-  if (!parsed.success) return { id: null, error: "Check the task details and try again." }
+  if (!parsed.success || (!parsed.data.contentItemId && !parsed.data.assigneeId)) return { id: null, error: "Check the task details and try again." }
 
   const supabase = await createClient()
   const { data, error } = parsed.data.contentItemId

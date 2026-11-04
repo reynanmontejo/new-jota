@@ -7,7 +7,7 @@ import { Archive, CalendarDays, ChevronDown, CircleAlert, Files, LayoutGrid, Lis
 
 import { archiveContentItem, recordExternalClientDecision, restoreContentItem, saveContentItem, sendApprovedContentToClient, setContentCategory } from "@/app/content/actions"
 import { ClientFiles } from "@/features/clients/client-files"
-import { isVideoContentFormat, suggestedContentAssignee } from "@/features/content/content-assignment"
+import { isVideoContentFormat, suggestedContentAssignee, videoProductionOptions } from "@/features/content/content-assignment"
 import { ContentImport } from "@/features/content/content-import"
 import { ContentSubmitButton } from "@/features/content/content-submit-button"
 import { ContentScheduleSheet } from "@/features/content/content-schedule-sheet"
@@ -126,7 +126,7 @@ function ContentFilesDisclosure({ clientId, contentItemId, canUpload }: { client
   </section>
 }
 
-function ContentForm({ clients, campaigns, assignees, videoEditorByClient, item, canEdit, currentUserId }: { clients: TrackerClient[]; campaigns: TrackerCampaign[]; assignees: Record<string, TrackerAssignee[]>; videoEditorByClient: Record<string, string>; item?: TrackerItem; canEdit: boolean; currentUserId: string }) {
+function ContentForm({ clients, campaigns, assignees, videoEditorByClient, backupVideoEditorByClient, item, canEdit, currentUserId }: { clients: TrackerClient[]; campaigns: TrackerCampaign[]; assignees: Record<string, TrackerAssignee[]>; videoEditorByClient: Record<string, string>; backupVideoEditorByClient: Record<string, string>; item?: TrackerItem; canEdit: boolean; currentUserId: string }) {
   const [clientId, setClientId] = useState(item?.client_id ?? clients[0]?.id ?? "")
   const [format, setFormat] = useState(item?.content_type ?? "")
   const [assignedTo, setAssignedTo] = useState(() => item ? item.assigned_to ?? "" : suggestedContentAssignee("", videoEditorByClient[clientId], currentUserId, assignees[clientId] ?? []))
@@ -139,7 +139,7 @@ function ContentForm({ clients, campaigns, assignees, videoEditorByClient, item,
 
   const showClient = clients.length > 1
   const showCampaign = activeCampaigns.length > 0 || Boolean(item && clientCampaigns.some((campaign) => campaign.id === item.campaign_id))
-  const clientVideoEditor = (assignees[clientId] ?? []).find((person) => person.id === videoEditorByClient[clientId])
+  const videoOptions = videoProductionOptions(assignees[clientId] ?? [], videoEditorByClient[clientId], backupVideoEditorByClient[clientId], currentUserId)
   const approvedCurrentVersion = Boolean(item?.client_approval_status === "approved"
     && item.client_handoff_version_id && item.client_handoff_version_id === item.latest_approved_version_id)
 
@@ -157,7 +157,7 @@ function ContentForm({ clients, campaigns, assignees, videoEditorByClient, item,
       <label className={labelClass}>Platform<input className={fieldClass} name="platform" placeholder="Instagram" defaultValue={item?.platform ?? ""} required minLength={2} maxLength={60} /></label>
       <label className={labelClass}>Format<input className={fieldClass} name="contentType" placeholder="Reel, carousel, static" value={format} onChange={(event) => { const nextFormat = event.target.value; setFormat(nextFormat); if (!item && !assigneeChangedByUser.current) setAssignedTo(suggestedContentAssignee(nextFormat, videoEditorByClient[clientId], currentUserId, assignees[clientId] ?? [])) }} required minLength={2} maxLength={80} /></label>
       <label className={labelClass}>Assigned creator / editor <span className="font-normal">(optional)</span><select aria-label="Assigned creator / editor" className={fieldClass} name="assignedTo" value={assignedTo} onChange={(event) => { assigneeChangedByUser.current = true; setAssignedTo(event.target.value) }}><option value="">Not assigned</option>{(assignees[clientId] ?? []).map((person) => <option key={person.id} value={person.id}>{person.display_name}</option>)}</select></label>
-      {isVideoContentFormat(format) && <label className={labelClass}>Video editor <span className="font-normal">(optional)</span><select aria-label="Video editor (optional)" className={fieldClass} value={clientVideoEditor?.id === assignedTo ? assignedTo : ""} onChange={(event) => { assigneeChangedByUser.current = true; const selfIsAvailable = (assignees[clientId] ?? []).some((person) => person.id === currentUserId); setAssignedTo((current) => event.target.value || (current === clientVideoEditor?.id ? selfIsAvailable ? currentUserId : "" : current)) }}><option value="">No designated video editor</option>{clientVideoEditor && <option value={clientVideoEditor.id}>{clientVideoEditor.display_name}</option>}</select><span className="text-[10px] font-normal text-muted-foreground">{clientVideoEditor ? "Selecting the editor assigns this content to them. You can still choose another creator above." : "No video editor is assigned to this client yet. You can continue without one."}</span></label>}
+      {isVideoContentFormat(format) && <label className={labelClass}>Video editor <span className="font-normal">(optional)</span><select aria-label="Video editor (optional)" className={fieldClass} value={videoOptions.some((person) => person.id === assignedTo) ? assignedTo : ""} onChange={(event) => { assigneeChangedByUser.current = true; const selfIsAvailable = (assignees[clientId] ?? []).some((person) => person.id === currentUserId); setAssignedTo((current) => event.target.value || (videoOptions.some((person) => person.id === current) ? selfIsAvailable ? currentUserId : "" : current)) }}><option value="">Keep current creator</option>{videoOptions.map((person) => <option key={person.id} value={person.id}>{person.display_name} - {person.assignmentLabel}</option>)}</select><span className="text-[10px] font-normal text-muted-foreground">Content can be saved without an editor. Select primary, backup, or yourself explicitly; a task is created only through Add task.</span></label>}
       <label className={labelClass}>Publish date <span className="font-normal">(optional)</span><input className={fieldClass} type="datetime-local" name="publishAt" defaultValue={dateInputValue(item?.publish_at ?? null)} /></label>
     </div>
     {!showCampaign && <p className="text-[11px] text-muted-foreground">New content is grouped under General / Ongoing automatically.</p>}
@@ -183,8 +183,8 @@ function ContentForm({ clients, campaigns, assignees, videoEditorByClient, item,
   </form>
 }
 
-export function ContentTracker({ clients, campaigns, assignees, videoEditorByClient = {}, clientHandoffClientIds = [], items, canCreate, canEdit, canCreateTask, currentUserId, canAssignContent, notice, scheduleItemId, importedCount, skippedCount, isArchivedView = false }: {
-    clients: TrackerClient[]; campaigns: TrackerCampaign[]; assignees: Record<string, TrackerAssignee[]>; videoEditorByClient?: Record<string, string>; clientHandoffClientIds?: string[]; items: TrackerItem[]; canCreate: boolean; canEdit: boolean; canCreateTask: boolean; currentUserId: string; canAssignContent: boolean; notice?: string; scheduleItemId?: string; importedCount?: number; skippedCount?: number; isArchivedView?: boolean
+export function ContentTracker({ clients, campaigns, assignees, videoEditorByClient = {}, backupVideoEditorByClient = {}, clientHandoffClientIds = [], items, canCreate, canEdit, canCreateTask, currentUserId, canAssignContent, notice, scheduleItemId, importedCount, skippedCount, isArchivedView = false }: {
+    clients: TrackerClient[]; campaigns: TrackerCampaign[]; assignees: Record<string, TrackerAssignee[]>; videoEditorByClient?: Record<string, string>; backupVideoEditorByClient?: Record<string, string>; clientHandoffClientIds?: string[]; items: TrackerItem[]; canCreate: boolean; canEdit: boolean; canCreateTask: boolean; currentUserId: string; canAssignContent: boolean; notice?: string; scheduleItemId?: string; importedCount?: number; skippedCount?: number; isArchivedView?: boolean
 }) {
   const router = useRouter()
   const [manualScheduleId, setManualScheduleId] = useState<string | null>(null)
@@ -345,9 +345,9 @@ export function ContentTracker({ clients, campaigns, assignees, videoEditorByCli
     </div>}
     {!isArchivedView && canCreate && <details className="group mt-4 rounded-lg border border-border bg-card/80 p-3">
       <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-semibold [&::-webkit-details-marker]:hidden"><span className="flex items-center gap-2"><Plus className="size-4 text-primary" />Add content</span><span className="text-[11px] font-normal text-muted-foreground">Create one planned post or creative item</span></summary>
-      <div className="mt-3 border-t pt-3">{clients.length ? <ContentForm clients={clients} campaigns={campaigns} assignees={assignees} videoEditorByClient={videoEditorByClient} canEdit={canCreate} currentUserId={currentUserId} /> : <p className="text-xs text-muted-foreground">Add an active client before adding tracked content.</p>}</div>
+      <div className="mt-3 border-t pt-3">{clients.length ? <ContentForm clients={clients} campaigns={campaigns} assignees={assignees} videoEditorByClient={videoEditorByClient} backupVideoEditorByClient={backupVideoEditorByClient} canEdit={canCreate} currentUserId={currentUserId} /> : <p className="text-xs text-muted-foreground">Add an active client before adding tracked content.</p>}</div>
     </details>}
-    {!isArchivedView && canCreate && <ContentImport clients={clients} campaigns={campaigns} assignees={assignees} videoEditorByClient={videoEditorByClient} items={items} currentUserId={currentUserId} canAssignContent={canAssignContent} />}
+    {!isArchivedView && canCreate && <ContentImport clients={clients} campaigns={campaigns} assignees={assignees} videoEditorByClient={videoEditorByClient} backupVideoEditorByClient={backupVideoEditorByClient} items={items} currentUserId={currentUserId} canAssignContent={canAssignContent} />}
     <section className="mt-4 overflow-hidden rounded-lg border border-border bg-card/75" aria-label="Tracked content">
       <div className="flex flex-wrap items-center gap-2 border-b p-2.5">
         <label className="relative min-w-52 flex-1"><Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" /><input className={`${fieldClass} pl-8`} aria-label="Search content" placeholder="Search content, client, platform" value={query} onChange={(event) => { setQuery(event.target.value); setCurrentPage(1) }} /></label>
@@ -388,7 +388,7 @@ export function ContentTracker({ clients, campaigns, assignees, videoEditorByCli
             <p><span className="font-medium">Deadline</span> <span className="text-muted-foreground">{formatDate(item.deadline_at)}</span></p>
           </div>
           <div className={`flex flex-wrap items-center gap-1.5 ${viewMode === "cards" ? "mt-1.5" : "sm:justify-end"}`}>
-            {!isArchivedView && canCreateTask && !["published", "cancelled", "rejected"].includes(item.status) && <button type="button" onClick={() => openNewTask({ contentItemId: item.id, contentItemTitle: item.title, title: `Create assets: ${item.title}`, clientId: item.client_id, clientName: item.client_name, campaignName: item.campaign_name, deadlineAt: item.deadline_at, assigneeId: item.assigned_to, contentCategory: item.content_category, contentType: item.content_type, contentDescription: item.description, videoEditorId: videoEditorByClient[item.client_id] })} className="inline-flex h-7 items-center gap-1 rounded-md border border-primary/25 bg-background/70 px-2 text-[10px] font-medium text-primary transition hover:bg-primary/5"><ListPlus className="size-3" />Add task</button>}
+            {!isArchivedView && canCreateTask && !["published", "cancelled", "rejected"].includes(item.status) && <button type="button" onClick={() => openNewTask({ contentItemId: item.id, contentItemTitle: item.title, title: `Create assets: ${item.title}`, clientId: item.client_id, clientName: item.client_name, campaignName: item.campaign_name, deadlineAt: item.deadline_at, assigneeId: item.assigned_to, contentCategory: item.content_category, contentType: item.content_type, contentDescription: item.description, videoEditorId: videoEditorByClient[item.client_id], backupVideoEditorId: backupVideoEditorByClient[item.client_id] })} className="inline-flex h-7 items-center gap-1 rounded-md border border-primary/25 bg-background/70 px-2 text-[10px] font-medium text-primary transition hover:bg-primary/5"><ListPlus className="size-3" />Add task</button>}
             {isArchivedView && canEdit && <button type="button" disabled={Boolean(pendingAction)} onClick={() => void restoreItem(item)} className="inline-flex h-7 items-center gap-1 rounded-md border border-primary/25 bg-background/70 px-2 text-[10px] font-medium text-primary transition hover:bg-primary/5 disabled:cursor-wait disabled:opacity-60">
               {pendingAction === `restore:${item.id}` ? <LoaderCircle className="size-3 animate-spin" /> : <RotateCcw className="size-3" />}
               {pendingAction === `restore:${item.id}` ? "Restoring…" : "Restore"}
@@ -433,7 +433,7 @@ export function ContentTracker({ clients, campaigns, assignees, videoEditorByCli
           </SheetHeader>
           <div className="min-h-0 flex-1 overscroll-contain overflow-y-auto px-4 py-4 sm:px-6">
             {sheetError && <p role="alert" className="mb-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">{sheetError}</p>}
-            <ContentForm clients={clients.filter((client) => client.id === editingItem.client_id)} campaigns={campaigns.filter((campaign) => campaign.client_id === editingItem.client_id)} assignees={assignees} videoEditorByClient={videoEditorByClient} item={editingItem} canEdit={canEdit} currentUserId={currentUserId} />
+            <ContentForm clients={clients.filter((client) => client.id === editingItem.client_id)} campaigns={campaigns.filter((campaign) => campaign.client_id === editingItem.client_id)} assignees={assignees} videoEditorByClient={videoEditorByClient} backupVideoEditorByClient={backupVideoEditorByClient} item={editingItem} canEdit={canEdit} currentUserId={currentUserId} />
             <form action={setContentCategory} className="mt-4 flex flex-wrap items-end gap-2 rounded-md border border-border/70 p-3">
               <input type="hidden" name="contentItemId" value={editingItem.id} />
               <label className={labelClass}>Reporting category<select className={fieldClass} name="category" defaultValue={editingItem.content_category_manual ? editingItem.content_category : "auto"}><option value="auto">Auto from format</option><option value="static">Static</option><option value="video">Video</option><option value="other">Other</option></select></label>

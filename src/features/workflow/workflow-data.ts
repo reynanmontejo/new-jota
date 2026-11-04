@@ -16,8 +16,9 @@ type DbTask = {
   start_at: string | null
   due_at: string | null
   completed_at: string | null
+  requires_review: boolean
   created_by: string | null
-  linked_content: { title: string; status: string; client_approval_status: string | null } | null
+  linked_content: { title: string; status: string; client_approval_status: string | null; content_category: "static" | "video" | "other" } | null
   active_assignees: Array<{ user_id: string; is_primary: boolean }>
 }
 type DbClient = {
@@ -57,7 +58,7 @@ export async function loadWorkflowData(): Promise<{ tasks: WorkflowTask[]; clien
   const { supabase } = context
   const [taskResult, clientResult, contentWorkResult, profileResult] = await Promise.all([
     supabase.from("tasks")
-      .select("id,title,description,client_id,campaign_id,content_item_id,status,priority,start_at,due_at,completed_at,created_by,linked_content:content_items(title,status,client_approval_status),active_assignees:task_assignees(user_id,is_primary)")
+      .select("id,title,description,client_id,campaign_id,content_item_id,status,priority,start_at,due_at,completed_at,created_by,requires_review,linked_content:content_items(title,status,client_approval_status,content_category),active_assignees:task_assignees(user_id,is_primary)")
       .is("deleted_at", null).is("archived_at", null)
       .is("active_assignees.removed_at", null)
       .order("due_at", { ascending: true, nullsFirst: false }),
@@ -97,14 +98,15 @@ export async function loadWorkflowData(): Promise<{ tasks: WorkflowTask[]; clien
     id: client.id,
     name: client.name,
     campaigns: client.active_campaigns,
-    members: client.active_members.flatMap(({ user_id }) => {
+    members: [...new Set(client.active_members.map((member) => member.user_id))].flatMap((user_id) => {
       const profile = profiles.get(user_id)
       if (!profile || profile.status !== "active" || profile.deactivated_at) return []
-      return [{ id: user_id, name: profile.display_name, role: profile.job_title ?? "Employee" }]
+      return [{ id: user_id, name: profile.display_name, role: profile.job_title ?? "Employee", clientRoles: client.active_members.filter((member) => member.user_id === user_id).map((member) => member.client_role) }]
     }),
   }))
   const clientsById = new Map(clientsWithCampaigns.map((row) => [row.id, row.name]))
   const videoEditorByClient = new Map(clients.map((client) => [client.id, client.active_members.find((member) => member.client_role === "video_editor")?.user_id ?? null]))
+  const backupVideoEditorByClient = new Map(clients.map((client) => [client.id, client.active_members.find((member) => member.client_role === "video_backup")?.user_id ?? null]))
   const upcomingContent: WorkflowUpcomingContent[] = contentWorkRows
     .filter((item) => ["planned", "in_production", "scheduled"].includes(item.status) && Boolean(item.publish_at) && item.publish_at! >= new Date().toISOString())
     .slice(0, 3)
@@ -124,6 +126,7 @@ export async function loadWorkflowData(): Promise<{ tasks: WorkflowTask[]; clien
       category: row.content_category,
       description: row.description,
       videoEditorId: videoEditorByClient.get(row.client_id) ?? null,
+      backupVideoEditorId: backupVideoEditorByClient.get(row.client_id) ?? null,
       status: row.status,
       publishAt: row.publish_at,
       deadlineAt: row.deadline_at,
@@ -148,6 +151,8 @@ export async function loadWorkflowData(): Promise<{ tasks: WorkflowTask[]; clien
       contentItemId: row.content_item_id,
       contentClientApproval: ["for_review", "revision_requested"].includes(row.linked_content?.status ?? "") ? "pending" : row.linked_content?.client_approval_status ?? null,
       createdById: row.created_by,
+      requiresReview: row.requires_review,
+      contentCategory: row.linked_content?.content_category,
       priority: row.priority,
       status: row.status,
       startDate: displayDate(row.start_at),
@@ -155,7 +160,7 @@ export async function loadWorkflowData(): Promise<{ tasks: WorkflowTask[]; clien
       dueAt: row.due_at,
       completedAt: row.completed_at,
       primaryOwner: {
-        id: primary?.user_id ?? row.created_by ?? "unassigned",
+        id: primary?.user_id ?? "unassigned",
         name: ownerName,
         initials: initials(ownerName),
         role: primaryProfile?.job_title ?? "Employee",

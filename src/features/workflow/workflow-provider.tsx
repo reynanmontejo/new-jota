@@ -19,7 +19,8 @@ type NewTaskInputFields = {
   clientName: string
   campaign: string
   priority: "low" | "medium" | "high" | "urgent"
-  assigneeId: string
+  assigneeId: string | null
+  contentCategory?: "static" | "video" | "other"
   description?: string
   startAt?: string | null
   checklist?: string[]
@@ -510,7 +511,8 @@ export function WorkflowProvider({
     },
     createTask: async (input) => {
       const selectedAssignee = [...assignableUsers, ...clients.flatMap((client) => client.members ?? [])].find((member) => member.id === input.assigneeId)
-      const owner: { id: string; name: string; role: string } = selectedAssignee
+      const owner: { id: string; name: string; role: string } = input.assigneeId === null
+        ? { id: "unassigned", name: "Unassigned", role: "Awaiting assignment" } : selectedAssignee
         ? { id: selectedAssignee.id, name: selectedAssignee.name, role: selectedAssignee.role }
         : demoMode && currentUser.role === "supervisor" && input.assigneeId === currentEmployee.id
           ? currentEmployee
@@ -551,6 +553,8 @@ export function WorkflowProvider({
           contentItem: input.contentItemTitle ?? "General campaign work",
           contentItemId: input.contentItemId ?? null,
           createdById: currentUser.id,
+          requiresReview: Boolean(input.contentItemId),
+          contentCategory: input.contentCategory,
           priority: input.priority,
           status: "todo",
           startDate: input.startAt ? formatTaskDate(input.startAt) : "Not set",

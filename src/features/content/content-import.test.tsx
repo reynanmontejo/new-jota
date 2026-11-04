@@ -20,8 +20,9 @@ describe("content import assignment", () => {
     const { container } = render(<ContentImport
       clients={[{ id: "client-1", name: "Northwind" }]}
       campaigns={[{ id: "campaign-1", client_id: "client-1", name: "General / Ongoing", status: "active" }]}
-      assignees={{ "client-1": [{ id: "supervisor-1", display_name: "Supervisor" }, { id: "editor-1", display_name: "Video Editor" }] }}
+      assignees={{ "client-1": [{ id: "supervisor-1", display_name: "Supervisor" }, { id: "editor-1", display_name: "Video Editor" }, { id: "backup-1", display_name: "Backup Editor" }] }}
       videoEditorByClient={{ "client-1": "editor-1" }}
+      backupVideoEditorByClient={{ "client-1": "backup-1" }}
       items={[]}
       currentUserId="supervisor-1"
       canAssignContent
@@ -34,5 +35,9 @@ describe("content import assignment", () => {
 
     fireEvent.change(screen.getByRole("combobox", { name: "Video editor for imported content" }), { target: { value: "editor-1" } })
     expect(importedRows().map((row) => row.assigned_to)).toEqual(["editor-1", "supervisor-1"])
+    fireEvent.change(screen.getByRole("combobox", { name: "Video editor for imported content" }), { target: { value: "backup-1" } })
+    expect(importedRows().map((row) => row.assigned_to)).toEqual(["backup-1", "supervisor-1"])
+    fireEvent.change(screen.getByRole("combobox", { name: "Video editor for imported content" }), { target: { value: "supervisor-1" } })
+    expect(importedRows().map((row) => row.assigned_to)).toEqual(["supervisor-1", "supervisor-1"])
   })
 })

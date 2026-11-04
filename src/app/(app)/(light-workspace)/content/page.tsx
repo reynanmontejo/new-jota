@@ -76,6 +76,7 @@ export default async function ContentPage({ searchParams }: { searchParams: Prom
   const assigneeById = new Map((memberProfiles ?? []).filter((profile) => profile.status === "active" && !profile.deactivated_at).map((profile) => [profile.id, { id: profile.id, display_name: profile.display_name }]))
   const assignees: Record<string, TrackerAssignee[]> = {}
   const videoEditorByClient: Record<string, string> = {}
+  const backupVideoEditorByClient: Record<string, string> = {}
   for (const member of memberRows) {
     const person = assigneeById.get(member.user_id)
     if (!person) continue
@@ -83,6 +84,7 @@ export default async function ContentPage({ searchParams }: { searchParams: Prom
       assignees[member.client_id] = [...(assignees[member.client_id] ?? []), person]
     }
     if (member.client_role === "video_editor") videoEditorByClient[member.client_id] = person.id
+    if (member.client_role === "video_backup") backupVideoEditorByClient[member.client_id] = person.id
   }
   if (canAssignContent) {
     const currentUser = { id: context.userId, display_name: context.displayName }
@@ -102,5 +104,5 @@ export default async function ContentPage({ searchParams }: { searchParams: Prom
     return campaign && client ? [{ ...item, client_name: client.name, campaign_name: campaign.name, assignee_name: assignee?.display_name ?? null, latest_approved_version_id: approvedVersionByContent.get(item.id) ?? null }] : []
   })
 
-  return <DashboardShell><ContentTracker clients={clients} campaigns={campaigns} assignees={assignees} videoEditorByClient={videoEditorByClient} clientHandoffClientIds={clientHandoffClientIds} items={items} canCreate={canCreate} canEdit={canEdit} canCreateTask={canCreateTask} currentUserId={context.userId} canAssignContent={canAssignContent} scheduleItemId={typeof params.schedule === "string" ? params.schedule : undefined} notice={typeof params.notice === "string" ? params.notice : undefined} importedCount={importedCount} skippedCount={skippedCount} isArchivedView={isArchivedView} /></DashboardShell>
+  return <DashboardShell><ContentTracker clients={clients} campaigns={campaigns} assignees={assignees} videoEditorByClient={videoEditorByClient} backupVideoEditorByClient={backupVideoEditorByClient} clientHandoffClientIds={clientHandoffClientIds} items={items} canCreate={canCreate} canEdit={canEdit} canCreateTask={canCreateTask} currentUserId={context.userId} canAssignContent={canAssignContent} scheduleItemId={typeof params.schedule === "string" ? params.schedule : undefined} notice={typeof params.notice === "string" ? params.notice : undefined} importedCount={importedCount} skippedCount={skippedCount} isArchivedView={isArchivedView} /></DashboardShell>
 }
