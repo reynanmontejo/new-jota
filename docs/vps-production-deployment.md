@@ -1,9 +1,8 @@
 # Jota production on KVM
 
-For an update to the existing KVM installation, follow the
-[November 4 update guide](kvm-update-2026-11-04.md), including video backup/reassignment
-migrations, the Help Center tutorial, and lion branding. The [November 3 guide](kvm-update-2026-11-03.md)
-covers the earlier employee Trash deletion prerequisite. The instructions below describe the original host
+For the latest update, follow the local deployment guide supplied with the
+release. The [November 3 guide](kvm-update-2026-11-03.md) covers the earlier
+employee Trash deletion prerequisite. The instructions below describe the original host
 setup and cutover; do not repeat DNS or credential setup for a routine update.
 
 Target: `https://jota.joynoadmin.tech` on Hostinger VPS `187.53.140.168`.
