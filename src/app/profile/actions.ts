@@ -24,6 +24,19 @@ export async function updateOwnProfile(formData: FormData) {
   })
   if (!parsed.success) redirect("/profile?error=invalid")
 
+  const timezone = formData.get("timezone")
+  if (timezone !== null) {
+    if (typeof timezone !== "string" || timezone.length < 1 || timezone.length > 80) redirect("/profile?error=invalid")
+    try { Intl.DateTimeFormat("en", { timeZone: timezone }) } catch { redirect("/profile?error=invalid") }
+    const { error } = await supabase.rpc("update_own_profile_preferences", {
+      p_display_name: parsed.data.displayName, p_job_title: parsed.data.jobTitle, p_timezone: timezone,
+    })
+    if (error) redirect(`/profile?error=${error.code === "PGRST202" ? "preferences-unavailable" : "save"}`)
+    revalidatePath("/", "layout")
+    revalidatePath("/profile")
+    redirect("/profile?saved=1")
+  }
+
   const { error } = await supabase.rpc("update_own_profile", {
     p_display_name: parsed.data.displayName,
     p_job_title: parsed.data.jobTitle,
@@ -53,6 +66,31 @@ function ownAvatarObjectPath(avatarUrl: string | null, userId: string) {
     const objectPath = decodeURIComponent(pathname.slice(index + marker.length))
     return objectPath.startsWith(`${userId}/`) ? objectPath : null
   } catch { return null }
+}
+
+export async function removeOwnProfilePhoto() {
+  const supabase = await createClient()
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  if (authError || !user) redirect("/login")
+  const { data: profile } = await supabase.from("profiles")
+    .select("display_name,job_title,avatar_url,status,deactivated_at").eq("id", user.id).maybeSingle()
+  if (!profile || profile.status !== "active" || profile.deactivated_at) redirect("/account-deactivated")
+
+  const { error } = await supabase.rpc("update_own_profile", {
+    p_display_name: profile.display_name,
+    p_job_title: profile.job_title ?? "",
+    p_avatar_url: "",
+  })
+  if (error) redirect("/profile?photo=save-failed")
+
+  const objectPath = ownAvatarObjectPath(profile.avatar_url, user.id)
+  if (objectPath) {
+    const { error: cleanupError } = await supabase.storage.from("profile-avatars").remove([objectPath])
+    if (cleanupError) console.error("[profile photo cleanup failed]", { userId: user.id, message: cleanupError.message })
+  }
+  revalidatePath("/", "layout")
+  revalidatePath("/profile")
+  redirect("/profile?photo=removed")
 }
 
 export async function uploadProfilePhoto(formData: FormData) {

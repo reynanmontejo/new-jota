@@ -107,18 +107,18 @@ export function ProfileSecurity({ email, isAdministrator, request, requestsReady
     {isAdministrator ? <>
       <p className="mt-1 text-xs leading-5 text-muted-foreground">Verify your current password. If email confirmation is available, a code is required before the change.</p>
       <form onSubmit={changePassword} className="mt-4 grid gap-3 sm:grid-cols-2">
-        <label className="grid gap-1 text-[11px] font-medium">Current password
-          <input className={inputClass} type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => { setCurrentPassword(event.target.value); setVerifiedPassword(""); setEmailState("idle"); setEmailCode("") }} required minLength={1} maxLength={72} />
+        <label htmlFor="profile-current-password" className="grid gap-1 text-[11px] font-medium">Current password
+          <input id="profile-current-password" className={inputClass} type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => { setCurrentPassword(event.target.value); setVerifiedPassword(""); setEmailState("idle"); setEmailCode("") }} required minLength={1} maxLength={72} />
         </label>
         <div className="flex items-end"><Button type="button" variant="outline" size="sm" disabled={busy || !currentPassword} onClick={() => void prepareAdministratorChange()}>{busy ? "Verifying…" : "Verify & email code"}</Button></div>
-        <label className="grid gap-1 text-[11px] font-medium">New password
-          <input className={inputClass} type="password" autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} required minLength={8} maxLength={72} />
+        <label htmlFor="profile-new-password" className="grid gap-1 text-[11px] font-medium">New password
+          <input id="profile-new-password" className={inputClass} type="password" autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} required minLength={8} maxLength={72} />
         </label>
-        <label className="grid gap-1 text-[11px] font-medium">Confirm new password
-          <input className={inputClass} type="password" autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required minLength={8} maxLength={72} />
+        <label htmlFor="profile-confirm-password" className="grid gap-1 text-[11px] font-medium">Confirm new password
+          <input id="profile-confirm-password" className={inputClass} type="password" autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required minLength={8} maxLength={72} />
         </label>
-        {emailState === "sent" && <label className="grid gap-1 text-[11px] font-medium sm:col-span-2">Email verification code
-          <input className={inputClass} inputMode="numeric" autoComplete="one-time-code" value={emailCode} onChange={(event) => setEmailCode(event.target.value)} required pattern="[0-9]{6,8}" maxLength={8} />
+        {emailState === "sent" && <label htmlFor="profile-email-code" className="grid gap-1 text-[11px] font-medium sm:col-span-2">Email verification code
+          <input id="profile-email-code" className={inputClass} inputMode="numeric" autoComplete="one-time-code" value={emailCode} onChange={(event) => setEmailCode(event.target.value)} required pattern="[0-9]{6,8}" maxLength={8} />
         </label>}
         <div className="sm:col-span-2"><Button type="submit" size="sm" disabled={busy || !verifiedPassword || (emailState === "sent" && !emailCode)}>{busy ? "Saving…" : "Change password"}</Button></div>
       </form>
@@ -127,14 +127,14 @@ export function ProfileSecurity({ email, isAdministrator, request, requestsReady
         : request?.status === "approved" ? <>
           <p className="mt-1 text-xs leading-5 text-muted-foreground">Your request was approved. Change your password here; it is sent directly to Supabase Auth and is never shown to your administrator.</p>
           <form onSubmit={changePassword} className="mt-4 grid gap-3 sm:grid-cols-2">
-            <label className="grid gap-1 text-[11px] font-medium">Current password
-              <input className={inputClass} type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required minLength={1} maxLength={72} />
+            <label htmlFor="profile-current-password" className="grid gap-1 text-[11px] font-medium">Current password
+              <input id="profile-current-password" className={inputClass} type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required minLength={1} maxLength={72} />
             </label>
-            <label className="grid gap-1 text-[11px] font-medium">New password
-              <input className={inputClass} type="password" autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} required minLength={8} maxLength={72} />
+            <label htmlFor="profile-new-password" className="grid gap-1 text-[11px] font-medium">New password
+              <input id="profile-new-password" className={inputClass} type="password" autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} required minLength={8} maxLength={72} />
             </label>
-            <label className="grid gap-1 text-[11px] font-medium">Confirm new password
-              <input className={inputClass} type="password" autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required minLength={8} maxLength={72} />
+            <label htmlFor="profile-confirm-password" className="grid gap-1 text-[11px] font-medium">Confirm new password
+              <input id="profile-confirm-password" className={inputClass} type="password" autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required minLength={8} maxLength={72} />
             </label>
             <div className="flex items-end"><Button type="submit" size="sm" disabled={busy || !currentPassword}>{busy ? "Changing…" : "Change password"}</Button></div>
           </form>
@@ -143,8 +143,8 @@ export function ProfileSecurity({ email, isAdministrator, request, requestsReady
           {request?.status === "completed" && <p className="mt-2 text-xs text-muted-foreground">Your approved password change was completed.</p>}
           <p className="mt-1 text-xs leading-5 text-muted-foreground">Ask an administrator to approve a password change. Passwords are not included in the request.</p>
           <form action={requestPasswordChange} className="mt-3 grid gap-2">
-            <label className="grid gap-1 text-[11px] font-medium">Reason <span className="font-normal text-muted-foreground">(optional)</span>
-              <input className={inputClass} name="requestNote" maxLength={500} placeholder="Briefly explain why you need to change it" />
+            <label htmlFor="profile-password-reason" className="grid gap-1 text-[11px] font-medium">Reason <span className="font-normal text-muted-foreground">(optional)</span>
+              <input id="profile-password-reason" className={inputClass} name="requestNote" maxLength={500} placeholder="Briefly explain why you need to change it" />
             </label>
             <div><Button type="submit" size="sm">Request approval</Button></div>
           </form>

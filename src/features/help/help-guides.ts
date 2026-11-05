@@ -23,6 +23,20 @@ export const recommendedHelpGuideSlugs = [
 
 export const helpGuides: HelpGuide[] = [
   {
+    slug: "assistant-and-daily-reports", title: "Use the assistant and create a daily report",
+    summary: "Ask questions, save work updates, prepare your report, and send it to a supervisor.",
+    section: "Everyone", audience: "Everyone", minutes: 3,
+    steps: [
+      { title: "Open the floating assistant", body: "Use the eyes button at the bottom right of a signed-in page. Ask Jota can answer system questions using the Help Center; conversational AI is available when configured by your administrator." },
+      { title: "Save updates during your day", body: "Start a message with Save:, followed by what you worked on. Wait for the saved confirmation. Notes are stored privately for the report date, independently of the chat window. Report dates use the workspace time zone." },
+      { title: "Prepare your report", body: "Say Generate my daily report or open My report and choose Generate from notes. Jota combines your saved updates into an editable draft. You can also write your report manually. Save report preserves your edits; Copy lets you share the text outside Jota." },
+      { title: "Send to a supervisor", body: "Employees choose a supervisor in My report and use Send to supervisor after saving. Only the selected supervisor can read the submitted report. The report is then locked. Supervisors and administrators create their own report too, and use Copy to hand it to the CEO outside Jota." },
+      { title: "Read employee reports", body: "Supervisors and administrators use Received in the assistant to read the latest reports sent directly to them. A notification opens this received-reports view. There is no CEO approval process inside Jota." },
+    ],
+    remember: "Generating a draft does not submit a report. Report notes and submissions do not change tasks, client approval, content status or publishing. Do not put passwords or API keys in the chat.",
+    actions: [{ label: "Open received reports", href: "/?assistant=reports" }], related: ["how-jota-fits-together", "profile-and-notifications"],
+  },
+  {
     slug: "how-jota-fits-together",
     title: "How Jota fits together",
     summary: "Learn what Clients, Campaigns, Content, Tasks, Reviews, and Publishing each mean.",
@@ -216,6 +230,7 @@ export const helpGuides: HelpGuide[] = [
     section: "Everyone", audience: "Everyone", minutes: 3,
     steps: [
       { title: "Update your profile", body: "Use Profile to change your display details and profile photo. Password changes depend on your role and the workspace approval process." },
+      { title: "Change email and personal time zone", body: "In Profile, Change email opens the new-address and confirmation fields. Follow the verification links sent to your inboxes; your current address stays active until confirmation is complete. Your personal time zone can be saved with your profile. Posting schedules and daily-report dates use the workspace time zone." },
       { title: "Choose appearance and sound", body: "Settings includes the theme and notification sound controls. Sound and volume apply to alerts while Jota is open." },
       { title: "Enable browser notifications", body: "Allow notifications for Jota in your browser when prompted. If permission was denied, change it in the browser’s site settings, then return to Jota and test this device." },
       { title: "Know what browser permission means", body: "Browser permission allows this device to display alerts; it does not guarantee that every notification type is configured or delivered. Keep the app and browser notification settings enabled." },

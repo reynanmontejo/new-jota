@@ -2,6 +2,7 @@ import { redirect } from "next/navigation"
 import Link from "next/link"
 
 import { DashboardShell } from "@/components/layout/dashboard-shell"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { getEmployeeManagementAccess } from "@/lib/supabase/employee-admin"
@@ -10,14 +11,15 @@ import { createServiceClient } from "@/lib/supabase/service"
 import { EmployeeRowActions } from "@/features/employees/employee-row-actions"
 import { EmployeePasswordFields } from "@/features/employees/employee-password-fields"
 import { EmployeeFormActions } from "@/features/employees/employee-form-actions"
-import { EmployeeTrashDelete } from "@/features/employees/employee-trash-delete"
-import { createEmployee, restoreEmployeeFromTrash, updateEmployee } from "@/app/employees/actions"
+import { EmployeeTrashActions } from "@/features/employees/employee-trash-actions"
+import { createEmployee, updateEmployee } from "@/app/employees/actions"
 import { decidePasswordChangeRequest } from "@/app/profile/password-actions"
 
 type EmployeeRow = {
   id: string
   email: string
   display_name: string
+  avatar_url: string | null
   job_title: string | null
   status: "invited" | "active" | "inactive"
   created_at: string
@@ -31,7 +33,7 @@ type PasswordRequestRow = {
   user_id: string
   request_note: string | null
   requested_at: string
-  employee: { display_name: string; email: string } | null
+  employee: { display_name: string; email: string; avatar_url: string | null } | null
 }
 
 const notices: Record<string, string> = {
@@ -76,6 +78,14 @@ function employeeRole(employee: EmployeeRow) {
   return employee.role ?? { code: "account_manager", name: "Employee" }
 }
 
+function EmployeeAvatar({ name, src }: { name: string; src: string | null }) {
+  const initials = name.trim().split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase() || "?"
+  return <Avatar size="lg" aria-hidden="true">
+    <AvatarImage src={src ?? undefined} alt="" loading="lazy" />
+    <AvatarFallback className="bg-secondary/35 text-xs font-semibold text-foreground">{initials}</AvatarFallback>
+  </Avatar>
+}
+
 const inputClass = "h-9 min-w-0 rounded-md border border-input bg-background px-2.5 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
 
 export default async function EmployeesPage({ searchParams }: { searchParams: Promise<{ notice?: string | string[]; view?: string }> }) {
@@ -99,14 +109,14 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
   if (view !== "password-requests") {
     const supabase = await createClient()
     let { data, error } = await supabase.from("profiles")
-      .select("id, email, display_name, job_title, status, created_at, deletion_requested_at, purge_after_at, purged_at")
+      .select("id, email, display_name, avatar_url, job_title, status, created_at, deletion_requested_at, purge_after_at, purged_at")
       .eq("organization_id", viewer.organizationId).order("display_name")
     if (error && isMissingTrashColumns(error)) {
       // Keep the core roster usable when application code is deployed before
       // the optional account-trash migration. Other query failures stay visible.
       trashSchemaReady = false
       const legacyResult = await supabase.from("profiles")
-        .select("id, email, display_name, job_title, status, created_at")
+        .select("id, email, display_name, avatar_url, job_title, status, created_at")
         .eq("organization_id", viewer.organizationId).order("display_name")
       data = legacyResult.data?.map((employee) => ({
         ...employee,
@@ -160,7 +170,7 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
         const requests = result.data ?? []
         const employeeIds = [...new Set(requests.map(({ user_id }) => user_id))]
         const employeesResult = employeeIds.length
-          ? await service.from("profiles").select("id,display_name,email")
+          ? await service.from("profiles").select("id,display_name,email,avatar_url")
               .eq("organization_id", viewer.organizationId).in("id", employeeIds)
           : { data: [], error: null }
         if (employeesResult.error) passwordRequestsReady = false
@@ -201,7 +211,7 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
               : <div className="divide-y">{passwordRequests.map((request) => {
                 const employee = request.employee
                 return <article key={request.id} className="grid gap-3 p-4 sm:grid-cols-[minmax(180px,1fr)_minmax(220px,2fr)_auto] sm:items-center">
-                  <div className="min-w-0"><p className="truncate text-xs font-semibold">{employee?.display_name ?? "Employee"}</p><p className="truncate text-[11px] text-muted-foreground">{employee?.email ?? "Account"} · {new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(request.requested_at))}</p></div>
+                  <div className="flex min-w-0 items-center gap-3"><EmployeeAvatar name={employee?.display_name ?? "Employee"} src={employee?.avatar_url ?? null} /><div className="min-w-0"><p className="truncate text-xs font-semibold">{employee?.display_name ?? "Employee"}</p><p className="truncate text-[11px] text-muted-foreground">{employee?.email ?? "Account"} · {new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(request.requested_at))}</p></div></div>
                   <p className="text-xs text-muted-foreground">{request.request_note || "No reason provided."}</p>
                   <form action={decidePasswordChangeRequest} className="flex flex-wrap items-center gap-2">
                     <input type="hidden" name="requestId" value={request.id} />
@@ -251,20 +261,22 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
                 const protectedAdmin = role.code === "administrator"
                 if (view === "trash") return (
                   <article key={employee.id} className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="min-w-0"><p className="truncate text-xs font-semibold">{employee.display_name}</p><p className="truncate text-[11px] text-muted-foreground">{employee.email} · {role.name}</p><p className="mt-1 text-[11px] text-amber-800 dark:text-amber-300">Scheduled for permanent removal {employee.purge_after_at ? new Date(employee.purge_after_at).toLocaleDateString("en-US", { dateStyle: "medium", timeZone: "UTC" }) : "after 30 days"}</p></div>
-                    <div className="flex flex-wrap items-center gap-2">{isRestorePeriodExpired(employee.purge_after_at)
-                      ? <span className="text-xs text-muted-foreground">Restore period expired · purge pending</span>
-                      : <form action={restoreEmployeeFromTrash}><input type="hidden" name="employeeId" value={employee.id} /><Button type="submit" size="sm" variant="outline">Restore account</Button></form>}
-                      {isAdministrator && !protectedAdmin && employee.id !== viewer.actorId && <EmployeeTrashDelete employeeId={employee.id} employeeName={employee.display_name} employeeEmail={employee.email} />}
+                    <div className="flex min-w-0 items-center gap-3"><EmployeeAvatar name={employee.display_name} src={employee.avatar_url} /><div className="min-w-0"><p className="truncate text-xs font-semibold">{employee.display_name}</p><p className="truncate text-[11px] text-muted-foreground">{employee.email} · {role.name}</p><p className="mt-1 text-[11px] text-amber-800 dark:text-amber-300">Scheduled for permanent removal {employee.purge_after_at ? new Date(employee.purge_after_at).toLocaleDateString("en-US", { dateStyle: "medium", timeZone: "UTC" }) : "after 30 days"}</p></div></div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {isRestorePeriodExpired(employee.purge_after_at) && <span className="text-xs text-muted-foreground">Restore period expired · purge pending</span>}
+                      <EmployeeTrashActions employeeId={employee.id} employeeName={employee.display_name} employeeEmail={employee.email} canRestore={!isRestorePeriodExpired(employee.purge_after_at)} canDelete={isAdministrator && !protectedAdmin && employee.id !== viewer.actorId} />
                     </div>
                   </article>
                 )
                 return (
                   <article key={employee.id} className="grid gap-3 px-4 py-3 lg:grid-cols-[minmax(180px,1fr)_minmax(380px,2fr)_auto] lg:items-center">
-                    <div className="min-w-0">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <EmployeeAvatar name={employee.display_name} src={employee.avatar_url} />
+                      <div className="min-w-0">
                       <p className="truncate text-xs font-semibold">{employee.display_name}</p>
                       <p className="truncate text-[11px] text-muted-foreground">{employee.email}</p>
                       <p className="mt-1 text-[10px] text-muted-foreground">{employee.job_title || role.name}</p>
+                      </div>
                     </div>
                     {editor && !protectedAdmin ? (
                       <form id={`employee-update-${employee.id}`} action={updateEmployee} className="grid gap-2 sm:grid-cols-[1fr_1fr_150px]">

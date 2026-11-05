@@ -1,10 +1,11 @@
 "use client"
 
 import { useEffect, useRef, useState, useTransition, type PointerEvent } from "react"
-import { ImagePlus, LoaderCircle, Upload, X, ZoomIn } from "lucide-react"
+import { LoaderCircle, Upload, X, ZoomIn } from "lucide-react"
 
-import { uploadProfilePhoto } from "@/app/profile/actions"
+import { removeOwnProfilePhoto, uploadProfilePhoto } from "@/app/profile/actions"
 import { Button } from "@/components/ui/button"
+import styles from "@/features/profile/profile.module.css"
 
 const allowedTypes = new Set(["image/jpeg", "image/png", "image/webp"])
 const maximumBytes = 5 * 1024 * 1024
@@ -20,7 +21,7 @@ type CropView = {
   zoom: number
 }
 
-export function ProfilePhotoUploadForm() {
+export function ProfilePhotoUploadForm({ hasPhoto = false }: { hasPhoto?: boolean }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const imageRef = useRef<HTMLImageElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
@@ -31,6 +32,7 @@ export function ProfilePhotoUploadForm() {
   const [selectionError, setSelectionError] = useState("")
   const [crop, setCrop] = useState<CropView>({ viewport: 0, scale: 0, width: 0, height: 0, left: 0, top: 0, zoom: 1 })
   const [pending, startTransition] = useTransition()
+  const [removing, setRemoving] = useState(false)
 
   useEffect(() => {
     const dialog = dialogRef.current
@@ -133,6 +135,7 @@ export function ProfilePhotoUploadForm() {
       <input
         ref={inputRef}
         className="sr-only"
+        tabIndex={-1}
         type="file"
         accept="image/jpeg,image/png,image/webp"
         aria-label="Choose a profile picture"
@@ -141,17 +144,22 @@ export function ProfilePhotoUploadForm() {
           event.currentTarget.value = ""
         }}
       />
-      <div className="flex min-w-0 flex-col gap-2.5 sm:flex-row sm:items-center">
-        <button
+      <div className={styles.photoActions}>
+        <Button
           type="button"
-          className="flex min-w-0 flex-1 items-center gap-3 rounded-lg border border-dashed border-primary/30 bg-background/65 px-3 py-2.5 text-left transition hover:border-primary/55 hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          variant="link"
+          className={styles.textButton}
+          disabled={pending}
           onClick={() => inputRef.current?.click()}
         >
-          <span className="grid size-9 shrink-0 place-items-center rounded-md bg-primary/10 text-primary"><ImagePlus className="size-4" /></span>
-          <span className="min-w-0"><span className="block text-xs font-semibold">Choose image</span><span className="block truncate text-[11px] text-muted-foreground">JPG, PNG, or WEBP · up to 5 MB</span></span>
-        </button>
-        {file && <span className="max-w-full truncate text-xs text-muted-foreground" title={file.name}>{file.name}</span>}
+          Change photo
+        </Button>
+        <Button type="button" variant="link" className={`${styles.textButton} ${styles.removeButton}`} disabled={!hasPhoto || pending} onClick={() => {
+          setRemoving(true)
+          startTransition(async () => { try { await removeOwnProfilePhoto() } finally { setRemoving(false) } })
+        }}>{removing && pending ? "Removing…" : "Remove"}</Button>
       </div>
+      <p className={styles.hint}>JPG, PNG or WEBP · up to 5 MB</p>
       {selectionError && <p role="alert" className="mt-1.5 text-xs text-destructive">{selectionError}</p>}
 
       <dialog
@@ -160,7 +168,7 @@ export function ProfilePhotoUploadForm() {
         aria-describedby="profile-photo-dialog-description"
         onCancel={(event) => { event.preventDefault(); closeCrop() }}
         onClose={() => { if (previewUrl) closeCrop() }}
-        className="m-auto w-[min(92vw,28rem)] max-w-none rounded-xl border border-border bg-card p-0 text-card-foreground shadow-2xl backdrop:bg-black/60"
+        className={`${styles.photoDialog} m-auto w-[min(92vw,28rem)] max-w-none rounded-xl border border-border p-0 text-card-foreground shadow-2xl backdrop:bg-black/60`}
       >
         {previewUrl && <div className="p-4 sm:p-5">
           <div className="flex items-start justify-between gap-3">
@@ -193,10 +201,10 @@ export function ProfilePhotoUploadForm() {
             </div>
           </div>
 
-          <label className="mx-auto mt-4 flex w-full max-w-[18rem] items-center gap-3 text-xs text-muted-foreground">
+          <label htmlFor="profile-photo-zoom" className="mx-auto mt-4 flex w-full max-w-[18rem] items-center gap-3 text-xs text-muted-foreground">
             <ZoomIn className="size-4 shrink-0" />
             <span className="sr-only">Zoom profile picture</span>
-            <input className="w-full accent-primary" type="range" min="1" max="3" step="0.01" value={crop.zoom} onChange={(event) => updateZoom(Number(event.currentTarget.value))} aria-label="Zoom profile picture" />
+            <input id="profile-photo-zoom" className="w-full accent-primary" type="range" min="1" max="3" step="0.01" value={crop.zoom} onChange={(event) => updateZoom(Number(event.currentTarget.value))} aria-label="Zoom profile picture" />
           </label>
           {selectionError && <p role="alert" className="mt-3 text-xs text-destructive">{selectionError}</p>}
           <div className="mt-5 flex justify-end gap-2 border-t border-border pt-4">

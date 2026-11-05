@@ -254,6 +254,7 @@ export function NotificationBell({
     if (!href) return
     const target = new URL(href, window.location.href)
     if (target.origin !== window.location.origin) return
+    if (target.searchParams.get("assistant") === "reports") window.dispatchEvent(new Event("jota:open-report-inbox"))
     if (target.pathname !== window.location.pathname || target.search !== window.location.search) onNavigate?.()
     router.push(`${target.pathname}${target.search}${target.hash}`)
   }
