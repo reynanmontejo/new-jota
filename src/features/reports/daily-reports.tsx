@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { ArrowUpRight, Check, Clock3, Copy, Eye, LoaderCircle, MoreHorizontal, Plus, RefreshCw, Send, ListPlus } from "lucide-react"
+import { ArrowUpRight, Check, Clock3, Copy, Eye, History, LoaderCircle, MoreHorizontal, Pencil, Plus, RefreshCw, Send, ListPlus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -21,6 +21,7 @@ export function DailyReports(props: Props) {
   const [tab, setTab] = useState<"own" | "history" | "team">(search.get("view") === "team" && props.canReceive ? "team" : "own")
   const draft = useReportDraft(date, `${props.organizationId}:${props.userId}`)
   const [preview, setPreview] = useState(false), [suggestionsOpen, setSuggestionsOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
   const [suggestions, setSuggestions] = useState<ActivitySuggestion[]>([])
   const [suggestionsLoading, setSuggestionsLoading] = useState(false)
   const [selected, setSelected] = useState<ReportVersion | null>(null), [versionOpen, setVersionOpen] = useState(false)
@@ -32,6 +33,7 @@ export function DailyReports(props: Props) {
   const entries = draft.draft.entries, workspace = draft.workspace
   const locked = workspace?.report?.draft_open === false
   const disabled = busy || draft.loading || Boolean(draft.recovery) || locked
+  const recipientName = workspace?.supervisors.find(person => person.id === workspace.report?.recipient_id)?.display_name
   const warnings = overlappingEntries(entries)
   const calendarZone = workspace?.calendarTimezone || workspace?.timezone || "Asia/Manila"
   const availableToday = dateLimit?.zone === calendarZone && dateLimit.today > (workspace?.today || "") ? dateLimit.today : workspace?.today || ""
@@ -97,31 +99,46 @@ export function DailyReports(props: Props) {
     {(error || draft.error) && <div role="alert" className={styles.notice} data-error="true">{error || draft.error} {draft.status === "error" && <Button variant="outline" size="sm" onClick={() => void draft.flush()}>Retry save</Button>} <Button variant="ghost" size="sm" onClick={() => void copy(reportText(props.name, workspace?.date || date, workspace?.timezone || "", entries))}><Copy />Copy current work</Button> <Button variant="ghost" size="sm" onClick={() => setConfirmReload(true)}>Reload saved</Button></div>}
     {confirmReload && <div className={styles.notice}>Reload the saved report? Unsaved changes may be replaced.<div className={styles.actions}><Button variant="outline" onClick={() => setConfirmReload(false)}>Keep editing</Button><Button onClick={() => { setConfirmReload(false); draft.clearRecovery(); void draft.reload() }}>Reload saved</Button></div></div>}
     {notice && <p role="status" className={styles.muted}>{notice}</p>}
-    {tab === "own" && <section id="reports-own" role="tabpanel" aria-labelledby="reports-tab-own">
+    {tab === "own" && <section id="reports-own" className={styles.editor} role="tabpanel" aria-labelledby="reports-tab-own">
       {draft.loading ? <div className={styles.loading} role="status"><LoaderCircle className="size-4 animate-spin" />Loading report…</div> : workspace && <>
         {draft.recovery && <div className={styles.notice}>Unsaved work was recovered from this tab.<div className={styles.actions}><Button disabled={draft.recovery.revision !== (workspace.report?.revision ?? 0) || locked} onClick={draft.restore}>Restore</Button><Button variant="outline" onClick={() => void copy(reportText(props.name, workspace.date, workspace.timezone, draft.recovery!.draft.entries))}>Copy recovered work</Button><Button variant="ghost" onClick={draft.clearRecovery}>Discard recovery</Button></div>{draft.recovery.revision !== (workspace.report?.revision ?? 0) && <p>The saved report has changed. Copy the recovered work before discarding it.</p>}</div>}
         <div className={styles.card}>
           <div className={styles.toolbar}><div className={styles.identity}><Avatar><AvatarFallback>{initials}</AvatarFallback></Avatar><div><strong>{props.name}</strong><small>{props.jobTitle}</small></div></div>
-            <div className={styles.date}><label className="sr-only" htmlFor="report-date">Report date</label><input id="report-date" type="date" value={workspace.date} max={workspace.date > availableToday ? workspace.date : availableToday} disabled={busy || draft.status === "saving" || Boolean(draft.recovery)} onFocus={() => setDateLimit({ zone: calendarZone, today: reportDate(calendarZone) })} onChange={e => void switchDate(e.target.value)} /><span>{workspace.timezone}</span></div>
-            <div className={styles.actions}>{workspace.report?.latest_version ? <Badge variant="outline">{locked ? workspace.versions[0]?.checked_at ? "Checked" : "Submitted" : "Correction draft"}</Badge> : <Badge variant="outline">Draft</Badge>}
-              {!locked && <Button variant="outline" disabled={disabled || entries.length >= 100} onClick={() => void showSuggestions()}><ListPlus />Add from Jota</Button>}</div></div>
+            <div className={styles.reportControls}>
+              <div className={styles.date}><label className="sr-only" htmlFor="report-date">Report date</label><input id="report-date" type="date" value={workspace.date} max={workspace.date > availableToday ? workspace.date : availableToday} disabled={busy || draft.status === "saving" || Boolean(draft.recovery)} onFocus={() => setDateLimit({ zone: calendarZone, today: reportDate(calendarZone) })} onChange={e => void switchDate(e.target.value)} /></div>
+              {locked ? <Badge variant="outline" className={workspace.versions[0]?.checked_at ? styles.checkBadge : undefined} data-checked={Boolean(workspace.versions[0]?.checked_at)}>{workspace.versions[0]?.checked_at && <Check aria-hidden="true" />}{workspace.versions[0]?.checked_at ? "Checked" : "Submitted"}</Badge> : <Badge variant="outline">{workspace.report?.latest_version ? "Correction draft" : "Draft"}</Badge>}
+              <DropdownMenu><DropdownMenuTrigger render={<Button variant="ghost" size="icon" className={styles.reportMenuButton} disabled={busy || Boolean(draft.recovery)} aria-label="Report actions" />}><MoreHorizontal /></DropdownMenuTrigger><DropdownMenuContent align="end" className="min-w-48">
+                <DropdownMenuItem onClick={() => void copy(reportText(props.name, workspace.date, workspace.timezone, entries))}><Copy />Copy report</DropdownMenuItem>
+                {locked && <DropdownMenuItem onClick={() => void correct()}><Pencil />Create correction</DropdownMenuItem>}
+                <DropdownMenuItem disabled={!workspace.report || !workspace.versions.length} onClick={() => setHistoryOpen(true)}><History />Version history</DropdownMenuItem>
+              </DropdownMenuContent></DropdownMenu>
+            </div></div>
           <div className={`${styles.grid} ${styles.columns}`} aria-hidden="true"><span>Activity</span><span>Start</span><span>End</span><span>Progress</span><span>Remarks</span><span /></div>
           {!entries.length && <p className={styles.empty}>No activities yet.</p>}
           {entries.map((entry, index) => <div className={`${styles.grid} ${styles.row}`} key={entry.id} role="group" aria-label={`Activity ${index + 1}`}>
-            <label className={`${styles.field} ${styles.activity}`}><span>Activity</span><textarea aria-label={`Activity ${index + 1} description`} rows={1} maxLength={500} placeholder="e.g. Revised campaign graphics" value={entry.activity} disabled={disabled} onChange={e => updateEntry(entry.id, { activity: e.target.value })} /></label>
+            <label className={`${styles.field} ${styles.activity}`}><span>Activity</span><textarea aria-label={`Activity ${index + 1} description`} rows={1} maxLength={500} placeholder="Activity…" value={entry.activity} disabled={disabled} onChange={e => updateEntry(entry.id, { activity: e.target.value })} /></label>
             <label className={styles.field}><span>Start</span><input aria-label={`Activity ${index + 1} start`} type="time" value={entry.start} disabled={disabled} onChange={e => updateEntry(entry.id, { start: e.target.value })} /></label>
             <div><label className={styles.field}><span>End</span><input aria-label={`Activity ${index + 1} end`} type="time" value={entry.end} disabled={disabled} onChange={e => updateEntry(entry.id, { end: e.target.value })} /></label>{(entry.nextDay || Boolean(entry.start && entry.end && entry.end <= entry.start)) && <label className={styles.nextDay}><input type="checkbox" checked={entry.nextDay} disabled={disabled} onChange={e => updateEntry(entry.id, { nextDay: e.target.checked })} aria-label={`Activity ${index + 1} ends next day`} />Ends next day</label>}</div>
             <label className={`${styles.field} ${styles.progressField}`}><span>Progress</span><div className={styles.progress}><input aria-label={`Activity ${index + 1} progress`} type="number" min={0} max={100} step={1} placeholder="0-100" title="Progress at the end of this work session" value={entry.progress ?? ""} disabled={disabled} onChange={e => updateEntry(entry.id, { progress: e.target.value === "" ? null : Math.min(100, Math.max(0, Math.round(Number(e.target.value)))) })} />%</div><div aria-hidden="true" className={styles.bar} data-complete={entry.progress === 100}><i style={{ width: `${entry.progress ?? 0}%` }} /></div></label>
-            <label className={`${styles.field} ${styles.remarks}`}><span>Remarks</span><textarea aria-label={`Activity ${index + 1} remarks`} rows={1} placeholder="Notes or blockers (optional)" value={entry.remarks} disabled={disabled} maxLength={1000} onChange={e => updateEntry(entry.id, { remarks: e.target.value })} /></label>
+            <label className={`${styles.field} ${styles.remarks}`}><span>Remarks</span><textarea aria-label={`Activity ${index + 1} remarks`} rows={1} placeholder="Optional remarks" value={entry.remarks} disabled={disabled} maxLength={1000} onChange={e => updateEntry(entry.id, { remarks: e.target.value })} /></label>
             <div className={styles.rowActions}><DropdownMenu><DropdownMenuTrigger render={<Button variant="ghost" size="icon" disabled={disabled} aria-label={`Activity ${index + 1} actions`} />}><MoreHorizontal /></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem disabled={entries.length >= 100} onClick={() => addEntry({ ...entry, id: crypto.randomUUID(), sourceId: null })}>Duplicate activity</DropdownMenuItem><DropdownMenuItem variant="destructive" onClick={() => { submitRequest.current = null; draft.update({ ...draft.draft, entries: entries.filter(e => e.id !== entry.id) }) }}>Remove activity</DropdownMenuItem></DropdownMenuContent></DropdownMenu></div>
           </div>)}
-          {!locked && <div className={styles.add}><Button variant="outline" disabled={disabled || entries.length >= 100} onClick={() => addEntry()}><Plus />Add activity</Button></div>}
+          {!locked && <div className={styles.add}><Button variant="outline" disabled={disabled || entries.length >= 100} onClick={() => addEntry()}><Plus />Add activity</Button><Button variant="ghost" disabled={disabled || entries.length >= 100} onClick={() => void showSuggestions()}><ListPlus />Add from Jota</Button></div>}
+          <footer className={styles.footer}>
+            {locked ? <>
+              <span className={styles.muted}>{recipientName ? `Sent to ${recipientName}` : "Submitted report"}</span>
+              {workspace.versions[0]?.checked_at && <span className={styles.muted}>Checked at {new Date(workspace.versions[0].checked_at).toLocaleTimeString("en", { timeZone: workspace.timezone, hour: "numeric", minute: "2-digit" })}</span>}
+            </> : <>
+              <span className={styles.muted} role="status" aria-live="polite">{draft.status === "saving" ? "Saving…" : draft.status === "unsaved" ? "Unsaved changes" : draft.status === "error" ? "Not saved" : "Saved"}</span>
+              <div className={styles.actions}><label className="sr-only" htmlFor="report-supervisor">Send to supervisor</label><select id="report-supervisor" value={draft.draft.recipient || ""} disabled={disabled} onChange={e => { submitRequest.current = null; draft.update({ ...draft.draft, recipient: e.target.value || null }) }}><option value="">Choose supervisor</option>{draft.draft.recipient && !workspace.supervisors.some(p => p.id === draft.draft.recipient) && <option value={draft.draft.recipient}>Previous supervisor unavailable</option>}{workspace.supervisors.map(person => <option key={person.id} value={person.id}>{person.display_name}</option>)}</select>
+                <Button disabled={disabled || !entries.length} onClick={() => void showPreview()}><Eye />Preview & submit</Button></div>
+            </>}
+          </footer>
         </div>
-        <div className={`${styles.card} ${styles.footer}`}><span className={styles.muted} role="status" aria-live="polite">{draft.status === "saving" ? "Saving…" : draft.status === "unsaved" ? "Unsaved changes" : draft.status === "error" ? "Not saved" : "Saved"}</span>
-          <div className={styles.actions}>{!locked && <><label className="sr-only" htmlFor="report-supervisor">Send to supervisor</label><select id="report-supervisor" value={draft.draft.recipient || ""} disabled={disabled} onChange={e => { submitRequest.current = null; draft.update({ ...draft.draft, recipient: e.target.value || null }) }}><option value="">Choose supervisor</option>{draft.draft.recipient && !workspace.supervisors.some(p => p.id === draft.draft.recipient) && <option value={draft.draft.recipient}>Previous supervisor unavailable</option>}{workspace.supervisors.map(person => <option key={person.id} value={person.id}>{person.display_name}</option>)}</select></>}
-            <Button variant="outline" disabled={busy || Boolean(draft.recovery)} onClick={() => void copy(reportText(props.name, workspace.date, workspace.timezone, entries))}><Copy />Copy</Button>
-            {locked ? <Button disabled={busy} onClick={() => void correct()}>Create correction</Button> : <Button disabled={disabled || !entries.length} onClick={() => void showPreview()}><Eye />Preview & submit</Button>}</div></div>
-        {workspace.report && workspace.versions.length > 0 && <VersionHistory key={`${workspace.report.id}:${workspace.report.latest_version}`} reportId={workspace.report.id} initial={workspace.versions} timezone={workspace.timezone} onOpen={id => void openVersion(id)} />}
+        <Sheet open={historyOpen} onOpenChange={setHistoryOpen}><SheetContent className={styles.previewSheet}>
+          <header className={styles.previewHeader}><SheetTitle>Version history</SheetTitle><SheetDescription>Submitted versions for {workspace.date}.</SheetDescription></header>
+          <div className={styles.previewBody}>{workspace.report && workspace.versions.length > 0 && <VersionHistory key={`${workspace.report.id}:${workspace.report.latest_version}`} reportId={workspace.report.id} initial={workspace.versions} timezone={workspace.timezone} onOpen={id => { setHistoryOpen(false); void openVersion(id) }} />}</div>
+        </SheetContent></Sheet>
       </>}
     </section>}
     {tab !== "own" && <ReportList key={tab} refreshKey={refresh} kind={tab} onOpen={id => void openVersion(id)} onDate={day => { void (async () => { if (await draft.flush()) { setDate(day); setTab("own") } })() }} />}

@@ -95,8 +95,8 @@ describe("daily report editor", () => {
     })
     render(<DailyReports userId="employee" organizationId="org" name="Mia" jobTitle="Account Manager" canReceive={false} />)
     fireEvent.click(await screen.findByRole("button", { name: "Add activity" }))
-    expect(screen.getByLabelText("Activity 1 description")).toHaveAttribute("placeholder", "e.g. Revised campaign graphics")
-    expect(screen.getByLabelText("Activity 1 remarks")).toHaveAttribute("placeholder", "Notes or blockers (optional)")
+    expect(screen.getByLabelText("Activity 1 description")).toHaveAttribute("placeholder", "Activity…")
+    expect(screen.getByLabelText("Activity 1 remarks")).toHaveAttribute("placeholder", "Optional remarks")
     expect(screen.getByLabelText("Activity 1 progress")).toHaveAttribute("placeholder", "0-100")
     fireEvent.change(screen.getByLabelText("Activity 1 description"), { target: { value: "Client meeting" } })
     fireEvent.click(screen.getByRole("button", { name: "Preview & submit" }))
@@ -106,13 +106,48 @@ describe("daily report editor", () => {
     expect(actions.every(action => action === "save")).toBe(true)
     expect(screen.queryByRole("tab", { name: "Team reports" })).not.toBeInTheDocument()
   })
-  it("makes submitted rows read-only and offers an explicit correction", async () => {
+  it("keeps submitted rows read-only and exposes correction only through report actions", async () => {
     const report: WorkReport = { id: "report", report_date: workspace.date, timezone: workspace.timezone, entries: [{ id: supervisor, activity: "Submitted graphics", start: "09:00", end: "10:00", progress: 100, remarks: "", nextDay: false }], recipient_id: supervisor, revision: 2, latest_version: 1, draft_open: false, updated_at: "now" }
-    vi.mocked(fetch).mockResolvedValue(response({ ...workspace, report }))
+    let current = report
+    vi.mocked(fetch).mockImplementation(async (_url, init) => {
+      if (init?.body) {
+        expect(JSON.parse(String(init.body))).toEqual({ action: "correct", reportId: report.id, revision: report.revision })
+        current = { ...report, draft_open: true, revision: 3 }
+        return response({ result: current })
+      }
+      return response({ ...workspace, report: current })
+    })
     render(<DailyReports userId="employee" organizationId="org" name="Mia" jobTitle={null} canReceive={false} />)
     expect(await screen.findByLabelText("Activity 1 description")).toBeDisabled()
-    expect(screen.getByRole("button", { name: "Create correction" })).toBeEnabled()
+    expect(screen.queryByRole("button", { name: "Create correction" })).not.toBeInTheDocument()
+    expect(screen.queryByText("Saved")).not.toBeInTheDocument()
+    expect(screen.queryByText("Asia/Manila")).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Add activity" })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Report actions" }))
+    const correction = await screen.findByRole("menuitem", { name: "Create correction" })
+    expect(screen.getByRole("menuitem", { name: "Copy report" })).toBeInTheDocument()
+    expect(vi.mocked(fetch).mock.calls.every(([, init]) => !init?.body)).toBe(true)
+    fireEvent.click(correction)
+    await waitFor(() => expect(screen.getByLabelText("Activity 1 description")).toBeEnabled())
+    expect(screen.getByRole("button", { name: "Preview & submit" })).toBeEnabled()
+  })
+  it("opens preserved version history only from the report menu", async () => {
+    const version: ReportVersion = { id: "v1", report_id: "report", author_id: "employee", author_name: "Mia", job_title: null, report_date: workspace.date, timezone: workspace.timezone, version_number: 1, entries: [{ id: supervisor, activity: "Prepared graphics", start: "09:00", end: "10:00", progress: 100, remarks: "", nextDay: false }], recipient_id: supervisor, submitted_at: "2026-11-05T02:00:00Z", checked_at: "2026-11-05T03:00:00Z", checked_by: supervisor, is_latest: true }
+    const report: WorkReport = { id: "report", report_date: workspace.date, timezone: workspace.timezone, entries: version.entries, recipient_id: supervisor, revision: 2, latest_version: 1, draft_open: false, updated_at: "now" }
+    vi.mocked(fetch).mockImplementation(async url => String(url).includes("kind=version") ? response(version) : response({ ...workspace, report, versions: [version] }))
+    render(<DailyReports userId="employee" organizationId="org" name="Mia" jobTitle={null} canReceive={false} />)
+    await screen.findByLabelText("Activity 1 description")
+    expect(screen.queryByRole("table", { name: "Submitted versions" })).not.toBeInTheDocument()
+    expect(screen.getByText("Checked")).toBeInTheDocument()
+    expect(screen.getByText("Sent to Supervisor A")).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Report actions" }))
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Version history" }))
+    const history = await screen.findByRole("dialog", { name: "Version history" })
+    expect(within(history).getByRole("table", { name: "Submitted versions" })).toBeInTheDocument()
+    fireEvent.click(within(history).getByRole("button", { name: "View" }))
+    const detail = await screen.findByRole("dialog", { name: "Mia" })
+    expect(within(detail).getByText("Prepared graphics")).toBeInTheDocument()
+    expect(vi.mocked(fetch).mock.calls.every(([, init]) => !init?.body)).toBe(true)
   })
   it("lets the author select a supervisor in preview and submits only after an explicit click", async () => {
     const report: WorkReport = { id: "a0000000-0000-4000-8000-000000000001", report_date: workspace.date, timezone: workspace.timezone, entries: [{ id: "c0000000-0000-4000-8000-000000000001", activity: "Revised campaign graphics", start: "13:22", end: "14:22", progress: 23, remarks: "Waiting for feedback", nextDay: false }], recipient_id: null, revision: 1, latest_version: 0, draft_open: true, updated_at: "now" }
