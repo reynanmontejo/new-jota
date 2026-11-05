@@ -27,6 +27,7 @@ import {
 import { Separator } from "@/components/ui/separator"
 import { cn } from "@/lib/utils"
 import { createClient as createSupabaseClient } from "@/lib/supabase/client"
+import { clearReportRecovery } from "@/features/reports/report-recovery"
 
 const NewTaskSheet = dynamic(() => import("@/features/tasks/new-task-sheet").then((module) => module.NewTaskSheet), {
   loading: () => <div role="status" className="sr-only">Opening task form</div>,
@@ -209,7 +210,7 @@ function DashboardShellContent({ children, compact = false }: DashboardShellProp
                       onClick={async () => {
                         const supabase = createSupabaseClient()
                         const { error } = await supabase.auth.signOut()
-                        if (!error) router.replace("/login")
+                        if (!error) { clearReportRecovery(); router.replace("/login") }
                       }}
                     >
                       Sign out

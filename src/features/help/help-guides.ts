@@ -23,6 +23,19 @@ export const recommendedHelpGuideSlugs = [
 
 export const helpGuides: HelpGuide[] = [
   {
+    slug: "daily-work-reports", title: "Create and check daily reports",
+    summary: "Record activities, confirm your work times, and send a daily report to your supervisor.",
+    section: "Everyone", audience: "Everyone", minutes: 3,
+    steps: [
+      { title: "Record your work", body: "Open Daily reports and choose the reporting date. New reports use your saved Profile time zone, with the workspace time zone as the fallback. Saved reports retain their original zone. Add activities with start and end times, progress and optional remarks. Progress describes that activity at the end of the work session. Drafts save automatically; wait for Saved. Use Ends next day for overnight work." },
+      { title: "Use recorded activity", body: "Add from Jota offers actions you performed. Select relevant suggestions, then enter actual work times and progress. An action timestamp is not a work duration. Add meetings and work outside Jota manually." },
+      { title: "Submit after checking", body: "Choose an eligible supervisor, open Preview & submit, check overlapping times if shown, and submit explicitly. Jota remembers the last eligible supervisor for new reports. Submitted reports are read-only. Create correction opens a new draft; resubmitting preserves previous versions. If you send a correction to a different supervisor, the previous supervisor retains their last received version." },
+      { title: "Check received reports", body: "Supervisors and administrators use Team reports to filter reports sent to them. Open a report and choose Mark checked after reviewing it. Opening alone does not mark it checked. A corrected submission requires a fresh check. Earlier versions remain readable with their check history and cannot be checked as the current version. Supervisors also create their own reports and use Copy for their external CEO handoff." },
+    ],
+    remember: "Reports do not change task status, client approval, content progress or publishing. Copy does not submit a report or confirm external delivery.",
+    actions: [{ label: "Open Daily reports", href: "/reports" }], related: ["task-board-basics", "profile-and-notifications"],
+  },
+  {
     slug: "how-jota-fits-together",
     title: "How Jota fits together",
     summary: "Learn what Clients, Campaigns, Content, Tasks, Reviews, and Publishing each mean.",
