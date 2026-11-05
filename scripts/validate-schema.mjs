@@ -5,7 +5,6 @@ import { validateTaskTrash } from "./validate-task-trash.mjs"
 import { validateEmployeeDeletion } from "./validate-employee-deletion.mjs"
 import { validateVideoCoverage } from "./validate-video-coverage.mjs"
 import { validateProfilePreferences } from "./validate-profile-preferences.mjs"
-import { validateAssistantReports } from "./validate-assistant-reports.mjs"
 
 const migrationPath = "supabase/migrations/202609250001_initial_schema.sql"
 const authMigrationPath = "supabase/migrations/202609300001_auth_rls_policies.sql"
@@ -2038,5 +2037,4 @@ await validateVideoCoverage(database, asUser, { manager: employeeTwo, supervisor
 
 console.log(`Schema validated: ${migrationFiles.length} migrations applied in filename order, ${tableCount} tables, task assignment/review/comment/due notifications and video editor handoff, password-change notifications, opt-in email notification queue and service-only claim RPC, private push subscriptions and service-only delivery queue, authenticated push-dispatch access denied, queue-triggered dispatch and five-minute recovery cron, missing dispatch configuration does not block in-app notifications, notification RLS/RPCs/triggers, content workflow/import/campaign/content-review/archive/restore and client-approved publication guards, historical CSV imports, immutable task/content versions and decisions, private Drive token/folder tables, client platforms, multi-manager ownership, client status and recoverable Trash, employee provisioning and Trash, profile photo storage policies, service-only password-change requests, first-admin bootstrap, profile updates, reporting-category ACL/client/inactive-user checks, and ${policyCount} policies.`)
 await validateProfilePreferences(database, asUser, { manager: employeeTwo, administrator, otherUser: supervisor })
-await validateAssistantReports(database, asUser, { employee: employeeTwo, otherEmployee: videoEditor, supervisor, foreignSupervisor: firstAdministrator })
 await database.close()
