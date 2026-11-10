@@ -3,6 +3,11 @@ import fs from "node:fs/promises"
 
 export async function validateClientDeletion(database, asUser, { administrator, manager, supervisor, foreignAdministrator }) {
   const sql = await fs.readFile("supabase/migrations/202611100001_client_trash_permanent_delete.sql", "utf8")
+  const repair = await fs.readFile("supabase/migrations/202611100002_restore_task_purge_prerequisite.sql", "utf8")
+  const original = await fs.readFile("supabase/migrations/202611040001_unified_task_trash_retention.sql", "utf8")
+  const canonicalHelpers = original.slice(original.indexOf("create or replace function private.purge_trashed_task"), original.indexOf("create or replace function public.workflow_manage_task_trash")).trim()
+  const repairedHelpers = repair.slice(repair.indexOf("create or replace function private.purge_trashed_task"), repair.indexOf("notify pgrst")).trim()
+  assert.equal(repairedHelpers.replace(/\r\n/g, "\n"), canonicalHelpers.replace(/\r\n/g, "\n"), "Repair drifted from the existing task cleanup implementation")
   await database.exec(sql)
   const org = (await database.query("select organization_id from public.profiles where id=$1", [administrator])).rows[0].organization_id
   const reject = async (fn, code) => {
@@ -44,6 +49,22 @@ export async function validateClientDeletion(database, asUser, { administrator, 
   await reject(() => database.query("delete from public.content_submission_version_files where attachment_id=$1", [file]), "P0001")
   await reject(() => database.query("delete from public.content_reviews where submission_version_id=$1", [history.version]), "P0001")
 
+  // Reproduce the live state: the public RPC exists, but its private helper
+  // was never installed. The failed call must not partly delete client work.
+  await database.exec("drop function private.purge_trashed_task(uuid,uuid,text)")
+  await reject(() => remove(administrator, client, name), "42883")
+  assert.equal((await database.query("select count(*)::int as n from public.submission_versions where id=$1", [version])).rows[0].n, 1)
+  assert.equal((await database.query("select client_handoff_version_id from public.content_items where id=$1", [content])).rows[0].client_handoff_version_id, history.version)
+  const snapshot = async () => (await database.query("select coalesce(jsonb_agg(jsonb_build_object('id',id,'deleted_at',deleted_at,'archived_at',archived_at,'trash_expires_at',trash_expires_at) order by id),'[]'::jsonb) as rows from public.tasks")).rows[0].rows
+  const beforeRepair = await snapshot()
+  const jobsBefore = (await database.query("select coalesce(jsonb_agg(to_jsonb(j) order by jobid),'[]'::jsonb) as jobs from cron.job j")).rows[0].jobs
+  await database.exec(repair)
+  await database.exec(repair)
+  assert.deepEqual(await snapshot(), beforeRepair, "Helper repair changed work or retention dates")
+  assert.deepEqual((await database.query("select coalesce(jsonb_agg(to_jsonb(j) order by jobid),'[]'::jsonb) as jobs from cron.job j")).rows[0].jobs, jobsBefore, "Helper repair changed scheduled jobs")
+  const rawAccess = (await database.query("select has_function_privilege('authenticated','private.purge_trashed_task(uuid,uuid,text)','EXECUTE') as browser,has_function_privilege('service_role','private.purge_trashed_task(uuid,uuid,text)','EXECUTE') as service")).rows[0]
+  assert.equal(rawAccess.browser, false); assert.equal(rawAccess.service, false)
+
   // Deliberately fail after dependent deletes. Every child and the confirmation
   // state must roll back, including the pending client handoff and file links.
   await database.exec("create table public.client_purge_test_hold(client_id uuid references public.clients(id) on delete restrict)")
@@ -72,5 +93,5 @@ export async function validateClientDeletion(database, asUser, { administrator, 
   assert.equal((await database.query("select count(*)::int as n from public.activity_logs where entity_id=$1 and action='CLIENT_PERMANENTLY_DELETED'", [client])).rows[0].n, 1)
   const acl = (await database.query("select has_function_privilege('anon','public.permanently_delete_client_from_trash(uuid,text)','execute') as anon, has_function_privilege('authenticated','private.guard_content_history_client_purge()','execute') as raw")).rows[0]
   assert.equal(acl.anon, false); assert.equal(acl.raw, false)
-  console.log("Client permanent deletion verified: administrator and tenant scope, typed name, Trash-only, immutable history, full linked purge, atomic failure rollback, unrelated-client preservation and idempotent retry/rollout.")
+  console.log("Client permanent deletion verified: administrator and tenant scope, typed name, Trash-only, immutable history, missing-helper reproduction and safe repair without retention/job changes, full linked purge, atomic failure rollback, unrelated-client preservation and idempotent retry/rollout.")
 }
