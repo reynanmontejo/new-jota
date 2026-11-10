@@ -20,6 +20,7 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
     : [null, null]
   const canCreate = Boolean(managementContext)
   const canManageTrash = Boolean(lifecyclePermissions?.canManageTrash)
+  const canPermanentlyDelete = Boolean(lifecyclePermissions?.canPermanentlyDelete)
   const initialView = canManageTrash && params.view === "trash" ? "trash" : "active"
   let clients: ClientDirectoryItem[]
   let trashedClients: TrashedClient[] = []
@@ -131,5 +132,5 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
     }
   }
 
-  return <DashboardShell><ClientDirectory clients={clients} recentFiles={recentFiles} trashedClients={trashedClients} canManageTrash={canManageTrash} canCreate={canCreate} notice={typeof params.notice === "string" ? params.notice : undefined} initialTab={initialTab} initialView={initialView} /></DashboardShell>
+  return <DashboardShell><ClientDirectory clients={clients} recentFiles={recentFiles} trashedClients={trashedClients} canManageTrash={canManageTrash} canPermanentlyDelete={canPermanentlyDelete} canCreate={canCreate} notice={typeof params.notice === "string" ? params.notice : undefined} initialTab={initialTab} initialView={initialView} /></DashboardShell>
 }

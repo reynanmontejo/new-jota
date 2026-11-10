@@ -8,7 +8,8 @@ import { ArrowUpRight, Download, Eye, FileText, Film, LoaderCircle, MoreHorizont
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { createClientRecord, restoreClientFromTrash } from "@/app/clients/actions"
+import { createClientRecord } from "@/app/clients/actions"
+import { ClientTrashActions } from "./client-trash-actions"
 import { CreateClientSubmitButton } from "@/features/clients/create-client-submit-button"
 import { getPreviewMimeType } from "@/lib/storage/preview-types"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -137,9 +138,13 @@ const noticeText: Record<string, string> = {
   forbidden: "You don’t have permission to add clients.",
 }
 
-export function ClientDirectory({ clients, recentFiles = [], trashedClients = [], canManageTrash = false, canCreate = false, notice, initialTab = "overview", initialView = "active" }: { clients: ClientDirectoryItem[]; recentFiles?: RecentClientFile[]; trashedClients?: TrashedClientItem[]; canManageTrash?: boolean; canCreate?: boolean; notice?: string; initialTab?: "overview" | "campaigns" | "files"; initialView?: "active" | "trash" }) {
+export function ClientDirectory({ clients, recentFiles = [], trashedClients = [], canManageTrash = false, canPermanentlyDelete = false, canCreate = false, notice, initialTab = "overview", initialView = "active" }: { clients: ClientDirectoryItem[]; recentFiles?: RecentClientFile[]; trashedClients?: TrashedClientItem[]; canManageTrash?: boolean; canPermanentlyDelete?: boolean; canCreate?: boolean; notice?: string; initialTab?: "overview" | "campaigns" | "files"; initialView?: "active" | "trash" }) {
   const [query, setQuery] = useState("")
   const [filter, setFilter] = useState<Filter>("all")
+  const [deletedClientIds, setDeletedClientIds] = useState<string[]>([])
+  const [clientNotice, setClientNotice] = useState("")
+  const remainingTrashedClients = trashedClients.filter(client => !deletedClientIds.includes(client.id))
+  const visibleTrashedClients = remainingTrashedClients.filter(client => `${client.name} ${client.description ?? ""}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
   const [showAllRecentFiles, setShowAllRecentFiles] = useState(false)
   const [previewFile, setPreviewFile] = useState<RecentClientFile | null>(null)
   const [visibleRecentFiles, setVisibleRecentFiles] = useState(recentFiles)
@@ -233,7 +238,7 @@ export function ClientDirectory({ clients, recentFiles = [], trashedClients = []
 
       <nav aria-label="Client views" className="mt-4 flex gap-1 border-b border-border/80">
         <Link href="/clients" aria-current={initialView === "active" ? "page" : undefined} className={`px-3 py-2 text-xs font-medium ${initialView === "active" ? "border-b-2 border-primary text-foreground" : "text-muted-foreground hover:text-foreground"}`}>Active clients</Link>
-        {canManageTrash && <Link href="/clients?view=trash" aria-current={initialView === "trash" ? "page" : undefined} className={`px-3 py-2 text-xs font-medium ${initialView === "trash" ? "border-b-2 border-primary text-foreground" : "text-muted-foreground hover:text-foreground"}`}>Trash <span className="ml-1 text-[10px] text-muted-foreground">{trashedClients.length}</span></Link>}
+        {canManageTrash && <Link href="/clients?view=trash" aria-current={initialView === "trash" ? "page" : undefined} className={`px-3 py-2 text-xs font-medium ${initialView === "trash" ? "border-b-2 border-primary text-foreground" : "text-muted-foreground hover:text-foreground"}`}>Trash <span className="ml-1 text-[10px] text-muted-foreground">{remainingTrashedClients.length}</span></Link>}
       </nav>
 
       {initialTab === "campaigns" && <p className="mt-4 rounded-md border border-primary/15 bg-primary/5 px-3 py-2.5 text-xs text-muted-foreground">Select a client to open its campaigns section. Some workspace sections may be unavailable until they are connected for your account.</p>}
@@ -263,15 +268,15 @@ export function ClientDirectory({ clients, recentFiles = [], trashedClients = []
         <p className="text-[11px] text-muted-foreground">{visibleClients.length} {visibleClients.length === 1 ? "client" : "clients"}</p>
       </div>}
 
+      {clientNotice && <p role="status" className="mt-4 text-xs text-muted-foreground">{clientNotice}</p>}
       {initialView === "trash" ? (
-        trashedClients.length === 0 ? (
-          <div className="mt-5 rounded-lg border border-dashed border-border bg-card/55 px-5 py-14 text-center"><h2 className="text-sm font-semibold">Trash is empty</h2><p className="mx-auto mt-1 max-w-sm text-xs leading-5 text-muted-foreground">Moved clients appear here. Their related history is kept, with no automatic permanent deletion.</p></div>
+        visibleTrashedClients.length === 0 ? (
+          <div className="mt-5 rounded-lg border border-dashed border-border bg-card/55 px-5 py-14 text-center"><h2 className="text-sm font-semibold">{remainingTrashedClients.length ? "No matching clients" : "Trash is empty"}</h2><p className="mx-auto mt-1 max-w-sm text-xs leading-5 text-muted-foreground">{remainingTrashedClients.length ? "Try another client name." : "Moved clients appear here. Their related history is kept until an administrator explicitly deletes the client."}</p></div>
         ) : (
           <ul className="mt-4 grid list-none gap-3 p-0 sm:grid-cols-2 xl:grid-cols-3">
-            {trashedClients.map((client) => <li key={client.id} className="rounded-lg border border-border bg-card/85 p-4">
-              <div className="flex items-start justify-between gap-3"><div className="min-w-0"><h2 className="truncate text-sm font-semibold">{client.name}</h2><p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{client.description || "Client workspace"}</p></div><Badge variant="outline" className="shrink-0 text-[10px]">In Trash</Badge></div>
-              <p className="mt-3 text-[10px] text-muted-foreground">Moved {new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(new Date(client.deleted_at))} · Previous status: {client.status}</p>
-              <form action={restoreClientFromTrash} className="mt-3 border-t border-border/70 pt-3"><input type="hidden" name="clientId" value={client.id} /><Button type="submit" size="sm" variant="outline">Restore client</Button></form>
+            {visibleTrashedClients.map((client) => <li key={client.id} className="rounded-xl border border-border bg-card/85 p-4 shadow-[0_8px_24px_-22px_rgb(78_58_36/55%)]">
+              <div className="flex items-start justify-between gap-2"><div className="min-w-0 pt-1"><h2 className="truncate text-sm font-semibold" title={client.name}>{client.name}</h2><p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{client.description || "Client workspace"}</p></div>{canManageTrash && <ClientTrashActions clientId={client.id} clientName={client.name} canDelete={canPermanentlyDelete} onDeleted={() => { setDeletedClientIds(ids => [...ids, client.id]); setClientNotice("Client and linked work permanently deleted from Jota.") }} />}</div>
+              <div className="mt-4 flex items-center justify-between gap-2 border-t border-border/60 pt-3"><p className="text-[10px] text-muted-foreground">Moved {new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(new Date(client.deleted_at))}<span className="mt-1 block capitalize">Previously {client.status}</span></p><Badge variant="outline" className="shrink-0 bg-muted/50 text-[10px] text-muted-foreground">In Trash</Badge></div>
             </li>)}
           </ul>
         )

@@ -27,6 +27,7 @@ export async function getClientAssignmentContext(): Promise<ClientManagementCont
 export type ClientLifecyclePermissions = {
   canManageStatus: boolean
   canManageTrash: boolean
+  canPermanentlyDelete: boolean
 }
 
 export async function getClientLifecyclePermissions(): Promise<ClientLifecyclePermissions | null> {
@@ -38,5 +39,5 @@ export async function getClientLifecyclePermissions(): Promise<ClientLifecyclePe
     .in("permission_code", ["clients.manage", "clients.trash"])
   if (permissionsError) return null
   const codes = new Set((permissions ?? []).map(({ permission_code }) => permission_code))
-  return { canManageStatus: codes.has("clients.manage") || codes.has("clients.trash"), canManageTrash: codes.has("clients.trash") }
+  return { canManageStatus: codes.has("clients.manage") || codes.has("clients.trash"), canManageTrash: codes.has("clients.trash"), canPermanentlyDelete: codes.has("clients.trash") && context.roles.some(role => role.code === "administrator") }
 }

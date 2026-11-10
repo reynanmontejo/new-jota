@@ -8,6 +8,7 @@ import { validateProfilePreferences } from "./validate-profile-preferences.mjs"
 import { validateDailyWorkReports } from "./validate-daily-work-reports.mjs"
 import { validateReportTimezones } from "./validate-report-timezones.mjs"
 import { validateReportReceivedHistory } from "./validate-report-received-history.mjs"
+import { validateClientDeletion } from "./validate-client-deletion.mjs"
 
 const migrationPath = "supabase/migrations/202609250001_initial_schema.sql"
 const authMigrationPath = "supabase/migrations/202609300001_auth_rls_policies.sql"
@@ -2043,4 +2044,5 @@ await validateProfilePreferences(database, asUser, { manager: employeeTwo, admin
 await validateDailyWorkReports(database, asUser, { employee: employeeTwo, otherEmployee: videoEditor, supervisor, foreignSupervisor: firstAdministrator })
 await validateReportTimezones(database, asUser, { employee: employeeTwo, supervisor })
 await validateReportReceivedHistory(database, asUser, { employee: employeeTwo, supervisor, administrator, outsider: videoEditor, foreignSupervisor: firstAdministrator })
+await validateClientDeletion(database, asUser, { administrator, manager: employeeTwo, supervisor, foreignAdministrator: firstAdministrator })
 await database.close()

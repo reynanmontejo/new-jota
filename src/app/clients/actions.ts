@@ -175,3 +175,29 @@ export async function restoreClientFromTrash(formData: FormData) {
   revalidatePath("/", "layout")
   redirect("/clients?notice=client-restored")
 }
+
+export type ClientDeleteState = { error?: string; deleted?: boolean }
+export async function permanentlyDeleteClientFromTrash(_previous: ClientDeleteState, formData: FormData): Promise<ClientDeleteState> {
+  const permissions = await getClientLifecyclePermissions()
+  if (!permissions?.canPermanentlyDelete) return { error: "Only administrators can permanently delete clients." }
+  const parsed = z.object({ clientId: z.uuid(), confirmationName: z.string().trim().min(1).max(140) })
+    .safeParse({ clientId: field(formData, "clientId"), confirmationName: field(formData, "confirmationName") })
+  if (!parsed.success) return { error: "Type the client name to confirm permanent deletion." }
+  const supabase = await createClient()
+  const { error } = await supabase.rpc("permanently_delete_client_from_trash", {
+    p_client_id: parsed.data.clientId, p_confirmation_name: parsed.data.confirmationName,
+  })
+  if (error?.code === "PGRST202" || error?.code === "42883") return { error: "Client deletion is not enabled yet. Ask your administrator to apply the client Trash deletion migration." }
+  if (error?.code === "42501") return { error: "You no longer have permission to permanently delete this client." }
+  if (error?.code === "22023") return { error: "The name must match, and the client must still be in Trash. Refresh and check before retrying." }
+  if (error?.code === "P0002") return { error: "This client is no longer in Trash. Refresh the list." }
+  if (error?.code === "23503" || error?.code === "23001") return { error: "Some linked records are shared or still referenced. Nothing was deleted. Ask your administrator to review the linked work." }
+  if (error) return { error: "The client could not be deleted. Nothing was deleted; retry in a moment." }
+  revalidatePath("/clients")
+  revalidatePath("/tasks")
+  revalidatePath("/content")
+  revalidatePath("/calendar")
+  revalidatePath("/insights")
+  revalidatePath("/settings/storage")
+  return { deleted: true }
+}
